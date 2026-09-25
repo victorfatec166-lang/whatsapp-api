@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel da Marmitaria</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- Navegação e Estatísticas -->
+    <nav class="bg-red-600 text-white p-4 shadow-md flex justify-between items-center">
+        <div class="text-2xl font-bold"><i class="fa-solid fa-utensils mr-2"></i> Painel de Pedidos</div>
+        <div class="flex space-x-6 items-center">
+            <div class="bg-red-700 px-4 py-2 rounded-lg font-bold">
+                Receita Hoje: <span id="revenue-stat">R$ 0,00</span>
+            </div>
+            <button onclick="switchTab('kanban')" class="hover:text-red-200 font-semibold"><i class="fa-solid fa-list-check"></i> Kanban</button>
+            <button onclick="switchTab('menu')" class="hover:text-red-200 font-semibold"><i class="fa-solid fa-burger"></i> Cardápio</button>
+            <button onclick="switchTab('config')" class="hover:text-red-200 font-semibold"><i class="fa-solid fa-gear"></i> Configurações</button>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-6">
+        
+        <!-- ABA: KANBAN -->
+        <div id="tab-kanban" class="tab-content">
+            <div class="mb-4 flex justify-between items-center">
+                <input type="text" id="search-order" onkeyup="filterOrders()" placeholder="Buscar por cliente ou telefone..." class="p-2 border rounded w-1/3 shadow-sm">
+                <button onclick="loadOrders()" class="bg-blue-500 text-white px-4 py-2 rounded shadow hover:bg-blue-600"><i class="fa-solid fa-rotate-right"></i> Atualizar</button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <!-- Colunas do Kanban -->
+                <div class="bg-white p-4 rounded-lg shadow-md border-t-4 border-yellow-500">
+                    <h3 class="font-bold text-lg mb-3">Pendente</h3>
+                    <div id="col-PENDING" class="space-y-3"></div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow-md border-t-4 border-blue-500">
+                    <h3 class="font-bold text-lg mb-3">Em Preparo</h3>
+                    <div id="col-PREPARING" class="space-y-3"></div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow-md border-t-4 border-green-500">
+                    <h3 class="font-bold text-lg mb-3">Pronto / Saiu</h3>
+                    <div id="col-READY" class="space-y-3"></div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow-md border-t-4 border-gray-500">
+                    <h3 class="font-bold text-lg mb-3">Concluídos</h3>
+                    <div id="col-DELIVERED" class="space-y-3"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ABA: CARDÁPIO -->
+        <div id="tab-menu" class="tab-content hidden">
+            <div class="bg-white p-6 rounded-lg shadow-md max-w-2xl mx-auto">
+                <h2 class="text-xl font-bold mb-4">Adicionar Produto</h2>
+                <form id="form-product" class="space-y-4" onsubmit="addProduct(event)">
+                    <input type="text" id="prod-name" placeholder="Nome (Ex: Marmita G)" required class="w-full p-2 border rounded">
+                    <input type="text" id="prod-desc" placeholder="Descrição (Ex: Arroz, feijão, bife...)" class="w-full p-2 border rounded">
+                    <input type="number" step="0.01" id="prod-price" placeholder="Preço (Ex: 25.00)" required class="w-full p-2 border rounded">
+                    <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded w-full font-bold">Salvar Produto</button>
+                </form>
+                
+                <h2 class="text-xl font-bold mt-8 mb-4">Produtos Cadastrados</h2>
+                <div id="product-list" class="space-y-2"></div>
+            </div>
+        </div>
+
+        <!-- ABA: CONFIGURAÇÕES -->
+        <div id="tab-config" class="tab-content hidden">
+            <div class="bg-white p-6 rounded-lg shadow-md max-w-2xl mx-auto">
+                <h2 class="text-xl font-bold mb-4"><i class="fa-solid fa-map-location-dot"></i> Configurações de Entrega (Google Maps)</h2>
+                <form id="form-config" class="space-y-4" onsubmit="saveConfig(event)">
+                    <div>
+                        <label class="block font-semibold">Endereço de Origem (Saída)</label>
+                        <input type="text" id="conf-address" class="w-full p-2 border rounded" placeholder="Ex: Rua Principal, 100 - Mogi Mirim, SP">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block font-semibold">Taxa Base (R$)</label>
+                            <input type="number" step="0.01" id="conf-base" class="w-full p-2 border rounded">
+                        </div>
+                        <div>
+                            <label class="block font-semibold">Valor Adicional por KM (R$)</label>
+                            <input type="number" step="0.01" id="conf-km" class="w-full p-2 border rounded">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block font-semibold">Chave da API Google Maps (Opcional)</label>
+                        <input type="password" id="conf-api" class="w-full p-2 border rounded" placeholder="AIzaSyA...">
+                        <small class="text-gray-500">Se deixado em branco, usará a estimativa padrão de 3.5 km.</small>
+                    </div>
+                    <button type="submit" class="bg-red-600 text-white px-4 py-2 rounded w-full font-bold">Salvar Configurações</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Áudio de Notificação -->
+    <audio id="notification-sound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+
+    <script>
+        let lastOrderCount = 0;
+
+        // Alternar Abas
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById('tab-' + tabId).classList.remove('hidden');
+            if (tabId === 'config') loadConfig();
+            if (tabId === 'menu') loadProducts();
+        }
+
+        // Formatar Telefone
+        function formatPhone(phone) {
+            const cleaned = ('' + phone).replace(/\D/g, '');
+            const match = cleaned.match(/^(\d{2})(\d{4,5})(\d{4})$/);
+            if (match) return `(${match[1]}) ${match[2]}-${match[3]}`;
+            return phone;
+        }
+
+        // Calcular tempo de espera (Alerta Visual)
+        function getWaitTimeHtml(dateString) {
+            const mins = Math.floor((new Date() - new Date(dateString)) / 60000);
+            let color = 'text-green-600';
+            if (mins > 15) color = 'text-yellow-600';
+            if (mins > 30) color = 'text-red-600 font-bold';
+            return `<span class="${color} text-sm"><i class="fa-regular fa-clock"></i> ${mins} min atrás</span>`;
+        }
+
+        // Carregar Pedidos
+        async function loadOrders() {
+            const res = await fetch('/api/admin/orders');
+            const orders = await res.json();
+            
+            // Som de notificação se houver pedido novo
+            if (orders.length > lastOrderCount && lastOrderCount !== 0) {
+                document.getElementById('notification-sound').play().catch(e => console.log('Audio block', e));
+            }
+            lastOrderCount = orders.length;
+
+            // Limpar colunas
+            ['PENDING', 'PREPARING', 'READY', 'DELIVERED'].forEach(id => {
+                document.getElementById('col-' + id).innerHTML = '';
+            });
+
+            let revenue = 0;
+
+            orders.forEach(order => {
+                if(order.status === 'CANCELLED') return;
+                
+                if(order.status === 'DELIVERED') {
+                    // Soma na receita se for de hoje (simplificado)
+                    revenue += order.total;
+                }
+
+                const col = document.getElementById('col-' + order.status);
+                if (!col) return;
+
+                let actionBtn = '';
+                if (order.status === 'PENDING') actionBtn = `<button onclick="updateStatus('${order.id}', 'PREPARING')" class="w-full mt-2 bg-yellow-500 text-white py-1 rounded">Preparar</button>`;
+                if (order.status === 'PREPARING') actionBtn = `<button onclick="updateStatus('${order.id}', 'READY')" class="w-full mt-2 bg-blue-500 text-white py-1 rounded">Pronto / Saiu</button>`;
+                if (order.status === 'READY') actionBtn = `<button onclick="updateStatus('${order.id}', 'DELIVERED')" class="w-full mt-2 bg-green-500 text-white py-1 rounded">Concluir</button>`;
+
+                let itemsHtml = order.items.map(i => `• ${i.quantity}x ${i.product.name}`).join('<br>');
+
+                const card = `
+                    <div class="order-card p-3 border rounded bg-gray-50 shadow-sm text-sm" data-search="${order.customer.name.toLowerCase()} ${order.customer.phone}">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="font-bold">#${order.id.slice(-4)} - ${order.customer.name}</span>
+                            ${getWaitTimeHtml(order.createdAt)}
+                        </div>
+                        <div class="text-gray-600 mb-2">${formatPhone(order.customer.phone)}</div>
+                        <div class="mb-2 bg-white p-2 border rounded">${itemsHtml}</div>
+                        
+                        <div class="mb-2 text-xs">
+                            ${order.deliveryType === 'PICKUP' ? '🏪 <b>Retirada no Balcão</b>' : `🚚 <b>Entrega:</b> ${order.address || 'Não informado'}`}
+                        </div>
+                        
+                        <div class="font-bold flex justify-between">
+                            <span>Taxa: R$ ${order.deliveryFee.toFixed(2)}</span>
+                            <span class="text-red-600">Total: R$ ${order.total.toFixed(2)}</span>
+                        </div>
+                        ${actionBtn}
+                    </div>
+                `;
+                col.innerHTML += card;
+            });
+
+            document.getElementById('revenue-stat').innerText = `R$ ${revenue.toFixed(2)}`;
+        }
+
+        // BuscarPedidos (Filtro Rápido)
+        function filterOrders() {
+            const query = document.getElementById('search-order').value.toLowerCase();
+            document.querySelectorAll('.order-card').forEach(card => {
+                const match = card.getAttribute('data-search').includes(query);
+                card.style.display = match ? 'block' : 'none';
+            });
+        }
+
+        // Mudar Status
+        async function updateStatus(id, status) {
+            await fetch(`/api/admin/orders/${id}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status })
+            });
+            loadOrders();
+        }
+
+        // -------- FUNÇÕES DE CARDÁPIO --------
+        async function loadProducts() {
+            const res = await fetch('/api/admin/products');
+            const products = await res.json();
+            const list = document.getElementById('product-list');
+            list.innerHTML = products.map(p => `
+                <div class="flex justify-between items-center p-3 border rounded ${p.isAvailable ? 'bg-white' : 'bg-gray-200 opacity-75'}">
+                    <div>
+                        <div class="font-bold">${p.name} <span class="text-gray-500 text-sm">- R$ ${p.price.toFixed(2)}</span></div>
+                        <div class="text-xs text-gray-500">${p.description || ''}</div>
+                    </div>
+                    <button onclick="toggleProduct('${p.id}', ${!p.isAvailable})" class="px-3 py-1 rounded text-white text-xs ${p.isAvailable ? 'bg-red-500' : 'bg-green-500'}">
+                        ${p.isAvailable ? 'Pausar' : 'Ativar'}
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        async function addProduct(e) {
+            e.preventDefault();
+            await fetch('/api/admin/products', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: document.getElementById('prod-name').value,
+                    description: document.getElementById('prod-desc').value,
+                    price: document.getElementById('prod-price').value
+                })
+            });
+            e.target.reset();
+            loadProducts();
+        }
+
+        async function toggleProduct(id, isAvailable) {
+            await fetch(`/api/admin/products/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ isAvailable })
+            });
+            loadProducts();
+        }
+
+        // -------- FUNÇÕES DE CONFIGURAÇÃO --------
+        async function loadConfig() {
+            const res = await fetch('/api/admin/config');
+            const config = await res.json();
+            if(config) {
+                document.getElementById('conf-address').value = config.originAddress;
+                document.getElementById('conf-base').value = config.baseFee;
+                document.getElementById('conf-km').value = config.feePerKm;
+                document.getElementById('conf-api').value = config.googleApiKey;
+            }
+        }
+
+        async function saveConfig(e) {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            btn.innerText = "Salvando...";
+            await fetch('/api/admin/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    originAddress: document.getElementById('conf-address').value,
+                    baseFee: document.getElementById('conf-base').value,
+                    feePerKm: document.getElementById('conf-km').value,
+                    googleApiKey: document.getElementById('conf-api').value
+                })
+            });
+            btn.innerText = "Salvo com sucesso!";
+            setTimeout(() => btn.innerText = "Salvar Configurações", 2000);
+        }
+
+        // Loop de atualização do Kanban a cada 5 segundos
+        setInterval(loadOrders, 5000);
+        loadOrders();
+    </script>
+</body>
+</html>

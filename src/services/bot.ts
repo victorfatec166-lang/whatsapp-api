@@ -11,6 +11,14 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 let sock: any = null;
 
+/**
+ * O cardápio é sempre lido com a mesma ordenação para que o número que o
+ * cliente vê no menu corresponda exatamente ao índice que ele digita.
+ */
+function listProducts() {
+    return prisma.product.findMany({ orderBy: { createdAt: 'asc' } });
+}
+
 const userSession: { [key: string]: { step: string } } = {};
 
 // Adicionamos um parâmetro 'onOrderCreated' para receber a função de aviso do servidor
@@ -38,8 +46,12 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
             console.log(`Conexão fechada. Reconectando: ${shouldReconnect}`);
             
             if (shouldReconnect) {
-                setTimeout(() => {
-                    startWhatsAppBot(onOrderCreated);
+                setTimeout(async () => {
+                    try {
+                        await startWhatsAppBot(onOrderCreated);
+                    } catch (e) {
+                        console.error('Erro ao reconectar bot:', e);
+                    }
                 }, 3000);
             }
         } else if (connection === 'open') {
@@ -88,8 +100,8 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
 
                 if (currentStep === 'MENU') {
                     if (textLower === '1') {
-                        const products = await prisma.product.findMany();
-                        
+                        const products = await listProducts();
+
                         if (products.length === 0) {
                             await sock.sendMessage(senderPhone, { 
                                 text: '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!' 
@@ -140,9 +152,9 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                 } 
                 else if (currentStep === 'AGUARDANDO_PRODUTO') {
                     if (!isNaN(Number(textLower))) {
-                        const products = await prisma.product.findMany();
+                        const products = await listProducts();
                         const index = Number(textLower) - 1;
-                        
+
                         if (products[index]) {
                             const selected = products[index];
                             
@@ -189,6 +201,44 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
 
 export function getWhatsAppSocket() {
     return sock;
+}
+
+const STATUS_MESSAGES: Record<string, string> = {
+    preparando:
+        `🔥 *O seu pedido foi confirmado e foi para a cozinha!* 👨‍🍳\n\n` +
+        `A nossa equipa já começou a preparar o seu pedido:\n` +
+        `• *Item:* {items}\n` +
+        `• *Total:* R$ {total}\n\n` +
+        `Em breve teremos novidades! ⏱️`,
+    entrega:
+        `🛵 *O seu pedido saiu para entrega!* 📦\n\n` +
+        `Fique atento, o entregador está a caminho do seu endereço com o seu pedido:\n` +
+        `• *Item:* {items}\n` +
+        `• *Total:* R$ {total}\n\n` +
+        `Bom apetite! 😋`,
+    concluido:
+        `✅ *Pedido Entregue / Concluído!* 🎉\n\n` +
+        `Esperamos que goste da sua refeição! Muito obrigado pela preferência. Volte sempre! 🍔❤️`
+};
+
+/**
+ * Envia ao cliente a mensagem correspondente à mudança de status do pedido.
+ * Falhas de envio são registradas, mas nunca derrubam a requisição que originou a mudança.
+ */
+export async function sendOrderStatusNotification(
+    remoteJid: string,
+    status: string,
+    items: string,
+    total: number
+) {
+    const template = STATUS_MESSAGES[status];
+    if (!template) return;
+
+    const message = template
+        .replace('{items}', items)
+        .replace('{total}', total.toFixed(2));
+
+    await sendWhatsAppMessage(remoteJid, message);
 }
 
 export async function sendWhatsAppMessage(remoteJid: string, text: string) {

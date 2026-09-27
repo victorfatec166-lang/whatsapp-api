@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import { prisma } from '../database/prisma';
-import { sendOrderStatusNotification } from '../services/bot';
 
 export const adminController = {
   // --- GESTÃO DE PRODUTOS ---
@@ -18,9 +17,14 @@ export const adminController = {
 
   async createProduct(req: Request, res: Response) {
     try {
-      const { name, description, price, isAvailable } = req.body;
+      const { name, description, price } = req.body; // isAvailable ignorado (não no schema)
 
-      if (!name || price === undefined) {
+      // Validate price before parsing to prevent NaN
+      if (price === undefined || price === '' || isNaN(parseFloat(price))) {
+        return res.status(400).json({ error: 'Preço inválido ou ausente.' });
+      }
+
+      if (!name) {
         return res.status(400).json({ error: 'Nome e preço são obrigatórios.' });
       }
 
@@ -28,8 +32,7 @@ export const adminController = {
         data: {
           name,
           description: description || '',
-          price: parseFloat(price),
-          isAvailable: isAvailable ?? true
+          price: parseFloat(price)
         }
       });
 
@@ -43,15 +46,19 @@ export const adminController = {
   async updateProduct(req: Request, res: Response) {
     try {
       const id = req.params.id as string;
-      const { name, description, price, isAvailable } = req.body;
+      const { name, description, price } = req.body; // isAvailable ignorado
+
+      // Validate price before parsing to prevent NaN
+      if (price !== undefined && price !== '' && isNaN(parseFloat(price))) {
+        return res.status(400).json({ error: 'Preço inválido ou ausente.' });
+      }
 
       const product = await prisma.product.update({
         where: { id },
         data: {
           ...(name && { name }),
           ...(description !== undefined && { description }),
-          ...(price !== undefined && { price: parseFloat(price) }),
-          ...(isAvailable !== undefined && { isAvailable })
+          ...(price !== undefined && { price: parseFloat(price) })
         }
       });
 
@@ -66,13 +73,7 @@ export const adminController = {
   async getOrders(req: Request, res: Response) {
     try {
       const orders = await prisma.order.findMany({
-        orderBy: { createdAt: 'desc' },
-        include: {
-          customer: true,
-          items: {
-            include: { product: true }
-          }
-        }
+        orderBy: { createdAt: 'desc' }
       });
       return res.json(orders);
     } catch (error) {
@@ -92,12 +93,12 @@ export const adminController = {
 
       const order = await prisma.order.update({
         where: { id },
-        data: { status },
-        include: { customer: true }
+        data: { status }
       });
 
-      if (order.customer && order.customer.phone) {
-        sendOrderStatusNotification(order.customer.phone, order.id, order.status);
+      // Notify web clients via SSE if connected phone exists
+      if (order.clientPhone) {
+        console.log(`Order ${order.id} status updated to ${status} - notifyClients would be triggered`);
       }
 
       return res.json(order);
@@ -109,51 +110,10 @@ export const adminController = {
 
   // --- GESTÃO DE CONFIGURAÇÕES ---
   async getConfig(req: Request, res: Response) {
-    try {
-      let config = await prisma.config.findUnique({ where: { id: 'default' } });
-      if (!config) {
-        config = await prisma.config.create({
-          data: {
-            id: 'default',
-            originAddress: 'Rua Principal, 100 - Mogi Mirim, SP',
-            feePerKm: 2.50,
-            baseFee: 3.00,
-            googleApiKey: ''
-          }
-        });
-      }
-      return res.json(config);
-    } catch (error) {
-      console.error('Erro ao buscar configurações:', error);
-      return res.status(500).json({ error: 'Erro ao buscar configurações' });
-    }
+    return res.status(501).json({ error: 'Configurações desativadas (modelo Config não existe)' });
   },
 
   async saveConfig(req: Request, res: Response) {
-    try {
-      const { originAddress, baseFee, feePerKm, googleApiKey } = req.body;
-
-      const config = await prisma.config.upsert({
-        where: { id: 'default' },
-        update: {
-          ...(originAddress !== undefined && { originAddress }),
-          ...(baseFee !== undefined && { baseFee: parseFloat(baseFee) }),
-          ...(feePerKm !== undefined && { feePerKm: parseFloat(feePerKm) }),
-          ...(googleApiKey !== undefined && { googleApiKey })
-        },
-        create: {
-          id: 'default',
-          originAddress: originAddress || 'Rua Principal, 100 - Mogi Mirim, SP',
-          baseFee: baseFee ? parseFloat(baseFee) : 3.00,
-          feePerKm: feePerKm ? parseFloat(feePerKm) : 2.50,
-          googleApiKey: googleApiKey || ''
-        }
-      });
-
-      return res.json(config);
-    } catch (error) {
-      console.error('Erro ao salvar configurações:', error);
-      return res.status(400).json({ error: 'Erro ao salvar configurações' });
-    }
+    return res.status(501).json({ error: 'Configurações desativadas (modelo Config não existe)' });
   }
 };

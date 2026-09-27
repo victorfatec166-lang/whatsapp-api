@@ -7,6 +7,7 @@ const router = Router();
 router.get('/products', adminController.getProducts);
 router.post('/products', adminController.createProduct);
 router.patch('/products/:id', adminController.updateProduct);
+router.post('/products/:id/delete', adminController.deleteProduct);
 
 // Pedidos
 router.get('/orders', adminController.getOrders);

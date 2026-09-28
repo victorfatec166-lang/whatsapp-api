@@ -38,6 +38,16 @@ export type ModalField = {
     /** Foca este campo ao abrir. Use so um por janela. */
     autofocus?: boolean;
     required?: boolean;
+    /** Valor inicial, so para campo oculto. */
+    value?: string;
+    /**
+     * Campo que viaja no envio mas nao aparece.
+     *
+     * Serve para o valor que depende de como a janela foi aberta, e nao do
+     * que a pessoa digitou: Sangria e Deposito usam a mesma janela, entao o
+     * "saida" ou "entrada" precisa entrar no corpo sem campo visivel.
+     */
+    hidden?: boolean;
 };
 
 export type ModalSpec = {
@@ -61,14 +71,32 @@ export type ModalSpec = {
     after?: string;
 };
 
-function field(f: ModalField): string {
+/**
+ * Gera um campo.
+ *
+ * `janelaId` entra no id do input, e isso nao e cosmetico. Duas janelas na
+ * mesma tela usam os mesmos nomes de campo -- Sangria e Deposito pedem
+ * "amount" e "note" -- e id repetido no DOM e' HTML invalido: o `for` do label
+ * aponta para o input errado e qualquer getElementById devolve a primeira
+ * ocorrencia da pagina, nao a da janela que esta aberta. O `name` continua
+ * igual, porque e' ele que o envio le, e o envio percorre o formulario da
+ * janela, que ja e' o escopo certo.
+ */
+function field(f: ModalField, janelaId: string): string {
+    const campoId = janelaId + '-' + f.name;
+    // Campo oculto entra no envio sem existir visualmente, e sem o wrapper de
+    // label+input que o resto dos campos usa.
+    if (f.hidden) {
+        return `                <input type="hidden" name="${escapeHtml(f.name)}" value="${escapeHtml(f.value ?? '')}" id="${escapeHtml(campoId)}">`;
+    }
+
     const req = f.required ? ' required' : '';
     const auto = f.autofocus ? ' autofocus' : '';
 
     if (f.type === 'textarea') {
         return `                <div>
-                    <label class="label" for="${f.name}">${escapeHtml(f.label)}</label>
-                    <textarea id="${f.name}" name="${f.name}" rows="3"${f.placeholder ? ` placeholder="${escapeHtml(f.placeholder)}"` : ''}${f.maxlength ? ` maxlength="${f.maxlength}"` : ''} class="input"></textarea>
+                    <label class="label" for="${campoId}">${escapeHtml(f.label)}</label>
+                    <textarea id="${campoId}" name="${f.name}" rows="3"${f.placeholder ? ` placeholder="${escapeHtml(f.placeholder)}"` : ''}${f.maxlength ? ` maxlength="${f.maxlength}"` : ''} class="input"></textarea>
                     ${f.hint ? `<p class="text-caption text-ink-3 mt-1">${escapeHtml(f.hint)}</p>` : ''}
                 </div>`;
     }
@@ -81,7 +109,7 @@ function field(f: ModalField): string {
     const inputmode = ehNumero ? ' inputmode="decimal"' : '';
 
     return `                <div>
-                    <label class="label" for="${f.name}">${escapeHtml(f.label)}${
+                    <label class="label" for="${campoId}">${escapeHtml(f.label)}${
         f.required ? ' <span class="text-accent-red">*</span>' : ''
     }</label>
                     <div class="flex items-center gap-2">
@@ -90,7 +118,7 @@ function field(f: ModalField): string {
                                 ? '<span class="text-body text-ink-3 shrink-0" aria-hidden="true">R$</span>'
                                 : ''
                         }
-                        <input id="${f.name}" name="${f.name}" type="${type}"${step ? ` step="${step}"` : ''}${
+                        <input id="${campoId}" name="${f.name}" type="${type}"${step ? ` step="${step}"` : ''}${
         min ? ` min="${min}"` : ''
     }${inputmode}${f.placeholder ? ` placeholder="${escapeHtml(f.placeholder)}"` : ''}${
         f.maxlength ? ` maxlength="${f.maxlength}"` : ''
@@ -102,10 +130,7 @@ function field(f: ModalField): string {
 
 /** Gera a janela a partir da declaracao. */
 export function renderModal(spec: ModalSpec): string {
-    const corpo =
-        spec.fields.length === 1
-            ? field(spec.fields[0])
-            : spec.fields.map((f) => field(f)).join('\n');
+    const corpo = spec.fields.map((f) => field(f, spec.id)).join('\n');
 
     return `        <div id="${spec.id}" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="${spec.id}-title">
             <div class="modal-panel">

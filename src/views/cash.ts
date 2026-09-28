@@ -1,6 +1,14 @@
 import { escapeHtml } from './html';
 import { currency } from '../services/stats';
 import type { OpenShift, ShiftHistoryRow } from '../services/cash';
+import { renderModal } from './ui/modal';
+import {
+    ENDPOINT_ABRIR,
+    ENDPOINT_FECHAR,
+    ENDPOINT_MOVIMENTO,
+    cashCloseSpec,
+    cashMovementSpec,
+} from './cashModals';
 
 function money(n: number): string {
     return escapeHtml(currency(n));
@@ -89,13 +97,13 @@ export function renderCash(d: CashData): string {
             }
 
             <div class="flex flex-wrap gap-2">
-                <button type="button" onclick="cashMovement('saida','Sangria')" class="btn btn-danger flex-1">
+                <button type="button" onclick="cashSangriaModalOpen()" class="btn btn-danger flex-1">
                     <i class="fa-solid fa-arrow-up"></i> Sangria
                 </button>
-                <button type="button" onclick="cashMovement('entrada','Deposito')" class="btn btn-ghost flex-1">
+                <button type="button" onclick="cashDepositoModalOpen()" class="btn btn-ghost flex-1">
                     <i class="fa-solid fa-arrow-down"></i> Deposito
                 </button>
-                <button type="button" onclick="cashCloseShift()" class="btn btn-primary w-full">
+                <button type="button" onclick="cashCloseModalOpen()" class="btn btn-primary w-full">
                     <i class="fa-solid fa-lock"></i> Fechar turno e contar
                 </button>
             </div>
@@ -111,7 +119,7 @@ export function renderCash(d: CashData): string {
             <div class="flex flex-col sm:flex-row gap-2">
                 <label class="sr-only" for="cashFloat">Troco inicial</label>
                 <input id="cashFloat" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Troco inicial (R$)" class="input flex-1">
-                <button type="button" onclick="cashOpenShift()" class="btn btn-primary">
+                <button type="button" onclick="cashAbrirTurno()" class="btn btn-primary">
                     <i class="fa-solid fa-play"></i> Abrir turno
                 </button>
             </div>
@@ -229,62 +237,76 @@ export function renderCash(d: CashData): string {
         </div>
 
         <script>
-            var CASH_EXPECTED = ${d.shift ? d.shift.totals.expected : 0};
+            /*
+             * ABERTO, FECHADO, SANGRIA E DEPOSITO USAM JANELA.
+             *
+             * Antes tudo isso aqui era prompt() e confirm() do navegador, que
+             * nao segue o layout do resto, nao tem o prefixo de moeda no input
+             * e mostra os botoes do navegador em cima do tema escuro. Sao as
+             * mesmas janelas que a Home usa, declaradas em cashModals.ts.
+             *
+             * Abrir turno e' o unico que continua com o campo na tela: tem um
+             * campo so, e a tela ja tem espaco sobrando na hora em que nao ha
+             * turno aberto. Janela aqui seria um clique a mais sem ganho.
+             */
+            document.addEventListener('DOMContentLoaded', function () {
+                modalBind('cashCloseModal', '${ENDPOINT_FECHAR}', 'Fechando...', 'Turno fechado.', 'cashAposFechar');
+                modalBind('cashSangriaModal', '${ENDPOINT_MOVIMENTO}', 'Registrando...', 'Sangria registrada.', 'cashAposSalvar');
+                modalBind('cashDepositoModal', '${ENDPOINT_MOVIMENTO}', 'Registrando...', 'Deposito registrado.', 'cashAposSalvar');
+            });
 
-            async function cashOpenShift() {
+            function cashAbrirTurno() {
                 var input = document.getElementById('cashFloat');
-                var value = parseFloat(String(input && input.value || '0').replace(',', '.')) || 0;
-                var r = await postJSON('/api/admin/cash/shift/open', { openingFloat: value });
-                if (!r.ok) { flash('err', r.data.error || 'Erro ao abrir turno'); return; }
-                flash('ok', 'Turno aberto.');
-                setTimeout(function () { location.reload(); }, 700);
-            }
-
-            async function cashCloseShift() {
-                var raw = prompt('Dinheiro contado na gaveta (R$).\\nEsperado: R$ ' + CASH_EXPECTED.toFixed(2));
-                if (raw === null) return;
-                var counted = parseFloat(String(raw).replace(',', '.'));
-                if (!isFinite(counted) || counted < 0) { flash('err', 'Valor contado invalido.'); return; }
-                var diff = counted - CASH_EXPECTED;
-                var resumo = diff === 0 ? 'O caixa bateu.'
-                    : (diff > 0 ? 'SOBROU R$ ' + diff.toFixed(2) : 'FALTOU R$ ' + Math.abs(diff).toFixed(2));
-                if (!confirm(resumo + ' Fechar o turno mesmo assim?')) return;
-                var nota = prompt('Observacao do fechamento (opcional):', '') || '';
-                var r = await postJSON('/api/admin/cash/shift/close', { countedCash: counted, note: nota });
-                if (!r.ok) { flash('err', r.data.error || 'Erro ao fechar turno'); return; }
-                flash('ok', 'Turno fechado.');
-                setTimeout(function () { location.reload(); }, 1000);
-            }
-
-            function cashMovement(tipo, rotulo) {
-                var raw = prompt(rotulo + ' (R$):');
-                if (raw === null) return;
-                var valor = parseFloat(String(raw).replace(',', '.'));
-                if (!isFinite(valor) || valor <= 0) { flash('err', 'Valor invalido.'); return; }
-                var nota = prompt('Motivo (opcional):', '') || '';
-                postJSON('/api/admin/cash/movement', { type: tipo, amount: valor, note: nota }).then(function (r) {
-                    if (!r.ok) { flash('err', r.data.error || 'Erro'); return; }
-                    flash('ok', rotulo + ' registrada.');
+                var value = parseFloat(String((input && input.value) || '0').replace(',', '.')) || 0;
+                postJSON('${ENDPOINT_ABRIR}', { openingFloat: value }).then(function (r) {
+                    if (!r.ok) { flash('err', (r.data && r.data.error) || 'Erro ao abrir turno'); return; }
+                    flash('ok', 'Turno aberto.');
                     setTimeout(function () { location.reload(); }, 700);
                 });
             }
 
+            function cashAposSalvar() {
+                setTimeout(function () { location.reload(); }, 700);
+            }
+
+            // O servidor devolve a diferenca do fechamento, entao o aviso
+            // informa se o caixa bateu. Antes disso era um confirm() depois
+            // do prompt, que obrigava a ler e clicar duas vezes.
+            function cashAposFechar(res) {
+                var d = (res && res.data && res.data.report && res.data.report.difference) || 0;
+                var texto = d === 0
+                    ? 'Turno fechado. O caixa bateu.'
+                    : (d > 0
+                        ? 'Turno fechado. Sobrou ' + d.toFixed(2) + ' na gaveta.'
+                        : 'Turno fechado. Faltou ' + Math.abs(d).toFixed(2) + ' na gaveta.');
+                flash(d === 0 ? 'ok' : 'err', texto);
+                setTimeout(function () { location.reload(); }, 1400);
+            }
+
+            /*
+             * A conferencia de turno ja fechado continua com input na tela.
+             * Ela lista um turno por vez, com o esperado visivel na propria
+             * linha, entao o campo do lado e mais rapido que uma janela.
+             */
             async function cashReconcile(shiftId) {
                 var countedEl = document.querySelector('[data-counted="' + shiftId + '"]');
                 var noteEl = document.querySelector('[data-note="' + shiftId + '"]');
-                var raw = countedEl ? countedEl.value : '';
-                var counted = parseFloat(String(raw).replace(',', '.'));
+                var counted = parseFloat(String(countedEl ? countedEl.value : '').replace(',', '.'));
                 if (!isFinite(counted) || counted < 0) { flash('err', 'Informe o valor contado.'); return; }
                 var r = await postJSON('/api/admin/cash/shift/reconcile', {
                     shiftId: shiftId,
                     countedCash: counted,
                     note: noteEl ? noteEl.value : ''
                 });
-                if (!r.ok) { flash('err', r.data.error || 'Erro ao conferir'); return; }
+                if (!r.ok) { flash('err', (r.data && r.data.error) || 'Erro ao conferir'); return; }
                 var diff = r.data.difference || 0;
                 flash('ok', diff === 0 ? 'Conferencia OK: o caixa bateu.'
-                    : (diff > 0 ? 'SOBROU R$ ' + diff.toFixed(2) : 'FALTOU R$ ' + Math.abs(diff).toFixed(2)));
+                    : (diff > 0 ? 'SOBROU ' + diff.toFixed(2) : 'FALTOU ' + Math.abs(diff).toFixed(2)));
                 setTimeout(function () { location.reload(); }, 1000);
             }
-        </script>`;
+        </script>
+
+        ${renderModal(cashCloseSpec(d.shift ? d.shift.totals.expected : undefined))}
+        ${renderModal(cashMovementSpec('saida'))}
+        ${renderModal(cashMovementSpec('entrada'))}`;
 }

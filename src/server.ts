@@ -1250,13 +1250,9 @@ app.get('/admin', async (req, res) => {
         // destino real em vez de deixar cair na Home sem explicacao.
         const rawTab = typeof req.query.tab === 'string' ? req.query.tab : '';
         const legado = LEGACY_TABS[rawTab];
-        if (legado) {
-            // O destino pode trazer um fragmento (#textos-bot). encodeURIComponent
-            // escaparia o "#" e o navegador nunca rolaria ate a ancora.
-            const [destino, ancora] = legado.split('#');
-            const url = '/admin?tab=' + encodeURIComponent(destino) + (ancora ? '#' + ancora : '');
-            return res.redirect(303, url);
-        }
+        // O destino ja vem pronto, incluindo a ?aba= das sub-abas do
+        // Faturamento, entao nao ha nada para montar aqui.
+        if (legado) return res.redirect(303, legado);
 
         // Sem ?tab= a home e a primeira tela; "pedidos" segue acessivel pelo menu.
         const active: TabId = isTabId(rawTab) ? rawTab : 'home';

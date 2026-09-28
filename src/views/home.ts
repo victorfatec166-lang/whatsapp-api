@@ -1,7 +1,8 @@
 import { escapeHtml } from './html';
 import { currency } from '../services/stats';
 import type { HomeData } from '../services/home';
-import { renderCashModals, cashModalsScript } from './cashModals';
+import { cashOpenSpec, cashModalsScript } from './cashModals';
+import { renderModal } from './ui/modal';
 
 function money(n: number): string {
     return escapeHtml(currency(n));
@@ -210,8 +211,10 @@ ${atencaoLista}
             </div>
         </div>`;
 
-    // Janelas de abrir e fechar caixa. O layout vem de ui/modal.ts.
-    const cashModalsHtml = renderCashModals();
+// A Home so tem a janela de abrir caixa. Fechar, sangria e deposito moram na
+// tela de Caixa, dentro de Faturamento, onde ha historico e conferencia em
+// volta para dar contexto.
+const cashModalsHtml = renderModal(cashOpenSpec());
     const cashModalsHtmlScript = cashModalsScript();
 
     /* -------------------------------------------------------- menu do dia */

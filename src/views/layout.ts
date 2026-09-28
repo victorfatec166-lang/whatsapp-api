@@ -44,15 +44,27 @@ export const TABS: Array<{ id: TabId; group: TabGroupId; label: string; icon: st
  * funcionar silenciosamente. Mapeamos para o destino real em vez disso.
  * O "#" aponta a sub-aba que a tela antiga virava.
  */
+/**
+ * Itens que sairam da sidebar e para onde vao.
+ *
+ * IsTabId() so aceita o que esta em TABS, entao um ?tab=antigo deixaria de
+ * funcionar silenciosamente. Mapeamos para o destino real em vez disso.
+ *
+ * O destino ja vem como caminho pronto, e nao como "aba + subaba": as
+ * sub-abas do Faturamento se escolhem por ?aba=, que e' o mesmo mecanismo que
+ * o servidor usa para desenhar a tela certa ja no HTML. Um #caixa tambem
+ * funcionaria, mas entao teriamos dois jeitos de escolher a mesma sub-aba e o
+ * proximo bug seria um deles deixar de ser lido.
+ */
 export const LEGACY_TABS: Record<string, string> = {
-    bot: 'whatsapp#textos-bot',
-    stats: 'faturamento#resumo',
-    reports: 'faturamento#pedidos',
-    caixa: 'faturamento#caixa',
-    clientes: 'faturamento#clientes',
+    bot: '/admin?tab=whatsapp#textos-bot',
+    stats: '/admin?tab=faturamento&aba=resumo',
+    reports: '/admin?tab=faturamento&aba=pedidos',
+    caixa: '/admin?tab=faturamento&aba=caixa',
+    clientes: '/admin?tab=faturamento&aba=clientes',
     // O catalogo saiu do PDV e virou aba de Produtos e Estoque.
-    products: 'estoque',
-    system: 'config',
+    products: '/admin?tab=estoque',
+    system: '/admin?tab=config',
 };
 
 export function isTabId(v: unknown): v is TabId {

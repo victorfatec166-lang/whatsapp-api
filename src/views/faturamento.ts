@@ -190,12 +190,24 @@ ${pedidos(d)}
             }
 
             (function abreCertaAba() {
-                // Um link antigo (?tab=caixa) chega com a ancora e manda abrir a
-                // sub-aba certa; senao vale a ultima usada ou o Resumo.
+                /*
+                 * Prioridade para descobrir qual sub-aba abrir:
+                 *
+                 *   1. #hash        -- link antigo, ?tab=caixa vira #caixa
+                 *   2. ?aba=        -- o que a Home e os redirecionamentos usam
+                 *   3. filtro de data -- quem filtra por periodo quer Pedidos
+                 *   4. localStorage  -- a ultima usada nesta visita
+                 *   5. Resumo
+                 *
+                 * O ?aba= e' o que faltava, e sem ele o servidor desenhava a
+                 * sub-aba certa e este script sobrescrevia com o localStorage.
+                 * Efeito visivel: clicar em "Ver turnos" no card do Caixa da
+                 * Home te trazia para a sub-aba que voce usou por ultimo.
+                 */
                 var hash = (window.location.hash || '').replace('#', '');
                 var params = new URLSearchParams(window.location.search);
                 var veioComFiltro = params.get('from') || params.get('to') || params.get('status');
-                var qual = hash;
+                var qual = hash || params.get('aba') || '';
                 if (!qual) qual = veioComFiltro ? 'pedidos' : '';
                 if (!qual) { try { qual = localStorage.getItem('faturamentoAba') || ''; } catch (e) {} }
                 fatSetTab(qual || 'resumo');

@@ -2,7 +2,11 @@
   "name": "whatsapp-api",
   "version": "1.0.0",
   "scripts": {
-    "build": "tsc",
+    "build:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --minify",
+    "build:ts": "tsc",
+    "build": "npm run build:ts && npm run build:css",
+    "watch:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --watch",
+    "check:contrast": "node scripts/check-contrast.js",
     "start": "node dist/server.js"
   },
   "dependencies": {
@@ -20,6 +24,9 @@
     "@types/express": "^4.17.21",
     "@types/node": "^20.11.24",
     "@types/qrcode-terminal": "^0.12.2",
+    "autoprefixer": "^10.6.1",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^3.4.19",
     "typescript": "^5.3.3"
   }
 }

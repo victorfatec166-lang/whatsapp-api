@@ -9,8 +9,15 @@ prisma/*.db-shm
 uploads/
 
 # Scripts de manutencao de uso unico (substituem texto em arquivos-fonte).
-# Nao fazem parte do aplicativo.
-scripts/
+# Nao fazem parte do aplicativo. Apenas estas pastas sao descartadas; o que
+# estiver solto em scripts/ e ferramenta real e entra no versionamento.
+scripts/add/
+scripts/apply/
+scripts/check/
+scripts/find/
+scripts/fix/
+scripts/insert/
+scripts/misc/
 
 # Configuracao local do Claude Code
 .claude/settings.local.json

@@ -69,6 +69,11 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 // Fotos de produto ficam em public/uploads e sao servidas estaticamente.
 app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads'), { maxAge: '7d' }));
+// CSS compilado do design system (saida de `npm run build:css`).
+// Sem maxAge longo de proposito: o arquivo nao tem hash no nome, e um cache
+// fixo serviria estilo velho depois de uma recompilacao. O ETag padrao do
+// Express resolve com 304 cheaply.
+app.use('/styles', express.static(path.join(process.cwd(), 'dist', 'styles'), { etag: true, lastModified: true }));
 app.use('/api/admin', adminRoutes);
 
 /* ------------------------------------------------------------------ Utils */

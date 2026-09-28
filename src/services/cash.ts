@@ -4,16 +4,9 @@ const round = (n: number) => Math.round(n * 100) / 100;
 
 export type CashMovementType = 'entrada' | 'saida';
 
-export const CASH_LABELS: Record<CashMovementType, string> = {
-    entrada: 'Deposito',
-    saida: 'Sangria',
-};
-
-export const CASH_BADGES: Record<CashMovementType, string> = {
-    entrada: 'badge-emerald',
-    saida: 'badge-red',
-};
-
+// CASH_LABELS e CASH_BADGES saíram daqui. O texto e a cor do tipo de movimento
+// passaram a ser decididos na view, que é onde o badge tem meaning visual; o
+// serviço ficou só com a regra de negócio, e a view com a apresentação.
 const METHOD_LABELS: Record<string, string> = {
     pix: 'PIX',
     dinheiro: 'Dinheiro',

@@ -96,12 +96,6 @@ export type CartModifier = {
     extra: number;
 };
 
-export type CartLine = {
-    id: string;
-    qty: number;
-    mods: CartModifier[];
-};
-
 export type PricedLine = {
     id: string;
     name: string;

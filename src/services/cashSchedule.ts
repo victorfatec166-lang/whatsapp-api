@@ -10,13 +10,6 @@ import { startShift, closeShiftAuto } from './cash';
  * meia-noite). Com tick, o agendamento se recupera sozinho.
  */
 
-export type CashSchedule = {
-    /** "HH:MM" ou string vazia quando desativado. */
-    autoOpen: string;
-    autoClose: string;
-    defaultFloat: number;
-};
-
 const TICK_MS = 30_000;
 
 /** Aceita "HH:MM" e devolve minutos desde a meia-noite, ou null se invalido. */
@@ -32,10 +25,6 @@ export function parseHhMm(value: string | null | undefined): number | null {
 
 export function isValidHhMm(value: unknown): boolean {
     return typeof value === 'string' && parseHhMm(value) !== null;
-}
-
-function minutesNow(now: Date): number {
-    return now.getHours() * 60 + now.getMinutes();
 }
 
 /**
@@ -130,10 +119,4 @@ export function startCashScheduler(onAction?: (o: ScheduleOutcome) => void): voi
     // Nao segura o processo vivo por causa do agendador.
     timer.unref?.();
     void tick();
-}
-
-export function stopCashScheduler(): void {
-    if (!timer) return;
-    clearInterval(timer);
-    timer = null;
 }

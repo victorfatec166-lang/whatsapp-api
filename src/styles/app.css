@@ -144,7 +144,8 @@
     }
 
     /* Numeros alinhados: essencial em PDV, caixa e tabelas de preco. */
-    .tabular,
+    /* Numeros de coluna alinhados: sem isso a tabela "dance" conforme o valor
+       muda de largura. Vale para qualquer td/th, nao precisa de classe. */
     table td,
     table th {
         font-variant-numeric: tabular-nums;

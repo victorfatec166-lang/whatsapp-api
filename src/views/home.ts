@@ -85,10 +85,6 @@ ${atencaoLista}
             </div>
         </div>`;
 
-    // O faturamento por dia foi para a aba Faturamento. A Home mostra so
-    // operacao: quem abre o painel precisa ver a fila, nao o caixa.
-    const grafico = '';
-
     /* ------------------------------------------------------------- caixa */
     const c = d.cash;
     const agendaTexto = c.scheduleOn

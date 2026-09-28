@@ -1,20 +1,10 @@
 import { escapeHtml } from './html';
 
-export type TabId =
-    | 'home'
-    | 'kanban'
-    | 'pdv'
-    | 'estoque'
-    | 'calendario'
-    | 'faturamento'
-    | 'caixa'
-    | 'clientes'
-    | 'whatsapp'
-    | 'bot'
-    | 'stats'
-    | 'reports'
-    | 'config'
-    | 'system';
+// O union so lista o que existe hoje em TABS. Caixa, Clientes, Bot, Stats,
+// Reports e System saíram da barra, e isTabId() so aceita o que esta em TABS,
+//entao mantê-los aqui dava a impressao de que ainda dava para abrir ?tab=caixa
+// e nao dava: LEGACY_TABS e' que resolve o link antigo, com redirecionamento.
+export type TabId = 'home' | 'kanban' | 'pdv' | 'estoque' | 'calendario' | 'faturamento' | 'whatsapp' | 'config';
 
 /**
  * Ordem da sidebar: primeiro o que voce usa todo dia (operacao), depois o

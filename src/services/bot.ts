@@ -7,7 +7,10 @@ import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import { prisma } from '../database/prisma';
-import { DEFAULT_BOT_MESSAGES } from './botDefaults';
+// DEFAULT_BOT_MESSAGES nao vem mais por aqui. Quem precisa dos textos padrao
+// (o servidor, para montar a lista de campos editaveis, e o botMessages, para
+// o cache) importa direto do botDefaults. Aqui ele nunca foi usado, e o
+// import mascarava de onde os textos realmente saem.
 import { loadBotMessages, getBotMessage } from './botMessages';
 import { registerSale } from './stock';
 import { loadProductFull, priceCart, linesToItemsField, type ProductFull } from './modifiers';
@@ -482,10 +485,6 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
             }
         }
     });
-}
-
-export function getWhatsAppSocket() {
-    return sock;
 }
 
 const DEFAULT_STATUS_MESSAGES: Record<string, string> = {

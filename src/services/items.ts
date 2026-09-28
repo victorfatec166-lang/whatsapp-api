@@ -54,8 +54,3 @@ export function parseItems(items: string): ParsedItem[] {
     }
     return out;
 }
-
-/** Linha legivel, ja com os modificadores, para exibir em listas. */
-export function formatItemLine(item: ParsedItem): string {
-    return `${item.qty}x ${item.name}` + (item.mods.length ? ` (${item.mods.join(', ')})` : '');
-}

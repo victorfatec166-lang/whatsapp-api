@@ -5,7 +5,10 @@ import path from 'path';
 import QRCode from 'qrcode';
 import adminRoutes from './routes/adminRoutes';
 import { addClient, notifyClients, notifyConnection, getClientCount } from './services/sse';
-import { initBot, sendOrderStatusNotification, isBotOnline, loadBotMessages, reconnectBot, logoutBot, getConnectionState, onConnectionChange, QR_TTL_MS } from './services/bot';
+// QR_TTL_MS saiu daqui: era usado para expire o QR antigo, e a sessao do
+// Baileys ja resolve isso sozinha. O import nao custava nada, mas deixava
+// parecer que o TTL era configuravel por aqui.
+import { initBot, sendOrderStatusNotification, isBotOnline, loadBotMessages, reconnectBot, logoutBot, getConnectionState, onConnectionChange } from './services/bot';
 import { renderLayout, tabHint, isTabId, LEGACY_TABS, type TabId } from './views/layout';
 import { PAIRING_CLIENT_SCRIPT } from './views/pairing';
 import { renderWhatsApp } from './views/whatsapp';
@@ -17,8 +20,9 @@ import {
 } from './views/tabs';
 import { renderInventory } from './views/inventory';
 import { renderHome } from './views/home';
-import { renderCash } from './views/cash';
-import { renderCustomers } from './views/customers';
+// renderCash e renderCustomers saem daqui: as duas telas foram absorvidas como
+// sub-abas de Faturamento, que chama as views por conta propria. Continuar
+// importando dava a impressao de que o servidor ainda as desenhava.
 import { renderFaturamento } from './views/faturamento';
 import { loadHomeData, estimateMargin } from './services/home';
 import { customerList, summarizeCustomers } from './services/customers';

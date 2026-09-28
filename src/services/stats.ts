@@ -1,4 +1,6 @@
-import { prisma } from '../database/prisma';
+// Este modulo nao fala com o banco: os dois estatisticos sao calculados em
+// memoria, a partir da lista de pedidos que o servidor ja carregou. Isso
+// mantem a regra unica de preco e status em um lugar so, sem consulta extra.
 import { parseItems } from './items';
 
 export type OrderWithProductless = {
@@ -228,13 +230,3 @@ export function toCsv(rows: ReportRow[]): string {
 }
 
 export { currency };
-
-export async function countRows() {
-    const [orders, products, messages, config] = await Promise.all([
-        prisma.order.count(),
-        prisma.product.count(),
-        prisma.botMessage.count(),
-        prisma.config.count(),
-    ]);
-    return { orders, products, messages, config };
-}

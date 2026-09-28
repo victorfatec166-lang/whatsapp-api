@@ -1,4 +1,6 @@
-import { computeStats, type DashboardStats, type OrderWithProductless } from './stats';
+// DashboardStats saiu do import: sobrou quando os numeros de faturamento foram
+// para a aba Faturamento. Hoje a Home so devolve contagem de pedidos.
+import { computeStats, type OrderWithProductless } from './stats';
 import { reorderList, type StockRow } from './stock';
 import { openShift, shiftHistory, type OpenShift, type ParkedSaleView } from './cash';
 import { parkedSales } from './cash';

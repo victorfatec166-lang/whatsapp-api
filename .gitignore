@@ -8,6 +8,10 @@ prisma/*.db-wal
 prisma/*.db-shm
 uploads/
 
+# Copias do banco geradas pelo src/services/backup.ts. Sao artefato local de
+# maquina: nao pertencem ao repositorio e nao fazem sentido em outro clone.
+backups/
+
 # Scripts de manutencao de uso unico (substituem texto em arquivos-fonte).
 # Nao fazem parte do aplicativo. Apenas estas pastas sao descartadas; o que
 # estiver solto em scripts/ e ferramenta real e entra no versionamento.

@@ -50,6 +50,7 @@ import {
     shiftHistory,
 } from './services/cash';
 import { startCashScheduler, isValidHhMm } from './services/cashSchedule';
+import { startBackupScheduler, backupDir } from './services/backup';
 import { ensureSku, exportProductsCsv, importProductsFromCsv } from './services/products';
 import { loadProductFull, priceCart, linesToItemsField } from './services/modifiers';
 import { getDailyMenu, setDailyMenu, copyDailyMenu, previousDailyMenu } from './services/dailyMenu';
@@ -1577,6 +1578,11 @@ app.listen(PORT, async () => {
     // Agenda de abertura/fechamento do caixa: notifica o painel quando um
     // turno abre ou fecha sozinho, para a tela atualizar sem recarregar.
     startCashScheduler(() => notifyClients());
+
+    // Backup do banco: uma copia no startup e outra a cada 6h. O negocio todo
+    // cabe num arquivo SQLite, e perder esse arquivo nao tem conserto.
+    startBackupScheduler();
+    console.log(`Backups em: ${backupDir()}`);
 
     await initBot(notifyClients);
 });

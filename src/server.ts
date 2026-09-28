@@ -35,8 +35,9 @@ import {
     reorderList,
     wasteSummary,
     stockStatus,
-    type StockRow,
+       type StockRow,
 } from './services/stock';
+import { createOrderWithStock } from './services/orders';
 import {
     cashSummary,
     registerCashMovement,
@@ -358,9 +359,22 @@ app.post('/api/admin/pdv/orders', async (req, res) => {
 
         const customer = typeof body.customer === 'string' ? body.customer.trim().slice(0, 80) : '';
 
-        const order = await prisma.order.create({
-            data: {
-                // Balcao nao tem WhatsApp: identificamos pelo canal + nome do cliente.
+        /*
+         * Pedido e baixa de estoque no mesmo commit.
+         *
+         * Antes eram dois: prisma.order.create() e depois registerSale(), que
+         * abria a transacao dela. Se o estoque falhasse, o pedido ficava
+         * gravado e o sistema contava uma venda que nao tinha baixado nada.
+         * createOrderWithStock faz as duas coisas juntas, entao agora nao existe
+         * esse estado intermediario.
+         *
+         * O preco continua sendo calculado acima, por computeTotals, sobre as
+         * linhas que priceCart ja precificou a partir do banco. Este bloco
+         * so grava.
+         */
+        const { order, shortfalls } = await createOrderWithStock(
+            {
+                // Balcao nao tem WhatsApp: identificamos pelo canal + nome.
                 clientPhone: customer ? `pdv:${customer}` : 'pdv:balcao',
                 clientName: customer || 'Cliente Balcao',
                 items: linesToItemsField(lines),
@@ -373,12 +387,19 @@ app.post('/api/admin/pdv/orders', async (req, res) => {
                 channel: 'pdv',
                 paymentMethod,
             },
-        });
-
-        // Baixa estoque: em combo, abate nos componentes (nao no combo).
-        await registerSale(stockDeductions, 'pdv', `Venda balcao #${order.id.slice(0, 8)}`);
+            // Em combo, o abate e' nos componentes (ja resolvido pelo priceCart).
+            stockDeductions,
+            'pdv'
+        );
 
         notifyClients();
+
+        /*
+         * shortfalls sao itens que venderam com saldo insuficiente. A venda foi
+         * concluida de proposito: recusar um pedido no meio do almoço por causa
+         * de um saldo velho custa mais caro do que vender e avisar. O caixa ve
+         * isto na resposta e pode repor na hora.
+         */
         res.status(201).json({
             success: true,
             id: order.id,
@@ -388,8 +409,19 @@ app.post('/api/admin/pdv/orders', async (req, res) => {
             tip: currency(totals.tip),
             total: currency(totals.total),
             paymentLabel: PDV_PAYMENT_LABELS[paymentMethod],
+            ...(shortfalls.length > 0
+                ? {
+                      semSaldo: shortfalls.map((s) => ({
+                          nome: s.nome,
+                          pediu: s.pediu,
+                          tinha: s.tinha,
+                      })),
+                  }
+                : {}),
         });
     } catch (error) {
+        // Como pedido e estoque sao o mesmo commit, chegar aqui significa que
+        // NADA foi gravado. O caixa pode tentar de novo sem duplicar nada.
         console.error('Erro ao registrar venda do PDV:', error);
         res.status(500).json({ error: 'Erro ao registrar venda' });
     }

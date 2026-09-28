@@ -35,6 +35,13 @@ model Product {
   comboComponents  ComboItem[]         @relation("ComboParent")
   comboIn          ComboItem[]         @relation("ComboChild")
   dailyMenuItems   DailyMenuItem[]
+
+  // A lista de reposicao filtra por trackStock e compara stock com minStock.
+  // Sem indice, essa varre o catalogo inteiro -- e ela roda a cada abertura do
+  // painel, e outra vez a cada venda, porque o alerta de estoque zerado vem
+  // dela. O indice em trackStock ja corta a maioria, que sao os produtos sem
+  // controle.
+  @@index([trackStock])
 }
 
 /// Menu do dia: os pratos que a loja destaca em uma data especifica.
@@ -168,6 +175,21 @@ model Order {
   paymentMethod String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  // Indices medidos, nao adicionados por costume. O EXPLAIN QUERY PLAN mostrava
+  // SCAN em todas as consultas de pedido, e "USE TEMP B-TREE FOR ORDER BY"
+  // nos que ordenavam por data -- ou seja, o SQLite varria a tabela e depois
+  // ordenava tudo em memoria. Com 10 pedidos isso e' invisivel; com um ano de
+  // historico, o Kanban do meio-dia passa a arrastar o arquivo inteiro.
+  //
+  // [status] e [createdAt] resolvem o Kanban e o Relatorio. O terceiro e
+  // composto de proposito: o Kanban e' a consulta mais repetida do sistema,
+  // e ele filtra por status E ordena por data. Com indice separado, o SQLite
+  // usaria um e ainda ordenaria em memoria; com o composto, faz os dois de
+  // uma vez.
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
 }
 
 /// Venda pausada no PDV: o cliente esqueceu algo e a fila nao pode esperar.

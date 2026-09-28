@@ -1,4 +1,5 @@
 import { prisma } from '../database/prisma';
+import { emFila } from './writeQueue';
 
 export type MovementType = 'entrada' | 'saida' | 'perda' | 'ajuste';
 export type MovementSource = 'pdv' | 'whatsapp' | 'manual';
@@ -165,47 +166,135 @@ export async function setStockTo(params: {
 }
 
 /**
- * Baixa o estoque dos itens vendidos em uma unica transacao. Usado pelo PDV e
- * pelo bot do WhatsApp. Produtos sem controle de estoque sao ignorados.
+ * Cliente de transacao aceito pelas funcoes de estoque.
+ *
+ * E' o que permite a mesma operacao rodar dentro da transacao que cria o
+ * pedido (orders.ts) ou abrir a dela sozinha. Sem isso, pedido e baixa de
+ * estoque seriam dois commits independentes.
+ */
+export type StockTx = {
+    product: {
+        findMany: (args: unknown) => Promise<Array<{ id: string; name: string; stock: number; trackStock: boolean }>>;
+    };
+    stockMovement: { create: (args: unknown) => Promise<unknown> };
+    $executeRawUnsafe: (sql: string, ...vals: unknown[]) => Promise<number>;
+};
+
+/**
+ * Produto que ficou sem saldo no meio de uma venda.
+ *
+ * Nao bloqueia a venda: avisar e' melhor do que recusar. O saldo do sistema
+ * envelhece -- alguem vendeu no balcao sem atualizar, ou o pedido anterior ja
+ * tinha zerado -- e recusar um pedido valido no meio do almoço custa mais caro
+ * do que vender e sinalizar. O dono ve o aviso e reponde.
+ */
+export type Shortfall = {
+    productId: string;
+    nome: string;
+    pediu: number;
+    tinha: number;
+};
+
+/**
+ * Baixa o estoque dos itens vendidos, de forma atomica de verdade.
+ *
+ * A versao anterior lia o saldo com um SELECT e depois gravava um valor
+ * absoluto (stock - qty). Duas vendas do mesmo produto ao mesmo tempo liam as
+ * duas o mesmo saldo e gravavam as duas o mesmo resultado: a segunda baixa se
+ * perdia e o estoque ficava um item acima do real. No almoço, com o balcao e
+ * o bot batendo juntos, isso nao e hipotese.
+ *
+ * Aqui o decremento acontece dentro do proprio UPDATE, calculado pelo banco a
+ * partir do valor atual da linha. Nao existe leitura em JS para ficar
+ * desatualizada, porque o numero que entra na conta e' o do banco no momento
+ * do UPDATE. O MAX(0, ...) mantem a garantia antiga de saldo nunca negativo, e
+ * agora sem a janela entre ler e gravar.
+ *
+ * Em combos o abate e' sempre nos componentes: quem chega aqui ja recebeu a
+ * lista de productId resolvida, nunca o id do combo.
+ */
+export async function decrementStock(
+    tx: StockTx,
+    items: Array<{ productId: string; qty: number }>,
+    source: MovementSource,
+    note?: string
+): Promise<Shortfall[]> {
+    const shortfalls: Shortfall[] = [];
+
+    // Consolida por produto. O mesmo componente pode entrar duas vezes num
+    // combo, e baixar em duas linhas separadas abriria de novo a janela.
+    const totalPorProduto = new Map<string, number>();
+    for (const i of items) {
+        if (!i.productId) continue;
+        const qty = Math.abs(Math.round(i.qty));
+        if (qty === 0) continue;
+        totalPorProduto.set(i.productId, (totalPorProduto.get(i.productId) ?? 0) + qty);
+    }
+    if (totalPorProduto.size === 0) return shortfalls;
+
+    // Esta leitura e' so para o aviso de falta. A gravacao nao depende dela.
+    const ids = [...totalPorProduto.keys()];
+    const products = await tx.product.findMany({ where: { id: { in: ids } } });
+    const before = new Map(products.filter((p) => p.trackStock).map((p) => [p.id, p.stock]));
+
+    for (const [productId, qty] of totalPorProduto) {
+        const saldoAntes = before.get(productId);
+        if (saldoAntes === undefined) continue; // produto sem controle de estoque
+
+        await tx.$executeRawUnsafe(
+            'UPDATE "Product" SET "stock" = MAX(0, "stock" - ?) WHERE "id" = ?',
+            qty,
+            productId
+        );
+
+        await tx.stockMovement.create({
+            data: {
+                productId,
+                type: 'saida',
+                quantity: qty,
+                delta: -qty,
+                source,
+                note: note ?? null,
+            },
+        });
+
+        if (saldoAntes < qty) {
+            const nome = products.find((p) => p.id === productId)?.name ?? productId;
+            shortfalls.push({ productId, nome, pediu: qty, tinha: saldoAntes });
+        }
+    }
+
+    return shortfalls;
+}
+
+/**
+ * Baixa o estoque de uma venda abrindo a propria transacao.
+ *
+ * Use quando a venda NAO cria pedido junto. Para venda com pedido, use
+ * createOrderWithStock, que faz as duas coisas no mesmo commit.
+ *
+ * Falha aqui nunca derruba a venda: o erro e' registrado e devolvido, porque o
+ * pedido ja foi aceito e recusar depois seria pior.
  */
 export async function registerSale(
     items: Array<{ productId: string; qty: number }>,
     source: MovementSource,
     note?: string
-): Promise<void> {
-    const list = items.filter((i) => i.productId && Math.abs(Math.round(i.qty)) > 0);
-    if (list.length === 0) return;
-
+): Promise<{ ok: boolean; shortfalls: Shortfall[]; error?: string }> {
     try {
-        await prisma.$transaction(async (tx) => {
-            const ids = [...new Set(list.map((i) => i.productId))];
-            const products = await tx.product.findMany({ where: { id: { in: ids } } });
-            const tracked = new Map(products.filter((p) => p.trackStock).map((p) => [p.id, p]));
-
-            for (const item of list) {
-                const product = tracked.get(item.productId);
-                if (!product) continue;
-                const qty = Math.abs(Math.round(item.qty));
-
-                await tx.product.update({
-                    where: { id: product.id },
-                    data: { stock: Math.max(0, product.stock - qty) },
-                });
-                await tx.stockMovement.create({
-                    data: {
-                        productId: product.id,
-                        type: 'saida',
-                        quantity: qty,
-                        delta: -qty,
-                        source,
-                        note: note ?? null,
-                    },
-                });
-            }
-        });
+        // Mesma fila de createOrderWithStock: uma gravacao por vez evita
+        // disputa de lock no SQLite. Quem chama isso sem criar pedido e' o
+        // acerto de caixa e o ajuste manual.
+        const shortfalls = await emFila(() =>
+            prisma.$transaction(
+                (tx) => decrementStock(tx as unknown as StockTx, items, source, note),
+                { timeout: 10_000, maxWait: 5_000 }
+            )
+        );
+        return { ok: true, shortfalls };
     } catch (error) {
-        // A venda ja foi registrada: nao podemos derruba-la por causa do estoque.
         console.error('Erro ao baixar estoque da venda:', error);
+        return { ok: false, shortfalls: [], error: 'Erro ao baixar estoque' };
     }
 }
 

@@ -12,7 +12,7 @@ import { prisma } from '../database/prisma';
 // o cache) importa direto do botDefaults. Aqui ele nunca foi usado, e o
 // import mascarava de onde os textos realmente saem.
 import { loadBotMessages, getBotMessage } from './botMessages';
-import { registerSale } from './stock';
+import { createOrderWithStock } from './orders';
 import { loadProductFull, priceCart, linesToItemsField, type ProductFull } from './modifiers';
 import { buildBotMenu, renderBotMenuText } from './dailyMenu';
 
@@ -81,8 +81,17 @@ async function createBotOrder(
     const line = priced.result.lines[0];
     const itemsField = linesToItemsField(priced.result.lines);
 
-    const newOrder = await prisma.order.create({
-        data: {
+    /*
+     * Pedido e baixa de estoque no mesmo commit.
+     *
+     * Se a gravacao falhar, a excecao sobe e o catch de quem chamou avisara o
+     * cliente. O importante e' que nao exista o estado em que o pedido esta
+     * gravado e o estoque nao foi mexido: com o bot e o balcao vendendo o
+     * mesmo item ao mesmo tempo, esse estado fazia o estoque contar coisa que
+     * nao saiu.
+     */
+    const { order: newOrder, shortfalls } = await createOrderWithStock(
+        {
             clientPhone: jid,
             clientName: 'Cliente WhatsApp',
             items: itemsField,
@@ -90,12 +99,24 @@ async function createBotOrder(
             total: line.total,
             status: 'pendente',
         },
-    });
+        // Em combo, o abate e' nos componentes, nunca no combo.
+        priced.result.stockDeductions,
+        'whatsapp'
+    );
 
     console.log(`✅ Pedido criado com sucesso ID: ${newOrder.id}`);
 
-    // Baixa estoque; em combo, nos componentes.
-    await registerSale(priced.result.stockDeductions, 'whatsapp', `Pedido #${newOrder.id.slice(0, 8)}`);
+    /*
+     * Cliente que pediu item sem saldo ainda recebe o pedido. Recusar por causa
+     * de um contador velho, no meio do pico, joga a venda fora -- e quem sofre
+     * e' a cozinha, que ja produziu. O dono recebe a lista no log e reponde.
+     */
+    if (shortfalls.length > 0) {
+        console.warn(
+            `[estoque] Pedido ${newOrder.id.slice(0, 8)} vendeu sem saldo: ` +
+                shortfalls.map((s) => `${s.nome} (pediu ${s.pediu}, tinha ${s.tinha})`).join(', ')
+        );
+    }
 
     if (onOrderCreated) onOrderCreated();
 

@@ -250,39 +250,62 @@ export async function receberPedido(channel: Canal, corpo: string, cabecalhos: R
     // do que o cliente pagou. A diferenca com o catalogo local fica visivel.
     const subtotal = normalizado.totalDeclarado ?? 0;
 
-    const criado = await createOrderWithStock(
-        {
-            clientPhone: normalizado.clienteTelefone,
-            clientName: normalizado.clienteNome,
-            items: textoItens,
-            subtotal,
-            total: subtotal,
-            notes: normalizado.observacoes,
-            status: 'pendente',
-            channel,
-            paymentMethod: 'plataforma',
-            /*
-             * No mesmo commit do insert, e nao num update depois.
-             *
-             * A versao anterior criava o pedido e so entao gravava o
-             * externalId, num segundo commit. Entre os dois, o pedido estava no
-             * banco com externalId nulo, e um reenvio da plataforma nesse
-             * intervalo passava pelo indice unico -- o mesmo pedido entrava duas
-             * vezes no Kanban e o estoque baixava duas vezes. A plataforma
-             * reenvia justamente quando nao recebe o retorno, ou seja, existe
-             * alguem reenviando.
-             *
-             * Se o indice unico barrar agora, o erro sobe como falha de banco e
-             * o webhook responde 500. Isso e' a resposta certa: o pedido ja
-             * existe, e repetir ele seria o erro. A checagem la em cima trata o
-             * reenvio normal; esta trata a corrida entre duas entregas do mesmo
-             * pedido chegando ao mesmo tempo.
-             */
-            externalId: normalizado.externalId,
-        },
-        normalizado.itens.map((i) => ({ productId: i.productId, qty: i.qty })),
-        'pdv'
-    );
+    /*
+     * Grava o pedido.
+     *
+     * O `catch` existe para a corrida entre duas entregas do mesmo pedido
+     * chegando no mesmo instante: as duas passam da checagem de "ja existe"
+     * acima, e uma delas e' barrada pelo indice unico no insert. Isso NAO e'
+     * falha -- o pedido existe, e repetir seria o erro -- entao vira a mesma
+     * resposta de reenvio, e nao um 500.
+     *
+     * A diferenca importa para a plataforma. Com 500, o iFood entende que a
+     * loja nao recebeu o pedido, e pode marcar o pedido como perdido no painel
+     * do parceiro enquanto a cozinha ja estao montando. Com 200 e "duplicado",
+     * a plataforma fecha o pedido com a loja em paz.
+     */
+    let criado: Awaited<ReturnType<typeof createOrderWithStock>>;
+    try {
+        criado = await createOrderWithStock(
+            {
+                clientPhone: normalizado.clienteTelefone,
+                clientName: normalizado.clienteNome,
+                items: textoItens,
+                subtotal,
+                total: subtotal,
+                notes: normalizado.observacoes,
+                status: 'pendente',
+                channel,
+                paymentMethod: 'plataforma',
+                /*
+                 * No mesmo commit do insert, e nao num update depois.
+                 *
+                 * A versao anterior criava o pedido e so entao gravava o
+                 * externalId, num segundo commit. Entre os dois, o pedido estava
+                 * no banco com externalId nulo, e um reenvio da plataforma
+                 * nesse intervalo passava pelo indice unico -- o mesmo pedido
+                 * entrava duas vezes no Kanban e o estoque baixava duas vezes.
+                 * A plataforma reenvia justamente quando nao recebe o retorno,
+                 * ou seja, existe alguem reenviando.
+                 */
+                externalId: normalizado.externalId,
+            },
+            normalizado.itens.map((i) => ({ productId: i.productId, qty: i.qty })),
+            'pdv'
+        );
+    } catch (erro) {
+        if (ehViolacaoDeExternalId(erro)) {
+            // O pedido que ganhou a corrida ja esta no Kanban. Devolve o mesmo
+            // "duplicado" do reenvio normal.
+            log.warn(`Corrida no webhook de ${channel}: o pedido ${normalizado.externalId} ja tinha sido gravado`);
+            const jaGravado = await prisma.order.findUnique({
+                where: { channel_externalId: { channel, externalId: normalizado.externalId } },
+                select: { id: true },
+            });
+            return { aceito: true, duplicado: true, id: jaGravado?.id ?? '' };
+        }
+        throw erro;
+    }
 
     await registrarPedido(channel);
 
@@ -293,4 +316,22 @@ export async function receberPedido(channel: Canal, corpo: string, cabecalhos: R
         itensSemMapeamento: normalizado.itensSemMapeamento,
         shortfalls: criado.shortfalls.length,
     };
+}
+
+/**
+ * A violacao veio do indice unico de (channel, externalId)?
+ *
+ * O Prisma marca violacao de unicidade com o codigo P2002 e diz qual indice
+ * no `meta.target`. Confere o indice e nao apenas o codigo, porque qualquer
+ * outro indice unico violado -- o `phone` da Chat, por exemplo -- tem o mesmo
+ * P2002 e significaria outra coisa.
+ */
+function ehViolacaoDeExternalId(error: unknown): boolean {
+    const e = error as { code?: unknown; meta?: { target?: unknown } };
+    if (e?.code !== 'P2002') return false;
+    const alvo = e.meta?.target;
+    const lista = Array.isArray(alvo) ? alvo : typeof alvo === 'string' ? [alvo] : [];
+    // O nome do indice vem como "Order_channel_externalId_key" ou como a lista
+    // de colunas, dependendo da versao. Os dois casos sao tratados.
+    return lista.some((t: unknown) => typeof t === 'string' && /channel.*externalId|externalId.*channel/i.test(t));
 }

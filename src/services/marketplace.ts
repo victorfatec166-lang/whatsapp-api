@@ -27,6 +27,24 @@ export const STATUS_CONTA = ['sem-credencial', 'homologacao', 'ativo', 'erro'] a
 export type StatusConta = (typeof STATUS_CONTA)[number];
 
 /**
+ * Erro de regra: algo que a pessoa precisa ler para corrigir.
+ *
+ * Existe para separar "faltou o CHANNEL_SECRET" de "o banco caiu". O primeiro
+ * tem de aparecer na tela, com o texto que explica o que fazer; o segundo nao
+ * pode vazar detalhe interno para quem esta na rede.
+ *
+ * Os erros de regra sao os poucos pontos onde `throw` e' a forma certa: sao
+ * checagens que o chamador PRECISA conhecer, e a alternativa -- devolver um
+ * objeto de resultado -- espalha a mesma verificacao por todo lugar.
+ */
+export class ErroDeRegra extends Error {
+    constructor(mensagem: string) {
+        super(mensagem);
+        this.name = 'ErroDeRegra';
+    }
+}
+
+/**
  * Chave de cifra.
  *
  * Vem do ambiente e nao tem valor padrao. Sem ela, guardar credencial e'
@@ -59,7 +77,7 @@ export function cifrar(texto: string): string {
     if (!texto) return '';
     const chave = chaveDeCifra();
     if (!chave) {
-        throw new Error("CHANNEL_SECRET nao configurado: nao e possivel guardar credencial.");
+        throw new ErroDeRegra("CHANNEL_SECRET nao configurado: nao e possivel guardar credencial.");
     }
     const iv = crypto.randomBytes(12);
     const cifra = crypto.createCipheriv('aes-256-gcm', chave, iv);
@@ -150,10 +168,10 @@ export async function guardarCredencial(
     dados: { segredo: string; webhookSecret?: string }
 ): Promise<void> {
     if (!temChaveDeCifra()) {
-        throw new Error("CHANNEL_SECRET nao configurado no .env. Sem ele a credencial nao e guardada.");
+        throw new ErroDeRegra("CHANNEL_SECRET nao configurado no .env. Sem ele a credencial nao e guardada.");
     }
     if (!dados.segredo.trim()) {
-        throw new Error('Informe a credencial do parceiro.');
+        throw new ErroDeRegra('Informe a credencial do parceiro.');
     }
 
     await prisma.marketplaceAccount.upsert({

@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "scripts": {
     "build:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --minify",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:ts": "tsc",
-    "build": "npm run build:ts && npm run build:css",
+    "build": "npm run clean && npm run build:ts && npm run build:css",
     "watch:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --watch",
     "check:contrast": "node scripts/check-contrast.js",
     "check:js": "node scripts/check-js.js",
+    "test": "node --import tsx --test tests/*.test.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {
@@ -28,6 +30,7 @@
     "postcss": "^8.5.28",
     "prisma": "^5.22.0",
     "tailwindcss": "^3.4.19",
+    "tsx": "^4.23.15",
     "typescript": "^5.3.3"
   }
 }

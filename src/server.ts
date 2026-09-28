@@ -74,11 +74,22 @@ import {
 } from './services/stats';
 import { DEFAULT_BOT_MESSAGES } from './services/botDefaults';
 import { logDoModulo, pastaDeLogs } from './services/logger';
+import { limitador as limitePorJanela } from './services/rateLimit';
 const log = logDoModulo('server');
 
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
+
+/*
+ * Limite de escrita.
+ *
+ * 30 requisicoes de escrita por 10 segundos. Calibrado contra o pior caso real
+ * de uso na tela: uma pessoa cadastrando produto com foto e varios movimento
+ * de estoque em sequencia, que e' a rajada mais longa que existe no painel.
+ * Acima disso, ou e' gente nao vendo o resultado, ou nao e' pessoa.
+ */
+const limiteEscrita = limitePorJanela({ max: 30, janelaMs: 10_000 });
 
 const VALID_ORDER_STATUS: string[] = [...ORDER_STATUSES];
 
@@ -109,6 +120,29 @@ app.use(
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+/*
+ * Limite de requisicoes nas rotas que escrevem.
+ *
+ * Montado aqui, e nao dentro de cada router, por dois motivos: a lista do que
+ * protege fica num lugar so, e uma rota nova nasce protegida sem ninguem
+ * lembrar.
+ *
+ * Escrita e' o que tem limite apertado. Ler nao tem limite nenhum de proposito:
+ * quem abre o painel atualiza o Kanban, o estoque e o caixa na mesma visita, e
+ * um limite de leitura derrubaria a tela no meio do expediente sem impedir
+ * nada de ruim.
+ *
+ * Os numeros nao sao regulationos de seguranca, sao o ponto em que um laco
+ * comeca a fazer estrago antes de alguem perceber. Uma pessoa com o dedo na
+ * tela nao chega perto: digitar no campo de mensagem e' uma requisicao por
+ * tecla, e o limite de envio esta bem acima disso.
+ */
+app.use('/api/admin', (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    return limiteEscrita(req, res, next);
+});
+
 // Fotos de produto ficam em public/uploads e sao servidas estaticamente.
 app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads'), { maxAge: '7d' }));
 // CSS compilado do design system (saida de `npm run build:css`).
@@ -1338,7 +1372,28 @@ app.get('/admin/reports.csv', async (req, res) => {
             orderBy: { createdAt: 'desc' },
         });
 
-        const csv = toCsv(toReportRows(orders));
+        /*
+         * O CSV vai para o Excel do dono, e um "@lid" na coluna de telefone e'
+         * um telefone que ele nao consegue usar para ligar. Resolve aqui, com a
+         * mesma fonte que a tela usa.
+         */
+        const jidsCsv = [...new Set(orders.map((o) => o.clientPhone.trim()).filter(Boolean))];
+        const telefonesCsv = new Map<string, string>();
+        if (jidsCsv.length > 0) {
+            const chats = await prisma.chat.findMany({
+                where: { phone: { in: jidsCsv } },
+                select: { phone: true, telefone: true },
+            });
+            for (const ch of chats) {
+                if (ch.telefone) telefonesCsv.set(ch.phone, ch.telefone);
+            }
+        }
+        const linhasCsv = orders.map((o) => ({
+            ...o,
+            telefoneResolvido: telefonesCsv.get(o.clientPhone.trim()) ?? '',
+        }));
+
+        const csv = toCsv(toReportRows(linhasCsv));
         const stamp = new Date().toISOString().slice(0, 10);
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="pedidos-${stamp}.csv"`);
@@ -1476,12 +1531,41 @@ app.get('/admin', async (req, res) => {
                     concluido: 'badge-slate',
                 };
 
+                /*
+                 * Telefone resolvido por endereco, para a coluna de cliente.
+                 *
+                 * Uma consulta para os enderecos deste periodo, indexada em
+                 * memoria. Sem ela, a lista de pedidos mostraria "192...@lid"
+                 * ao lado da lista de clientes mostrando o numero verdadeiro --
+                 * dois dados sobre a mesma pessoa, na mesma tela, discordando.
+                 *
+                 * O endereco continua no pedido: e' ele que o bot usa para
+                 * responder. Aqui e' so o que se mostra.
+                 */
+                const telefonesDoPeriodo = new Map<string, string>();
+                {
+                    const jids = [...new Set(filtrados.map((o) => o.clientPhone.trim()).filter(Boolean))];
+                    if (jids.length > 0) {
+                        const chats = await prisma.chat.findMany({
+                            where: { phone: { in: jids } },
+                            select: { phone: true, telefone: true },
+                        });
+                        for (const ch of chats) {
+                            if (ch.telefone) telefonesDoPeriodo.set(ch.phone, ch.telefone);
+                        }
+                    }
+                }
+
                 const rowsHtml = filtrados
                     .map(
                         (o) => `<tr>
                             <td class="text-xs ink-3">${escapeHtml(o.createdAt.toLocaleString('pt-BR'))}</td>
                             <td class="font-medium">${escapeHtml(o.clientName || 'Cliente')}</td>
-                            <td class="text-xs ink-3">${escapeHtml(o.channel === 'pdv' ? (o.paymentMethod ?? 'Balcao') : o.clientPhone.replace('@s.whatsapp.net', ''))}</td>
+                            <td class="text-xs ink-3">${escapeHtml(
+                                o.channel === 'pdv'
+                                    ? (o.paymentMethod ?? 'Balcao')
+                                    : telefonesDoPeriodo.get(o.clientPhone.trim()) || o.clientPhone.replace('@s.whatsapp.net', '')
+                            )}</td>
                             <td class="text-xs max-w-xs truncate">${escapeHtml(o.items)}</td>
                             <td class="text-xs ink-3">${o.discount > 0 ? '- ' + escapeHtml(currency(o.discount)) : ''} ${o.tip > 0 ? '+ ' + escapeHtml(currency(o.tip)) : ''}</td>
                             <td class="font-semibold accent-amber-strong">R$ ${escapeHtml(o.total.toFixed(2))}</td>

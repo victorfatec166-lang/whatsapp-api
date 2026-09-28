@@ -45,7 +45,11 @@ export function renderCustomers(d: CustomersData): string {
                                     <span class="w-8 h-8 rounded-full bg-accent-soft text-accent-strong text-caption font-bold flex items-center justify-center shrink-0">${escapeHtml(initials(r))}</span>
                                     <div class="min-w-0">
                                         <div class="text-body font-medium text-ink truncate">${escapeHtml(r.name || r.phone)}</div>
-                                        <div class="text-caption text-ink-3 font-mono">${escapeHtml(r.phone)}</div>
+                                        ${
+                                            r.semTelefone
+                                                ? `<div class="text-caption text-ink-3" title="O WhatsApp ainda nao entregou o telefone deste cliente">numero nao identificado</div>`
+                                                : `<div class="text-caption text-ink-3 font-mono">${escapeHtml(r.phone)}</div>`
+                                        }
                                     </div>
                                 </div>
                             </td>
@@ -57,10 +61,16 @@ export function renderCustomers(d: CustomersData): string {
                             <td class="max-w-[14rem] truncate text-ink-2" title="${escapeHtml(r.favorite ?? '')}">${r.favorite ? `${escapeHtml(r.favorite)} <span class="text-ink-3">(${r.favoriteQty})</span>` : '<span class="text-ink-3">--</span>'}</td>
                             <td class="text-caption text-ink-3">${escapeHtml(r.lastOrderAt)}</td>
                             <td>
-                                <a href="https://wa.me/${escapeHtml(r.phone)}" target="_blank" rel="noopener"
+                                ${
+                                    r.semTelefone
+                                        ? `<span class="btn btn-ghost btn-sm opacity-50" title="Sem telefone, nao da para abrir conversa pelo WhatsApp Web">
+                                    <i class="fa-brands fa-whatsapp"></i> Falar
+                                </span>`
+                                        : `<a href="https://wa.me/${escapeHtml(r.phone)}" target="_blank" rel="noopener"
                                     class="btn btn-ghost btn-sm" title="Abrir conversa no WhatsApp">
                                     <i class="fa-brands fa-whatsapp"></i> Falar
-                                </a>
+                                </a>`
+                                }
                             </td>
                         </tr>`
                             )

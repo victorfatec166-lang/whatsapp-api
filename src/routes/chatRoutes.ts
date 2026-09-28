@@ -19,6 +19,17 @@ import { logDoModulo } from '../services/logger';
 const log = logDoModulo('chatRoutes');
 const router = Router();
 
+/**
+ * Ultimo envio por (conversa, texto), para barrar a repeticao imediata.
+ *
+ * Cinco segundos. Curto o bastante para pegar duplo envio, longo o bastante
+ * para nao pegar o atendente que legitimamente repete uma frase -- "são 30
+ * minutos, pode vir" -- em duas conversas seguidas, o que acontece com
+ * frequencia numa loja de marmita e nao pode ser bloqueado.
+ */
+const JANELA_REPETICAO_MS = 5_000;
+const ultimoEnvio = new Map<string, number>();
+
 /*
  * Rotas de conversa.
  *
@@ -123,11 +134,45 @@ router.post('/chat/:id/enviar', async (req: Request, res: Response) => {
 
         const texto = String((req.body ?? {}).texto ?? '').trim();
         if (!texto) return res.status(400).json({ error: 'Escreva a mensagem.' });
-        // WhatsApp aceita texto longo, mas um texto de 30kb digitado no campo
-        // quase sempre e' cole acidental, e um texto longo demais e' barrado
-        // pelo WhatsApp sem mensagem util.
-        if (texto.length > 4000) {
-            return res.status(400).json({ error: 'Mensagem muito longa (max 4000 caracteres).' });
+        /*
+         * Teto de 2000 caracteres, e nao os 4000 que o WhatsApp aceita.
+         *
+         * O limite do WhatsApp existe para nao cortar mensagem; aqui o teto e'
+         * menor por outro motivo: e' o maior texto que uma pessoa digita
+         * respondendo um cliente sobre um pedido de marmita. Passar disso e'
+         * ou um texto colado inteiro, ou uma pessoa colando o historico de novo
+         * sem perceber -- e nos dois casos o cliente recebe um bloco que nao
+         * foi lido por ninguem.
+         */
+        if (texto.length > 2000) {
+            return res.status(400).json({ error: 'Mensagem muito longa (max 2000 caracteres).' });
+        }
+
+        /*
+         * Resposta repetida para o mesmo cliente, no mesmo instante.
+         *
+         * A tela trava o botao durante o envio, entao um duplo clique nao
+         * chega aqui. Chega o duplo envio por outra via -- Enter duas vezes com
+         * o foco voltando ao campo, um reenvio de rede, o `chatManda` chamado
+         * pelo onkeydown e pelo onclick ao mesmo tempo. O cliente receberia a
+         * mesma frase duas vezes, e a segunda parece o atendente se repetindo.
+         *
+         * A janela e' curta de proposito: repetir a mesma frase de verdade, em
+         * conversa de entrega, acontece em minutos -- nunca no mesmo segundo.
+         */
+        const marca = `${conversa.id}|${texto}`;
+        const agora = Date.now();
+        const anterior = ultimoEnvio.get(marca);
+        if (anterior && agora - anterior < JANELA_REPETICAO_MS) {
+            return res.json({ ok: true, aviso: 'Mensagem repetida ignorada.', ignorada: true });
+        }
+        ultimoEnvio.set(marca, agora);
+        // O Map cresce com cada texto distinto. Sem podar, ficaria grande
+        // demais: o limite de entradas abaixo e' o que segura isso.
+        if (ultimoEnvio.size > 2000) {
+            for (const [chave, quando] of ultimoEnvio) {
+                if (agora - quando > JANELA_REPETICAO_MS) ultimoEnvio.delete(chave);
+            }
         }
 
         // assume antes de enviar: mensagem do painel com o bot atendendo e' o

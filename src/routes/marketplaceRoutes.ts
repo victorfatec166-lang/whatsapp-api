@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma';
 import {
     CANAIS,
+    ErroDeRegra,
     casarItem,
     guardarCredencial,
     listarContas,
@@ -64,9 +65,24 @@ router.post('/api/admin/marketplace/:channel/credencial', async (req: Request, r
         await guardarCredencial(channel, { segredo, webhookSecret });
         res.json({ ok: true });
     } catch (error) {
+        /*
+         * A mensagem de erro vai para o cliente porque aqui ela e' de negocio:
+         * "CHANNEL_SECRET nao configurado" e "informe a credencial" sao coisas que
+         * a pessoa precisa ler para corrigir, e esconder isso deixaria a tela
+         * mudando de estado sem explicar por que.
+         *
+         * O que nao pode e' o inverso -- um erro de banco ou de cifra chegando
+         * cru para quem esta na rede. A distincao e' feita pelo tipo: os erros
+         * de regra que `guardarCredencial` levanta tem `nomeDoErro`, e so eles
+         * passam. Qualquer outra coisa vira 500 com texto generico, e o
+         * detalhe fica no log.
+         */
         const msg = error instanceof Error ? error.message : 'Erro ao guardar credencial';
+        const eDeRegra = error instanceof ErroDeRegra;
         log.error('Erro ao guardar credencial de ' + channel, { erro: msg });
-        res.status(400).json({ error: msg });
+        res.status(eDeRegra ? 400 : 500).json({
+            error: eDeRegra ? msg : 'Nao foi possivel guardar a credencial.',
+        });
     }
 });
 

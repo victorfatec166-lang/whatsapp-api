@@ -6,6 +6,15 @@ import { parseItems } from './items';
 export type OrderWithProductless = {
     id: string;
     clientPhone: string;
+    /**
+     * Numero de verdade do cliente, quando o sistema ja resolveu.
+     *
+     * Fica aqui, e nao dentro de `clientPhone`, porque o `clientPhone` e' o
+     * endereco que o bot usou para responder -- e' ele que volta a funcionar se
+     * o cliente mudar de conta, e mexer nele quebraria o envio de status. Esta
+     * coluna e' so para mostrar na tela.
+     */
+    telefoneResolvido?: string;
     clientName: string | null;
     items: string;
     total: number;
@@ -194,7 +203,18 @@ export function toReportRows(orders: OrderWithProductless[]): ReportRow[] {
         id: o.id,
         quando: o.createdAt.toLocaleString('pt-BR'),
         cliente: o.clientName || 'Cliente',
-        telefone: o.channel === 'pdv' ? (o.paymentMethod ?? 'Balcao') : o.clientPhone.replace('@s.whatsapp.net', ''),
+        // O WhatsApp passou a entregar o endereco como identificador de
+        // privacidade ("192...@lid"), que nao contem telefone. Cortar so o
+        // "@s.whatsapp.net" deixava o "@lid" inteiro na tela -- e a lista de
+        // pedidos fica ao lado da de clientes, que ja mostra o numero
+        // verdadeiro, parecendo dois dados sobre a mesma pessoa.
+        //
+        // `telefoneResolvido` e' preenchido por quem monta o relatorio. Sem ele,
+        // e' o endereco mesmo, que e' o que existe.
+        telefone:
+            o.channel === 'pdv'
+                ? (o.paymentMethod ?? 'Balcao')
+                : o.telefoneResolvido || o.clientPhone.replace('@s.whatsapp.net', ''),
         itens: o.items,
         total: o.total,
         status: o.status,

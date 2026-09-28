@@ -56,7 +56,14 @@ export type ModalSpec = {
     description?: string;
     /** Icone do cabecalho. */
     icon?: string;
-    fields: ModalField[];
+    /**
+     * Campos do formulario.
+     *
+     * Opcional quando a janela traz bodyHtml: nesse caso os campos sao
+     * ignorados, e a ausencia deles e' o que impede o compilador de exigir um
+     * formulario que nao existe.
+     */
+    fields?: ModalField[];
     submitLabel: string;
     submitIcon?: string;
     /** 'danger' destaca a acao que encerra um ciclo (fechar caixa). */
@@ -69,6 +76,22 @@ export type ModalSpec = {
     pendingLabel?: string;
     /** Funcao global chamada com (resposta, spec) apos o envio. */
     after?: string;
+    /**
+     * Corpo pronto, no lugar dos campos.
+     *
+     * Serve para janela que nao e' formulario -- a comanda da cozinha e'
+     * somente leitura, e inventar um campo desabilitado so para carregar um
+     * <pre> seria pior que falar o que a janela quer. Com isso, o esqueleto
+     * continua vindo do componente e so o miolo troca.
+     *
+     * Quando vem preenchido, `fields` e' ignorado e nao ha envio: a janela
+     * cuida do botao por conta propria.
+     */
+    bodyHtml?: string;
+    /** Quando true, o formulario nao e' enviado, e o botao vira acao do window. */
+    noSubmit?: boolean;
+    /** Funcao global chamada pelo botao, so quando noSubmit esta ligado. */
+    onSubmit?: string;
 };
 
 /**
@@ -130,7 +153,7 @@ function field(f: ModalField, janelaId: string): string {
 
 /** Gera a janela a partir da declaracao. */
 export function renderModal(spec: ModalSpec): string {
-    const corpo = spec.fields.map((f) => field(f, spec.id)).join('\n');
+    const corpo = spec.bodyHtml ?? spec.fields.map((f) => field(f, spec.id)).join('\n');
 
     return `        <div id="${spec.id}" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="${spec.id}-title">
             <div class="modal-panel">
@@ -153,11 +176,16 @@ ${corpo}
                     </div>
                     <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-5">
                         <button type="button" data-modal-cancel onclick="${spec.id}Close()" class="btn btn-ghost sm:min-w-[6rem]">
-                            Cancelar
+                            ${spec.noSubmit ? 'Fechar' : 'Cancelar'}
                         </button>
-                        <button type="submit" id="${spec.id}-submit" class="btn ${
-                            spec.tone === 'danger' ? 'btn-danger' : 'btn-primary'
-                        } sm:min-w-[9rem]">
+                        <button type="${
+                            // Janela sem envio usa botao normal: sem ele, o
+                            // formulario tentaria submeter e recarregaria a pagina.
+                            spec.noSubmit ? 'button' : 'submit'
+                        }"
+                                id="${spec.id}-submit"
+                                onclick="${spec.noSubmit ? spec.onSubmit ?? '' : ''}"
+                                class="btn ${spec.tone === 'danger' ? 'btn-danger' : 'btn-primary'} sm:min-w-[9rem]">
                             <i class="fa-solid ${spec.submitIcon ?? 'fa-check'}"></i> ${escapeHtml(spec.submitLabel)}
                         </button>
                     </div>

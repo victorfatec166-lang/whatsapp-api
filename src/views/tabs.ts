@@ -1,6 +1,7 @@
 import { escapeHtml } from './html';
 import { currency, statusLabel, type OrderWithProductless } from '../services/stats';
 import type { DashboardStats } from '../services/stats';
+import { renderComandaModal, COMANDA_SCRIPT } from './comandaModal';
 
 type Product = {
     id: string;
@@ -49,6 +50,15 @@ function orderCard(o: OrderWithProductless, next: string | null, tint: string, a
             ? '<span class="badge-slate text-[10px] px-1.5 py-0.5 rounded font-bold" title="Venda de frente de caixa">PDV</span>'
             : '';
 
+    // Comanda da cozinha. Fica ao lado do botao de status, e nao dentro dele:
+    // imprimir e avancar o status sao acoes diferentes, e quem monta o pedido
+    // as vezes precisa reimprimir sem ter chegado na cozinha ainda.
+    const comanda = `<button type="button" onclick="comandaAbrir('${escapeHtml(o.id)}')"
+                         class="w-full btn btn-ghost text-xs py-1.5 rounded-lg font-medium transition flex items-center justify-center gap-1 mt-1.5"
+                         title="Ver a comanda da cozinha">
+                     <i class="fa-solid fa-print"></i> Comanda
+                 </button>`;
+
     return `                        <div class="surface p-3 rounded-xl border card-${tint.replace('bg-', '')} shadow-sm">
                             <div class="flex justify-between items-start gap-2 font-semibold ink text-sm mb-1">
                                 <span class="truncate">${escapeHtml(o.clientName || 'Cliente')}</span>
@@ -65,6 +75,7 @@ function orderCard(o: OrderWithProductless, next: string | null, tint: string, a
                                 ${channel}
                             </p>
                             ${action}
+                            ${comanda}
                         </div>`;
 }
 
@@ -138,7 +149,10 @@ export function renderKanban(d: KanbanData): string {
                     location.reload();
                 } catch (e) { flash('err', 'Erro de conexao'); }
             }
-        </script>`;
+        </script>
+
+        ${renderComandaModal()}
+${COMANDA_SCRIPT}`;
 }
 
 /* ----------------------------------------------------------- Configuracoes */

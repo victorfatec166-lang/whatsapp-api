@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import QRCode from 'qrcode';
 import adminRoutes from './routes/adminRoutes';
+import comandaRoutes from './routes/comandaRoutes';
 import { addClient, notifyClients, notifyConnection, getClientCount } from './services/sse';
 // QR_TTL_MS saiu daqui: era usado para expire o QR antigo, e a sessao do
 // Baileys ja resolve isso sozinha. O import nao custava nada, mas deixava
@@ -82,6 +83,9 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')
 // Express resolve com 304 cheaply.
 app.use('/styles', express.static(path.join(process.cwd(), 'dist', 'styles'), { etag: true, lastModified: true }));
 app.use('/api/admin', adminRoutes);
+// Comanda da cozinha: saida para a impressora, com vida propria. Ver o
+// arquivo para por que a impressao em si nao acontece aqui.
+app.use('/api/admin', comandaRoutes);
 
 /* ------------------------------------------------------------------ Utils */
 

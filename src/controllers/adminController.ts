@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../database/prisma';
+import { logDoModulo } from '../services/logger';
+const log = logDoModulo('adminController');
 
 export const adminController = {
   // --- GESTÃO DE PRODUTOS ---
@@ -10,7 +12,7 @@ export const adminController = {
       });
       return res.json(products);
     } catch (error) {
-      console.error('Erro ao buscar produtos:', error);
+      log.error('Erro ao buscar produtos:', error);
       return res.status(500).json({ error: 'Erro ao buscar produtos' });
     }
   },
@@ -60,7 +62,7 @@ export const adminController = {
 
       return res.status(201).json(product);
     } catch (error) {
-      console.error('Erro ao criar produto:', error);
+      log.error('Erro ao criar produto:', error);
       return res.status(400).json({ error: 'Erro ao criar produto' });
     }
   },
@@ -89,7 +91,7 @@ export const adminController = {
       });
       return res.status(201).json(copy);
     } catch (error) {
-      console.error('Erro ao duplicar produto:', error);
+      log.error('Erro ao duplicar produto:', error);
       return res.status(400).json({ error: 'Erro ao duplicar produto' });
     }
   },
@@ -107,7 +109,7 @@ export const adminController = {
       });
       return res.json(product);
     } catch (error) {
-      console.error('Erro ao alterar disponibilidade:', error);
+      log.error('Erro ao alterar disponibilidade:', error);
       return res.status(400).json({ error: 'Erro ao alterar disponibilidade' });
     }
   },
@@ -149,7 +151,7 @@ export const adminController = {
 
       return res.json(product);
     } catch (error) {
-      console.error('Erro ao atualizar produto:', error);
+      log.error('Erro ao atualizar produto:', error);
       return res.status(400).json({ error: 'Erro ao atualizar produto' });
     }
   },
@@ -160,7 +162,7 @@ export const adminController = {
       await prisma.product.delete({ where: { id } });
       return res.json({ success: true });
     } catch (error) {
-      console.error("Erro ao deletar produto:", error);
+      log.error("Erro ao deletar produto:", error);
       return res.status(400).json({ error: "Erro ao deletar produto" });
     }
   },
@@ -173,7 +175,7 @@ export const adminController = {
       });
       return res.json(orders);
     } catch (error) {
-      console.error('Erro ao buscar pedidos:', error);
+      log.error('Erro ao buscar pedidos:', error);
       return res.status(500).json({ error: 'Erro ao buscar pedidos' });
     }
   },
@@ -198,7 +200,7 @@ export const adminController = {
 
       return res.json(order);
     } catch (error) {
-      console.error('Erro ao atualizar status do pedido:', error);
+      log.error('Erro ao atualizar status do pedido:', error);
       return res.status(400).json({ error: 'Erro ao atualizar status do pedido' });
     }
   },

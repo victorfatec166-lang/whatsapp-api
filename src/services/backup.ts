@@ -1,6 +1,8 @@
 import { prisma } from '../database/prisma';
 import * as fs from 'fs';
 import * as path from 'path';
+import { logDoModulo } from './logger';
+const log = logDoModulo('backup');
 
 /**
  * Backup do banco.
@@ -64,9 +66,9 @@ function podar(): void {
     for (const f of sobrando) {
         try {
             fs.unlinkSync(path.join(BACKUP_DIR, f));
-            console.log(`[backup] copia antiga removida: ${f}`);
+            log.info(`copia antiga removida: ${f}`);
         } catch (error) {
-            console.error('[backup] nao foi possivel remover', f, error);
+            log.error('nao foi possivel remover', { arquivo: f, erro: String(error) });
         }
     }
 }
@@ -90,11 +92,11 @@ export async function backupNow(): Promise<string | null> {
         await prisma.$executeRawUnsafe(`VACUUM INTO '${destino.replace(/'/g, "''")}'`);
 
         const kb = Math.round(fs.statSync(destino).size / 1024);
-        console.log(`[backup] copia gravada: ${destino} (${kb} KB)`);
+        log.info(`copia gravada: ${destino} (${kb} KB)`);
         podar();
         return destino;
     } catch (error) {
-        console.error('[backup] falhou:', error);
+        log.error('falhou:', error);
         return null;
     }
 }

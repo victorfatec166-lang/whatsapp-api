@@ -1,5 +1,7 @@
 import { prisma } from '../database/prisma';
 import { startShift, closeShiftAuto } from './cash';
+import { logDoModulo } from './logger';
+const log = logDoModulo('cashSchedule');
 
 /**
  * Agenda automatica de abertura e fechamento do turno de caixa.
@@ -104,14 +106,14 @@ export function startCashScheduler(onAction?: (o: ScheduleOutcome) => void): voi
         try {
             const outcome = await runScheduleTick();
             if (outcome.action === 'abriu') {
-                console.log(`[caixa] Turno aberto automaticamente as ${new Date().toLocaleTimeString('pt-BR')}`);
+                log.info(`Turno aberto automaticamente as ${new Date().toLocaleTimeString('pt-BR')}`);
                 onAction?.(outcome);
             } else if (outcome.action === 'fechou') {
-                console.log(`[caixa] Turno fechado automaticamente. Esperado R$ ${outcome.expected.toFixed(2)} (conferencia pendente)`);
+                log.info(`Turno fechado automaticamente. Esperado R$ ${outcome.expected.toFixed(2)} (conferencia pendente)`);
                 onAction?.(outcome);
             }
         } catch (error) {
-            console.error('Erro no agendador de caixa:', error);
+            log.error('Erro no agendador de caixa:', error);
         }
     };
 

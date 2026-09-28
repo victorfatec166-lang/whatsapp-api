@@ -1,5 +1,7 @@
 import { prisma } from '../database/prisma';
 import { DEFAULT_BOT_MESSAGES } from './botDefaults';
+import { logDoModulo } from './logger';
+const log = logDoModulo('botMessages');
 
 /**
  * Cache dos textos do bot.
@@ -16,7 +18,7 @@ export async function loadBotMessages(): Promise<void> {
         const messages = await prisma.botMessage.findMany();
         cache = { ...DEFAULT_BOT_MESSAGES, ...Object.fromEntries(messages.map((m) => [m.key, m.value])) };
     } catch (error) {
-        console.error('Erro ao carregar mensagens do bot, usando padroes:', error);
+        log.error('Erro ao carregar mensagens do bot, usando padroes:', error);
         cache = { ...DEFAULT_BOT_MESSAGES };
     }
 }

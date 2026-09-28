@@ -1,5 +1,7 @@
 import { escapeHtml } from './html';
 import { currency } from '../services/stats';
+import { logDoModulo } from '../services/logger';
+const log = logDoModulo('catalog');
 
 export type CatalogProduct = {
     id: string;
@@ -544,7 +546,7 @@ export function renderCatalog(d: CatalogData): string {
                     });
                 }
             } catch (err) {
-                console.warn('Campo de controle de estoque nao encontrado', err);
+                log.warn('Campo de controle de estoque nao encontrado', err);
             }
         </script>`;
 }

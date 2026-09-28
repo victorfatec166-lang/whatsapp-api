@@ -25,3 +25,5 @@ scripts/misc/
 
 # Configuracao local do Claude Code
 .claude/settings.local.json
+# Log do dia, gerado por src/services/logger.ts. Arquivo local da maquina.
+logs/

@@ -1,9 +1,11 @@
 import { PrismaClient } from '@prisma/client';
+import { logDoModulo } from './services/logger';
+const log = logDoModulo('seed');
 
 const prisma = new PrismaClient();
 
 async function main() {
-    console.log('A inserir dados de teste...');
+    log.info('A inserir dados de teste...');
 
     // Configuração padrão da morada de origem e taxas
     await prisma.config.upsert({
@@ -33,12 +35,12 @@ async function main() {
         }
     }
 
-    console.log('✅ Dados de teste inseridos com sucesso!');
+    log.info('✅ Dados de teste inseridos com sucesso!');
 }
 
 main()
     .catch((e) => {
-        console.error('Erro ao inserir dados:', e);
+        log.error('Erro ao inserir dados:', e);
     })
     .finally(async () => {
         await prisma.$disconnect();

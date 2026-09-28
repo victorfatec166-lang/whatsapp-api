@@ -15,6 +15,8 @@ import { loadBotMessages, getBotMessage } from './botMessages';
 import { createOrderWithStock } from './orders';
 import { loadProductFull, priceCart, linesToItemsField, type ProductFull } from './modifiers';
 import { buildBotMenu, renderBotMenuText } from './dailyMenu';
+import { logDoModulo } from './logger';
+const log = logDoModulo('bot');
 
 let botOnline = false;
 
@@ -104,7 +106,7 @@ async function createBotOrder(
         'whatsapp'
     );
 
-    console.log(`✅ Pedido criado com sucesso ID: ${newOrder.id}`);
+    log.info(`✅ Pedido criado com sucesso ID: ${newOrder.id}`);
 
     /*
      * Cliente que pediu item sem saldo ainda recebe o pedido. Recusar por causa
@@ -112,7 +114,7 @@ async function createBotOrder(
      * e' a cozinha, que ja produziu. O dono recebe a lista no log e reponde.
      */
     if (shortfalls.length > 0) {
-        console.warn(
+        log.warn(
             `[estoque] Pedido ${newOrder.id.slice(0, 8)} vendeu sem saldo: ` +
                 shortfalls.map((s) => `${s.nome} (pediu ${s.pediu}, tinha ${s.tinha})`).join(', ')
         );
@@ -200,7 +202,7 @@ function setConnection(patch: Partial<ConnectionState>): void {
         try {
             listener(snapshot);
         } catch (error) {
-            console.error('Erro em listener de conexao:', error);
+            log.error('Erro em listener de conexao:', error);
         }
     }
 }
@@ -228,7 +230,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
 
         if (qr) {
             setConnection({ phase: 'aguardando-qr', qr, qrIssuedAt: Date.now(), lastError: null });
-            console.log('\n[QR] Codigo de pareamento gerado. Abra o painel em /admin?tab=whatsapp');
+            log.info('\n[QR] Codigo de pareamento gerado. Abra o painel em /admin?tab=whatsapp');
             qrcode.generate(qr, { small: true });
         }
 
@@ -246,7 +248,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                     since: null,
                     lastError: 'Sessao encerrada no celular. Paree um numero novamente.',
                 });
-                console.log('Sessao encerrada (logout). Pareamento necessario.');
+                log.info('Sessao encerrada (logout). Pareamento necessario.');
                 return;
             }
 
@@ -258,13 +260,13 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                 since: null,
                 lastError: lastDisconnect?.error ? String((lastDisconnect.error as Boom).message ?? 'Conexao perdida') : null,
             });
-            console.log(`Conexao fechada. Reconectando em 3s (${statusCode ?? 'sem codigo'})`);
+            log.info(`Conexao fechada. Reconectando em 3s (${statusCode ?? 'sem codigo'})`);
 
             setTimeout(async () => {
                 try {
                     await startWhatsAppBot(onOrderCreated);
                 } catch (e) {
-                    console.error('Erro ao reconectar bot:', e);
+                    log.error('Erro ao reconectar bot:', e);
                     setConnection({ phase: 'desconectado', online: false, lastError: 'Falha ao reconectar' });
                 }
             }, 3000);
@@ -284,7 +286,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                 since: Date.now(),
                 lastError: null,
             });
-            console.log('Bot do WhatsApp conectado com sucesso!');
+            log.info('Bot do WhatsApp conectado com sucesso!');
         }
     });
 
@@ -309,7 +311,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
             if (!messageText) continue;
 
             const textLower = messageText.toLowerCase().trim();
-            console.log(`📩 Mensagem de ${senderPhone}: ${textLower}`);
+            log.info(`📩 Mensagem de ${senderPhone}: ${textLower}`);
 
             if (!userSession[senderPhone]) {
                 userSession[senderPhone] = { step: 'MENU' };
@@ -500,7 +502,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                     }
                 }
             } catch (err) {
-                console.error('❌ Erro crítico ao processar mensagem do bot:', err);
+                log.error('❌ Erro crítico ao processar mensagem do bot:', err);
                 userSession[senderPhone].step = 'MENU';
                 await sock.sendMessage(senderPhone, { text: '⚠️ Ocorreu um erro ao processar o seu pedido. Digite *menu* para reiniciar.' });
             }
@@ -555,12 +557,12 @@ export async function sendWhatsAppMessage(remoteJid: string, text: string) {
     if (sock && remoteJid) {
         try {
             await sock.sendMessage(remoteJid, { text });
-            console.log(`📤 Mensagem enviada com sucesso para ${remoteJid}`);
+            log.info(`📤 Mensagem enviada com sucesso para ${remoteJid}`);
         } catch (error) {
-            console.error(`❌ Erro ao enviar mensagem para ${remoteJid}:`, error);
+            log.error(`❌ Erro ao enviar mensagem para ${remoteJid}:`, error);
         }
     } else {
-        console.warn('⚠️ Socket do WhatsApp indisponível para envio.');
+        log.warn('⚠️ Socket do WhatsApp indisponível para envio.');
     }
 }
 
@@ -576,7 +578,7 @@ export async function reconnectBot(): Promise<void> {
             sock.ev.removeAllListeners('connection.update');
             await sock.end(undefined);
         } catch (error) {
-            console.error('Erro ao encerrar socket anterior:', error);
+            log.error('Erro ao encerrar socket anterior:', error);
         }
         sock = null;
     }
@@ -595,7 +597,7 @@ export async function logoutBot(): Promise<void> {
             await sock.ev.removeAllListeners('connection.update');
             await sock.logout();
         } catch (error) {
-            console.error('Erro ao fazer logout do socket:', error);
+            log.error('Erro ao fazer logout do socket:', error);
         }
         sock = null;
     }

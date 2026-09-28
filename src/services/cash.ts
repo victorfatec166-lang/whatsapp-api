@@ -1,4 +1,6 @@
 import { prisma } from '../database/prisma';
+import { logDoModulo } from './logger';
+const log = logDoModulo('cash');
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
@@ -375,7 +377,7 @@ export async function registerCashMovement(params: {
         });
         return { ok: true, warned: shift ? undefined : 'Movimento registrado sem turno aberto.' };
     } catch (error) {
-        console.error('Erro ao registrar movimento de caixa:', error);
+        log.error('Erro ao registrar movimento de caixa:', error);
         return { ok: false, error: 'Erro ao registrar movimento' };
     }
 }

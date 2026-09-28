@@ -1,4 +1,6 @@
 import { escapeHtml } from './html';
+import { logDoModulo } from '../services/logger';
+const log = logDoModulo('layout');
 
 // O union so lista o que existe hoje em TABS. Caixa, Clientes, Bot, Stats,
 // Reports e System saíram da barra, e isTabId() so aceita o que esta em TABS,
@@ -115,7 +117,7 @@ const APP_SCRIPTS = `
                             box.className = 'badge badge-danger';
                         }
                     } catch (e) {
-                        console.error('Erro ao buscar status do bot:', e);
+                        log.error('Erro ao buscar status do bot:', e);
                     }
                 }
                 setInterval(fetchBotStatus, 5000);

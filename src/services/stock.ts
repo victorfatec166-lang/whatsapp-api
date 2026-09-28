@@ -1,5 +1,7 @@
 import { prisma } from '../database/prisma';
 import { emFila } from './writeQueue';
+import { logDoModulo } from './logger';
+const log = logDoModulo('stock');
 
 export type MovementType = 'entrada' | 'saida' | 'perda' | 'ajuste';
 export type MovementSource = 'pdv' | 'whatsapp' | 'manual';
@@ -117,7 +119,7 @@ export async function applyMovement(params: {
             return { ok: true, stock: next };
         });
     } catch (error) {
-        console.error('Erro ao registrar movimento de estoque:', error);
+        log.error('Erro ao registrar movimento de estoque:', error);
         return { ok: false, stock: 0, error: 'Erro ao registrar movimento' };
     }
 }
@@ -160,7 +162,7 @@ export async function setStockTo(params: {
             return { ok: true, stock: target, delta };
         });
     } catch (error) {
-        console.error('Erro ao definir saldo de estoque:', error);
+        log.error('Erro ao definir saldo de estoque:', error);
         return { ok: false, stock: 0, delta: 0, error: 'Erro ao definir saldo' };
     }
 }
@@ -293,7 +295,7 @@ export async function registerSale(
         );
         return { ok: true, shortfalls };
     } catch (error) {
-        console.error('Erro ao baixar estoque da venda:', error);
+        log.error('Erro ao baixar estoque da venda:', error);
         return { ok: false, shortfalls: [], error: 'Erro ao baixar estoque' };
     }
 }

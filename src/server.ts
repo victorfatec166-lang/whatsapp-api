@@ -67,6 +67,8 @@ import {
     type OrderWithProductless,
 } from './services/stats';
 import { DEFAULT_BOT_MESSAGES } from './services/botDefaults';
+import { logDoModulo, pastaDeLogs } from './services/logger';
+const log = logDoModulo('server');
 
 const app = express();
 const prisma = new PrismaClient();
@@ -196,7 +198,7 @@ app.get('/api/bot/qr.svg', async (_req, res) => {
         res.setHeader('Cache-Control', 'no-store');
         res.type('image/svg+xml').send(svg);
     } catch (error) {
-        console.error('Erro ao gerar QR:', error);
+        log.error('Erro ao gerar QR:', error);
         res.status(500).type('text/plain').send('erro ao gerar QR');
     }
 });
@@ -227,7 +229,7 @@ app.get('/api/calendar/orders', async (_req, res) => {
         }
         res.json(grouped);
     } catch (error) {
-        console.error('Erro ao buscar pedidos para calendario:', error);
+        log.error('Erro ao buscar pedidos para calendario:', error);
         res.status(500).json({ error: 'Erro ao buscar pedidos' });
     }
 });
@@ -253,7 +255,7 @@ async function fetchOrdersForCalendar() {
         ordersByDate = await res.json();
         renderCalendar();
     } catch (e) {
-        console.error('Erro ao buscar pedidos:', e);
+        log.error('Erro ao buscar pedidos:', e);
     }
 }
 
@@ -434,7 +436,7 @@ app.post('/api/admin/pdv/orders', async (req, res) => {
     } catch (error) {
         // Como pedido e estoque sao o mesmo commit, chegar aqui significa que
         // NADA foi gravado. O caixa pode tentar de novo sem duplicar nada.
-        console.error('Erro ao registrar venda do PDV:', error);
+        log.error('Erro ao registrar venda do PDV:', error);
         res.status(500).json({ error: 'Erro ao registrar venda' });
     }
 });
@@ -453,7 +455,7 @@ app.get('/api/admin/modifier-groups', async (_req, res) => {
         });
         res.json(groups);
     } catch (error) {
-        console.error('Erro ao listar grupos:', error);
+        log.error('Erro ao listar grupos:', error);
         res.status(500).json({ error: 'Erro ao listar grupos' });
     }
 });
@@ -502,7 +504,7 @@ app.post('/api/admin/modifier-groups', async (req, res) => {
 
         res.status(201).json({ success: true, groupId: group.id });
     } catch (error) {
-        console.error('Erro ao criar grupo:', error);
+        log.error('Erro ao criar grupo:', error);
         res.status(500).json({ error: 'Erro ao criar grupo' });
     }
 });
@@ -528,7 +530,7 @@ app.post('/api/admin/modifier-groups/:id/options', async (req, res) => {
         });
         res.status(201).json(option);
     } catch (error) {
-        console.error('Erro ao criar opcao:', error);
+        log.error('Erro ao criar opcao:', error);
         res.status(500).json({ error: 'Erro ao criar opcao' });
     }
 });
@@ -553,7 +555,7 @@ app.delete('/api/admin/modifier-groups/:id', async (req, res) => {
         await prisma.modifierGroup.delete({ where: { id } });
         res.json({ success: true });
     } catch (error) {
-        console.error('Erro ao remover grupo:', error);
+        log.error('Erro ao remover grupo:', error);
         res.status(500).json({ error: 'Erro ao remover grupo' });
     }
 });
@@ -581,7 +583,7 @@ app.post('/api/admin/products/:id/modifier-groups', async (req, res) => {
         }
         res.json({ success: true, product: await loadProductFull(productId) });
     } catch (error) {
-        console.error('Erro ao vincular grupo:', error);
+        log.error('Erro ao vincular grupo:', error);
         res.status(500).json({ error: 'Erro ao vincular grupo' });
     }
 });
@@ -628,7 +630,7 @@ app.post('/api/admin/products/:id/combo', async (req, res) => {
 
         res.json({ success: true, product: await loadProductFull(comboId) });
     } catch (error) {
-        console.error('Erro ao salvar combo:', error);
+        log.error('Erro ao salvar combo:', error);
         res.status(500).json({ error: 'Erro ao salvar combo' });
     }
 });
@@ -639,7 +641,7 @@ app.get('/api/admin/products/:id/full', async (req, res) => {
         if (!full) return res.status(404).json({ error: 'Produto nao encontrado.' });
         res.json(full);
     } catch (error) {
-        console.error('Erro ao carregar produto:', error);
+        log.error('Erro ao carregar produto:', error);
         res.status(500).json({ error: 'Erro ao carregar produto' });
     }
 });
@@ -650,7 +652,7 @@ app.get('/api/admin/cash/summary', async (_req, res) => {
     try {
         res.json(await cashSummary());
     } catch (error) {
-        console.error('Erro ao montar resumo de caixa:', error);
+        log.error('Erro ao montar resumo de caixa:', error);
         res.status(500).json({ error: 'Erro ao montar resumo de caixa' });
     }
 });
@@ -659,7 +661,7 @@ app.get('/api/admin/cash/shift', async (_req, res) => {
     try {
         res.json({ open: await openShift() });
     } catch (error) {
-        console.error('Erro ao ler turno:', error);
+        log.error('Erro ao ler turno:', error);
         res.status(500).json({ error: 'Erro ao ler turno' });
     }
 });
@@ -671,7 +673,7 @@ app.post('/api/admin/cash/shift/open', async (req, res) => {
         if (!result.ok) return res.status(409).json({ error: result.error });
         res.status(201).json({ success: true, shiftId: result.shiftId });
     } catch (error) {
-        console.error('Erro ao abrir turno:', error);
+        log.error('Erro ao abrir turno:', error);
         res.status(500).json({ error: 'Erro ao abrir turno' });
     }
 });
@@ -686,7 +688,7 @@ app.post('/api/admin/cash/shift/close', async (req, res) => {
         if (!result.ok) return res.status(400).json({ error: result.error });
         res.json({ success: true, report: result.report });
     } catch (error) {
-        console.error('Erro ao fechar turno:', error);
+        log.error('Erro ao fechar turno:', error);
         res.status(500).json({ error: 'Erro ao fechar turno' });
     }
 });
@@ -707,7 +709,7 @@ app.post('/api/admin/cash/shift/reconcile', async (req, res) => {
         notifyClients();
         res.json({ success: true, difference: result.difference });
     } catch (error) {
-        console.error('Erro ao conferir turno:', error);
+        log.error('Erro ao conferir turno:', error);
         res.status(500).json({ error: 'Erro ao conferir turno' });
     }
 });
@@ -716,7 +718,7 @@ app.get('/api/admin/cash/shifts', async (_req, res) => {
     try {
         res.json(await shiftHistory(30));
     } catch (error) {
-        console.error('Erro ao listar turnos:', error);
+        log.error('Erro ao listar turnos:', error);
         res.status(500).json({ error: 'Erro ao listar turnos' });
     }
 });
@@ -733,7 +735,7 @@ app.post('/api/admin/cash/movement', async (req, res) => {
         if (!result.ok) return res.status(400).json({ error: result.error });
         res.json({ success: true, warned: result.warned });
     } catch (error) {
-        console.error('Erro ao registrar movimento de caixa:', error);
+        log.error('Erro ao registrar movimento de caixa:', error);
         res.status(500).json({ error: 'Erro ao registrar movimento' });
     }
 });
@@ -748,7 +750,7 @@ app.get('/api/admin/products.csv', async (_req, res) => {
         res.setHeader('Content-Disposition', `attachment; filename="produtos-${stamp}.csv"`);
         res.send('\uFEFF' + csv);
     } catch (error) {
-        console.error('Erro ao exportar produtos:', error);
+        log.error('Erro ao exportar produtos:', error);
         res.status(500).send('Erro ao exportar');
     }
 });
@@ -765,7 +767,7 @@ app.post('/api/admin/products/import', async (req, res) => {
         const result = await importProductsFromCsv(b.csv);
         res.json({ success: true, ...result });
     } catch (error) {
-        console.error('Erro ao importar produtos:', error);
+        log.error('Erro ao importar produtos:', error);
         res.status(500).json({ error: 'Erro ao importar produtos' });
     }
 });
@@ -777,7 +779,7 @@ app.post('/api/admin/products/:id/sku', async (req, res) => {
         if (!sku) return res.status(400).json({ error: 'Nao foi possivel gerar SKU.' });
         res.json({ success: true, sku });
     } catch (error) {
-        console.error('Erro ao gerar SKU:', error);
+        log.error('Erro ao gerar SKU:', error);
         res.status(400).json({ error: 'Erro ao gerar SKU' });
     }
 });
@@ -814,7 +816,7 @@ app.post('/api/admin/products/:id/photo', async (req, res) => {
         await prisma.product.update({ where: { id }, data: { imageUrl } });
         res.json({ success: true, imageUrl });
     } catch (error) {
-        console.error('Erro ao salvar foto do produto:', error);
+        log.error('Erro ao salvar foto do produto:', error);
         res.status(500).json({ error: 'Erro ao salvar foto' });
     }
 });
@@ -878,7 +880,7 @@ app.post('/api/admin/pdv/hold', async (req, res) => {
         });
         res.status(201).json({ success: true });
     } catch (error) {
-        console.error('Erro ao suspender venda:', error);
+        log.error('Erro ao suspender venda:', error);
         res.status(500).json({ error: 'Erro ao suspender venda' });
     }
 });
@@ -887,7 +889,7 @@ app.get('/api/admin/pdv/holds', async (_req, res) => {
     try {
         res.json(await parkedSales());
     } catch (error) {
-        console.error('Erro ao listar vendas suspensas:', error);
+        log.error('Erro ao listar vendas suspensas:', error);
         res.status(500).json({ error: 'Erro ao listar vendas suspensas' });
     }
 });
@@ -920,7 +922,7 @@ app.get('/api/admin/daily-menu', async (req, res) => {
             previous: await previousDailyMenu(new Date()),
         });
     } catch (error) {
-        console.error('Erro ao ler menu do dia:', error);
+        log.error('Erro ao ler menu do dia:', error);
         res.status(500).json({ error: 'Erro ao ler menu do dia' });
     }
 });
@@ -941,7 +943,7 @@ app.post('/api/admin/daily-menu', async (req, res) => {
         notifyClients();
         res.json({ success: true, menu: result.menu });
     } catch (error) {
-        console.error('Erro ao salvar menu do dia:', error);
+        log.error('Erro ao salvar menu do dia:', error);
         res.status(500).json({ error: 'Erro ao salvar menu do dia' });
     }
 });
@@ -958,7 +960,7 @@ app.post('/api/admin/daily-menu/copy', async (req, res) => {
         notifyClients();
         res.json({ success: true, copied: result.copied, menu: await getDailyMenu() });
     } catch (error) {
-        console.error('Erro ao copiar menu do dia:', error);
+        log.error('Erro ao copiar menu do dia:', error);
         res.status(500).json({ error: 'Erro ao copiar menu do dia' });
     }
 });
@@ -985,7 +987,7 @@ app.post('/api/admin/stock/movement', async (req, res) => {
         if (!result.ok) return res.status(400).json({ error: result.error });
         res.json({ success: true, stock: result.stock });
     } catch (error) {
-        console.error('Erro ao registrar movimento:', error);
+        log.error('Erro ao registrar movimento:', error);
         res.status(500).json({ error: 'Erro ao registrar movimento' });
     }
 });
@@ -1007,7 +1009,7 @@ app.post('/api/admin/stock/adjust', async (req, res) => {
         if (!result.ok) return res.status(400).json({ error: result.error });
         res.json({ success: true, stock: result.stock });
     } catch (error) {
-        console.error('Erro no ajuste de estoque:', error);
+        log.error('Erro no ajuste de estoque:', error);
         res.status(500).json({ error: 'Erro ao ajustar estoque' });
     }
 });
@@ -1025,7 +1027,7 @@ app.post('/api/admin/stock/set', async (req, res) => {
         if (!result.ok) return res.status(400).json({ error: result.error });
         res.json({ success: true, stock: result.stock, delta: result.delta });
     } catch (error) {
-        console.error('Erro ao definir saldo:', error);
+        log.error('Erro ao definir saldo:', error);
         res.status(500).json({ error: 'Erro ao definir saldo' });
     }
 });
@@ -1044,7 +1046,7 @@ app.post('/api/admin/stock/loss', async (req, res) => {
         if (!result.ok) return res.status(400).json({ error: result.error });
         res.json({ success: true, stock: result.stock });
     } catch (error) {
-        console.error('Erro ao registrar perda:', error);
+        log.error('Erro ao registrar perda:', error);
         res.status(500).json({ error: 'Erro ao registrar perda' });
     }
 });
@@ -1055,7 +1057,7 @@ app.get('/api/admin/stock/reorder', async (_req, res) => {
         const products = await prisma.product.findMany({ orderBy: { name: 'asc' } });
         res.json(reorderList(products.map(toStockRow)));
     } catch (error) {
-        console.error('Erro ao montar lista de reposicao:', error);
+        log.error('Erro ao montar lista de reposicao:', error);
         res.status(500).json({ error: 'Erro ao montar lista de reposicao' });
     }
 });
@@ -1069,7 +1071,7 @@ app.get('/api/admin/stock/waste', async (req, res) => {
         since.setHours(0, 0, 0, 0);
         res.json(await wasteSummary(since));
     } catch (error) {
-        console.error('Erro ao calcular perdas:', error);
+        log.error('Erro ao calcular perdas:', error);
         res.status(500).json({ error: 'Erro ao calcular perdas' });
     }
 });
@@ -1108,7 +1110,7 @@ app.post('/api/admin/stock/tracking', async (req, res) => {
 
         res.json({ success: true });
     } catch (error) {
-        console.error('Erro ao configurar estoque:', error);
+        log.error('Erro ao configurar estoque:', error);
         res.status(500).json({ error: 'Erro ao configurar estoque' });
     }
 });
@@ -1152,7 +1154,7 @@ app.post('/admin/order/:id/status', async (req, res) => {
         notifyClients();
         res.json({ success: true, status: updated.status });
     } catch (error) {
-        console.error('Erro ao atualizar status do pedido:', error);
+        log.error('Erro ao atualizar status do pedido:', error);
         res.status(500).json({ success: false, error: 'Erro ao atualizar pedido' });
     }
 });
@@ -1166,7 +1168,7 @@ app.post('/admin/orders/reset-completed', async (_req, res) => {
         notifyClients();
         res.json({ success: true, reset: result.count });
     } catch (error) {
-        console.error('Erro ao resetar concluidos:', error);
+        log.error('Erro ao resetar concluidos:', error);
         res.status(500).json({ error: 'Erro ao resetar concluidos' });
     }
 });
@@ -1176,7 +1178,7 @@ app.post('/admin/bot/reconnect', async (_req, res) => {
         await reconnectBot();
         res.json({ success: true });
     } catch (error) {
-        console.error('Erro ao reconectar bot:', error);
+        log.error('Erro ao reconectar bot:', error);
         res.status(500).json({ error: 'Nao foi possivel reconectar' });
     }
 });
@@ -1192,11 +1194,11 @@ app.post('/admin/bot/logout', async (_req, res) => {
                 }
             }
         } catch (error) {
-            console.error('Erro ao limpar credenciais:', error);
+            log.error('Erro ao limpar credenciais:', error);
         }
         res.json({ success: true });
     } catch (error) {
-        console.error('Erro ao desconectar bot:', error);
+        log.error('Erro ao desconectar bot:', error);
         res.status(500).json({ error: 'Nao foi possivel desconectar' });
     }
 });
@@ -1229,7 +1231,7 @@ app.post('/admin/config/save', async (req, res) => {
 
         res.json({ success: true });
     } catch (error) {
-        console.error('Erro ao salvar configuracoes:', error);
+        log.error('Erro ao salvar configuracoes:', error);
         res.status(500).json({ error: 'Erro ao salvar configuracoes' });
     }
 });
@@ -1252,7 +1254,7 @@ app.post('/admin/bot-messages/save', async (req, res) => {
         notifyClients();
         res.json({ success: true });
     } catch (error) {
-        console.error('Erro ao salvar mensagens do bot:', error);
+        log.error('Erro ao salvar mensagens do bot:', error);
         res.status(500).json({ error: 'Erro ao salvar mensagens' });
     }
 });
@@ -1280,7 +1282,7 @@ app.get('/admin/reports.csv', async (req, res) => {
         res.setHeader('Content-Disposition', `attachment; filename="pedidos-${stamp}.csv"`);
         res.send('\uFEFF' + csv);
     } catch (error) {
-        console.error('Erro ao exportar CSV:', error);
+        log.error('Erro ao exportar CSV:', error);
         res.status(500).send('Erro ao exportar');
     }
 });
@@ -1600,16 +1602,16 @@ app.get('/admin', async (req, res) => {
             })
         );
     } catch (error) {
-        console.error('Erro ao carregar painel administrativo:', error);
+        log.error('Erro ao carregar painel administrativo:', error);
         res.status(500).send('Erro interno ao carregar o painel.');
     }
 });
 
 app.listen(PORT, async () => {
-    console.log(`Servidor HTTP rodando na porta ${PORT}`);
-    console.log(`Dashboard: http://localhost:${PORT}/admin`);
-    console.log(`API REST:  http://localhost:${PORT}/api/admin`);
-    console.log('Iniciando o robo do WhatsApp...');
+    log.info(`Servidor HTTP rodando na porta ${PORT}`);
+    log.info(`Dashboard: http://localhost:${PORT}/admin`);
+    log.info(`API REST:  http://localhost:${PORT}/api/admin`);
+    log.info('Iniciando o robo do WhatsApp...');
 
     await loadBotMessages();
     // Espelha o estado de conexao do bot para o painel via SSE.
@@ -1622,7 +1624,12 @@ app.listen(PORT, async () => {
     // Backup do banco: uma copia no startup e outra a cada 6h. O negocio todo
     // cabe num arquivo SQLite, e perder esse arquivo nao tem conserto.
     startBackupScheduler();
-    console.log(`Backups em: ${backupDir()}`);
+    log.info(`Backups em: ${backupDir()}`);
+
+    // O log vai para arquivo alem do terminal. Quem abre o terminal no meio do
+    // expediente ve o que esta acontecendo agora; quem precisa saber o que
+    // aconteceu meia hora atras abre o arquivo do dia.
+    log.info(`Logs em: ${pastaDeLogs()}`);
 
     await initBot(notifyClients);
 });

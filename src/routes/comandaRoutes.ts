@@ -2,6 +2,8 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { prisma } from '../database/prisma';
 import { montarComanda } from '../services/comanda';
+import { logDoModulo } from '../services/logger';
+const log = logDoModulo('comandaRoutes');
 
 /**
  * Rotas da comanda da cozinha.
@@ -72,7 +74,7 @@ router.get('/comandas/:id', async (req: Request, res: Response) => {
 
         res.json({ numero: comanda.linhas, texto: comanda.texto });
     } catch (error) {
-        console.error('Erro ao montar comanda:', error);
+        log.error('Erro ao montar comanda:', error);
         res.status(500).json({ error: 'Erro ao montar comanda' });
     }
 });
@@ -105,7 +107,7 @@ router.get('/comandas/:id/escpos', async (req: Request, res: Response) => {
         res.setHeader('Content-Disposition', `attachment; filename="pedido-${numero}.txt"`);
         res.send(Buffer.from(comanda.escpos, 'binary'));
     } catch (error) {
-        console.error('Erro ao montar comanda ESC/POS:', error);
+        log.error('Erro ao montar comanda ESC/POS:', error);
         res.status(500).json({ error: 'Erro ao montar comanda' });
     }
 });

@@ -7,6 +7,10 @@ const router = Router();
 router.get('/products', adminController.getProducts);
 router.post('/products', adminController.createProduct);
 router.patch('/products/:id', adminController.updateProduct);
+router.post('/products/:id/availability', adminController.toggleAvailability);
+router.post('/products/:id/duplicate', adminController.duplicateProduct);
+// aceita DELETE e POST: o painel envia POST via fetch utilitario
+router.delete('/products/:id/delete', adminController.deleteProduct);
 router.post('/products/:id/delete', adminController.deleteProduct);
 
 // Pedidos

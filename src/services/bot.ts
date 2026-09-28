@@ -6,20 +6,186 @@ import makeWASocket, {
 import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode-terminal';
 import pino from 'pino';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../database/prisma';
+import { DEFAULT_BOT_MESSAGES } from './botDefaults';
+import { loadBotMessages, getBotMessage } from './botMessages';
+import { registerSale } from './stock';
+import { loadProductFull, priceCart, linesToItemsField, type ProductFull } from './modifiers';
+import { buildBotMenu, renderBotMenuText } from './dailyMenu';
 
-const prisma = new PrismaClient();
+let botOnline = false;
+
+export { loadBotMessages, getBotMessage };
+
+export function isBotOnline(): boolean {
+  return botOnline;
+}
 let sock: any = null;
 
-/**
- * O cardápio é sempre lido com a mesma ordenação para que o número que o
- * cliente vê no menu corresponda exatamente ao índice que ele digita.
- */
-function listProducts() {
-    return prisma.product.findMany({ orderBy: { createdAt: 'asc' } });
+type Session = {
+    step: string;
+    productId?: string;
+    groupIndex?: number;
+    picked?: Record<string, string[]>;
+    /**
+     * Retrato da lista enviada ao cliente, na ordem em que ele a viu.
+     *
+     * O menu do dia muda enquanto o cliente escolhe. Sem este retrato, o
+     * numero que ele digitou passaria a apontar para outro prato depois de uma
+     * edicao na hora -- ele veria o Coxinha na posicao 2 e acabaria pedindo
+     * outra coisa.
+     */
+    offered?: Array<{ id: string; name: string; price: number }>;
+};
+
+const userSession: { [key: string]: Session } = {};
+
+/** Envia a pergunta de um grupo de modificadores. */
+async function sendModifierQuestion(
+    jid: string,
+    full: ProductFull,
+    index: number
+): Promise<void> {
+    const group = full.modifierGroups[index];
+    if (!group) return;
+
+    let text = `*${full.name}*\n`;
+    text += `Escolha ${group.name}${group.required ? ' (obrigatório)' : ''}:\n\n`;
+    group.options.forEach((o, i) => {
+        const price = o.price > 0 ? ` + R$ ${o.price.toFixed(2)}` : '';
+        text += `*[${i + 1}]* ${o.prefix ? `${o.prefix} ` : ''}${o.name}${price}\n`;
+    });
+    if (group.maxSelect > 1) text += `\n(até ${group.maxSelect} opções)`;
+    text += `\n\n👉 Responda com o número${group.required ? '' : ' ou *pular*'}.`;
+
+    if (sock) await sock.sendMessage(jid, { text });
 }
 
-const userSession: { [key: string]: { step: string } } = {};
+/** Cria o pedido com os modificadoresJa escolhidos, aplicando preco do banco. */
+async function createBotOrder(
+    jid: string,
+    product: { id: string; name: string; price: number; isCombo: boolean },
+    picked: Record<string, string[]>,
+    onOrderCreated?: () => void
+): Promise<void> {
+    const priced = await priceCart([{ id: product.id, qty: 1, groups: picked }]);
+    if (priced.ok === false) {
+        await sock?.sendMessage(jid, { text: `⚠️ ${priced.error}` });
+        userSession[jid].step = 'MENU';
+        return;
+    }
+
+    const line = priced.result.lines[0];
+    const itemsField = linesToItemsField(priced.result.lines);
+
+    const newOrder = await prisma.order.create({
+        data: {
+            clientPhone: jid,
+            clientName: 'Cliente WhatsApp',
+            items: itemsField,
+            subtotal: priced.result.subtotal,
+            total: line.total,
+            status: 'pendente',
+        },
+    });
+
+    console.log(`✅ Pedido criado com sucesso ID: ${newOrder.id}`);
+
+    // Baixa estoque; em combo, nos componentes.
+    await registerSale(priced.result.stockDeductions, 'whatsapp', `Pedido #${newOrder.id.slice(0, 8)}`);
+
+    if (onOrderCreated) onOrderCreated();
+
+    userSession[jid].step = 'MENU';
+    userSession[jid].productId = undefined;
+    userSession[jid].picked = undefined;
+    userSession[jid].groupIndex = 0;
+    userSession[jid].offered = undefined;
+
+    const label = line.modLabels.length ? `${line.name} (${line.modLabels.join(', ')})` : line.name;
+    const orderReceivedMsg = getBotMessage('orderReceived',
+        '🎉 *Pedido Recebido com Sucesso!* \n\n' +
+        '📦 *Item:* {items}\n' +
+        '💵 *Total:* R$ {total}\n\n' +
+        'O seu pedido já foi registado na cozinha! Digite *2* para consultar os seus pedidos.'
+    )
+        .replace('{items}', label)
+        .replace('{total}', line.total.toFixed(2));
+
+    await sock?.sendMessage(jid, { text: orderReceivedMsg });
+}
+
+/* ------------------------------------------------- Estado da conexao (UI) */
+
+export type ConnectionPhase =
+    | 'desconectado'
+    | 'aguardando-qr'
+    | 'escaneado'
+    | 'sincronizando'
+    | 'conectado'
+    | 'deslogado';
+
+export type ConnectionState = {
+    phase: ConnectionPhase;
+    online: boolean;
+    /** QR atual em base64 ou string crua; null quando nao ha QR valido. */
+    qr: string | null;
+    /** epoch ms de emissao do QR, para a UI detectar expiracao (validade ~30s). */
+    qrIssuedAt: number | null;
+    phone: string | null;
+    name: string | null;
+    platform: string | null;
+    since: number | null;
+    lastError: string | null;
+};
+
+const connection: ConnectionState = {
+    phase: 'desconectado',
+    online: false,
+    qr: null,
+    qrIssuedAt: null,
+    phone: null,
+    name: null,
+    platform: null,
+    since: null,
+    lastError: null,
+};
+
+type ConnectionListener = (state: ConnectionState) => void;
+const connectionListeners = new Set<ConnectionListener>();
+
+/** QR expira em ~30s; depois disso a UI deve pedir um novo. */
+export const QR_TTL_MS = 30_000;
+
+export function onConnectionChange(listener: ConnectionListener): () => void {
+    connectionListeners.add(listener);
+    listener(getConnectionState());
+    return () => connectionListeners.delete(listener);
+}
+
+export function getConnectionState(): ConnectionState {
+    // Mascara o QR expirado para a UI nunca renderizar um codigo morto.
+    const qrValid = connection.qr !== null && connection.qrIssuedAt !== null && Date.now() - connection.qrIssuedAt < QR_TTL_MS;
+    return { ...connection, qr: qrValid ? connection.qr : null };
+}
+
+function setConnection(patch: Partial<ConnectionState>): void {
+    Object.assign(connection, patch);
+    const snapshot = getConnectionState();
+    for (const listener of connectionListeners) {
+        try {
+            listener(snapshot);
+        } catch (error) {
+            console.error('Erro em listener de conexao:', error);
+        }
+    }
+}
+
+// Evita pilha de listeners quando o socket reconecta em loop.
+function bindSocket(target: any, handler: (payload: any) => void) {
+    target.ev.removeAllListeners('connection.update');
+    target.ev.on('connection.update', handler);
+}
 
 // Adicionamos um parâmetro 'onOrderCreated' para receber a função de aviso do servidor
 export async function startWhatsAppBot(onOrderCreated?: () => void) {
@@ -33,29 +199,75 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    bindSocket(sock, async (update) => {
+        const { connection: conn, lastDisconnect, qr } = update;
 
         if (qr) {
-            console.log('\n📲 Leia o QR Code abaixo com o seu WhatsApp:');
+            setConnection({ phase: 'aguardando-qr', qr, qrIssuedAt: Date.now(), lastError: null });
+            console.log('\n[QR] Codigo de pareamento gerado. Abra o painel em /admin?tab=whatsapp');
             qrcode.generate(qr, { small: true });
         }
 
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log(`Conexão fechada. Reconectando: ${shouldReconnect}`);
-            
-            if (shouldReconnect) {
-                setTimeout(async () => {
-                    try {
-                        await startWhatsAppBot(onOrderCreated);
-                    } catch (e) {
-                        console.error('Erro ao reconectar bot:', e);
-                    }
-                }, 3000);
+        if (conn === 'close') {
+            botOnline = false;
+            const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+            const loggedOut = statusCode === DisconnectReason.loggedOut;
+
+            if (loggedOut) {
+                setConnection({
+                    phase: 'deslogado',
+                    online: false,
+                    qr: null,
+                    qrIssuedAt: null,
+                    since: null,
+                    lastError: 'Sessao encerrada no celular. Paree um numero novamente.',
+                });
+                console.log('Sessao encerrada (logout). Pareamento necessario.');
+                return;
             }
-        } else if (connection === 'open') {
-            console.log('✅ Bot do WhatsApp conectado com sucesso!');
+
+            setConnection({
+                phase: 'desconectado',
+                online: false,
+                qr: null,
+                qrIssuedAt: null,
+                since: null,
+                lastError: lastDisconnect?.error ? String((lastDisconnect.error as Boom).message ?? 'Conexao perdida') : null,
+            });
+            console.log(`Conexao fechada. Reconectando em 3s (${statusCode ?? 'sem codigo'})`);
+
+            setTimeout(async () => {
+                try {
+                    await startWhatsAppBot(onOrderCreated);
+                } catch (e) {
+                    console.error('Erro ao reconectar bot:', e);
+                    setConnection({ phase: 'desconectado', online: false, lastError: 'Falha ao reconectar' });
+                }
+            }, 3000);
+        } else if (conn === 'connecting') {
+            setConnection({ phase: 'sincronizando', lastError: null });
+        } else if (conn === 'open') {
+            botOnline = true;
+            const me = sock?.user?.id || null;
+            setConnection({
+                phase: 'conectado',
+                online: true,
+                qr: null,
+                qrIssuedAt: null,
+                phone: me ? String(me).split(':')[0] ?? null : null,
+                name: sock?.user?.name ?? null,
+                platform: sock?.user?.platform ?? null,
+                since: Date.now(),
+                lastError: null,
+            });
+            console.log('Bot do WhatsApp conectado com sucesso!');
+        }
+    });
+
+    // Baileys sinaliza QR escaneado emantes da conexao abrir.
+    sock.ev.on('creds.update', () => {
+        if (connection.phase === 'aguardando-qr') {
+            setConnection({ phase: 'escaneado' });
         }
     });
 
@@ -84,15 +296,16 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
             try {
                 if (['menu', 'oi', 'ola', 'olá', '0', 'inicio', 'início'].includes(textLower)) {
                     userSession[senderPhone].step = 'MENU';
+                    userSession[senderPhone].offered = undefined;
                     
-                    const mainMenu = 
+                    const mainMenu = getBotMessage('mainMenu',
                         '🍔 *BEM-VINDO AO NOSSO DELIVERY* 🍕\n' +
                         '━━━━━━━━━━━━━━━━━━━━━\n' +
                         'Escolha uma opção:\n\n' +
                         '1️⃣ *Ver Cardápio e Pedir*\n' +
                         '2️⃣ *Consultar Meus Pedidos*\n' +
                         '3️⃣ *Falar com Atendente*\n\n' +
-                        '👉 *Responda com o número* da opção desejada:';
+                        '👉 *Responda com o número* da opção desejada:');
 
                     await sock.sendMessage(senderPhone, { text: mainMenu });
                     continue;
@@ -100,32 +313,27 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
 
                 if (currentStep === 'MENU') {
                     if (textLower === '1') {
-                        const products = await listProducts();
+                        const products = await buildBotMenu();
 
                         if (products.length === 0) {
-                            await sock.sendMessage(senderPhone, { 
-                                text: '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!' 
+                            await sock.sendMessage(senderPhone, {
+                                text: getBotMessage('menuEmpty', '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!')
                             });
                             continue;
                         }
 
                         userSession[senderPhone].step = 'AGUARDANDO_PRODUTO';
+                        // Guarda o retrato da lista: e contra ela que o numero
+                        // digitado vai ser lido, mesmo que o dono edite o menu
+                        // antes da resposta.
+                        userSession[senderPhone].offered = products.map((p) => ({
+                            id: p.id,
+                            name: p.name,
+                            price: p.price,
+                        }));
 
-                        let menuResponse = '🍽️ *CARDÁPIO DIGITAL* 🍽️\n';
-                        menuResponse += '━━━━━━━━━━━━━━━━━━━━━\n\n';
-                        
-                        products.forEach((p, index) => {
-                            menuResponse += `*[${index + 1}]* ${p.name}\n`;
-                            menuResponse += `      💰 R$ ${p.price.toFixed(2)}\n`;
-                            if (p.description) menuResponse += `      📝 ${p.description}\n`;
-                            menuResponse += '\n';
-                        });
-                        
-                        menuResponse += '━━━━━━━━━━━━━━━━━━━━━\n';
-                        menuResponse += '👉 Digite o *número do produto* que deseja encomendar (ou digite *menu* para voltar):';
-
-                        await sock.sendMessage(senderPhone, { text: menuResponse });
-                    } 
+                        await sock.sendMessage(senderPhone, { text: renderBotMenuText(products) });
+                    }
                     else if (textLower === '2') {
                         const orders = await prisma.order.findMany({
                             where: { clientPhone: senderPhone },
@@ -133,7 +341,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                         });
 
                         if (orders.length === 0) {
-                            await sock.sendMessage(senderPhone, { text: '📦 Não encontrámos pedidos recentes. Digite *1* para ver o cardápio ou *menu*.' });
+                            await sock.sendMessage(senderPhone, { text: getBotMessage('noOrders', '📦 Não encontrámos pedidos recentes. Digite *1* para ver o cardápio ou *menu*.') });
                         } else {
                             let text = '📦 *OS SEUS PEDIDOS RECENTES:*\n\n';
                             orders.forEach(o => {
@@ -144,50 +352,127 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                         }
                     } 
                     else if (textLower === '3') {
-                        await sock.sendMessage(senderPhone, { text: '👨‍💻 A sua solicitação foi registada. Um atendente humano irá chamá-lo em breve! Digite *menu* a qualquer momento para voltar.' });
+                        await sock.sendMessage(senderPhone, { text: getBotMessage('attendantMessage', '👨‍💻 A sua solicitação foi registada. Um atendente humano irá chamá-lo em breve! Digite *menu* a qualquer momento para voltar.') });
                     } 
                     else {
-                        await sock.sendMessage(senderPhone, { text: '🤖 Opção inválida. Digite *1* para ver o cardápio ou *menu* para ver as opções.' });
+                        await sock.sendMessage(senderPhone, { text: getBotMessage('invalidOption', '🤖 Opção inválida. Digite *1* para ver o cardápio ou *menu* para ver as opções.') });
                     }
                 } 
                 else if (currentStep === 'AGUARDANDO_PRODUTO') {
                     if (!isNaN(Number(textLower))) {
-                        const products = await listProducts();
+                        // Resolve pelo retrato da lista que o cliente recebeu,
+                        // nunca pelo menu atual: assim uma edicao no meio da
+                        // escolha nao troca o prato debaixo do numero.
+                        const session = userSession[senderPhone];
+                        const offered = session.offered;
                         const index = Number(textLower) - 1;
 
-                        if (products[index]) {
-                            const selected = products[index];
-                            
-                            const newOrder = await prisma.order.create({
-                                data: {
-                                    clientPhone: senderPhone,
-                                    clientName: 'Cliente WhatsApp',
-                                    items: `1x ${selected.name}`,
-                                    total: selected.price,
-                                    status: 'pendente'
-                                }
-                            });
-
-                            console.log(`✅ Pedido criado com sucesso ID: ${newOrder.id}`);
-
-                            // Dispara o aviso em tempo real para o painel web se a função existir
-                            if (onOrderCreated) {
-                                onOrderCreated();
+                        if (!offered || !offered[index]) {
+                            // Retrato perdido (reinicio do servidor): manda o
+                            // cardapio de novo em vez de adivinhar o prato.
+                            const fresh = await buildBotMenu();
+                            if (fresh.length === 0) {
+                                await sock.sendMessage(senderPhone, {
+                                    text: getBotMessage('menuEmpty', '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!'),
+                                });
+                                session.step = 'MENU';
+                                continue;
                             }
-
-                            userSession[senderPhone].step = 'MENU';
-
-                            await sock.sendMessage(senderPhone, { 
-                                text: `🎉 *Pedido Recebido com Sucesso!* \n\n` +
-                                      `📦 *Item:* ${selected.name}\n` +
-                                      `💵 *Total:* R$ ${selected.price.toFixed(2)}\n\n` +
-                                      `O seu pedido já foi registado na cozinha! Digite *2* para consultar os seus pedidos.` 
+                            session.offered = fresh.map((p) => ({ id: p.id, name: p.name, price: p.price }));
+                            await sock.sendMessage(senderPhone, { text: renderBotMenuText(fresh) });
+                            await sock.sendMessage(senderPhone, {
+                                text: 'ℹ️ O cardápio mudou. Escolha novamente pelo número.',
                             });
+                            continue;
+                        }
+
+                        const selected = offered[index];
+                        // O produto pode ter sido pausado depois de o cliente
+                        // ver o menu; nesse caso o id resolve e o preco e
+                        // recalculado no servidor.
+                        const full = await loadProductFull(selected.id);
+
+                        if (full) {
+                            // Produto com modificadores abre um fluxo de escolha.
+                            if (full.modifierGroups.length > 0) {
+                                userSession[senderPhone].step = 'ESCOLHENDO_MOD';
+                                userSession[senderPhone].productId = selected.id;
+                                userSession[senderPhone].groupIndex = 0;
+                                userSession[senderPhone].picked = {};
+                                await sendModifierQuestion(senderPhone, full, 0);
+                            } else {
+                                await createBotOrder(
+                                    senderPhone,
+                                    { id: selected.id, name: selected.name, price: selected.price, isCombo: false },
+                                    {},
+                                    onOrderCreated
+                                );
+                            }
                         } else {
-                            await sock.sendMessage(senderPhone, { text: '❌ Número de produto inválido. Digite um número válido da lista ou *menu* para voltar.' });
+                            await sock.sendMessage(senderPhone, {
+                                text: '⚠️ Esse item saiu do cardápio. Peça *1* para ver a lista atualizada.',
+                            });
+                            userSession[senderPhone].step = 'MENU';
                         }
                     } else {
-                        await sock.sendMessage(senderPhone, { text: '❌ Por favor, digite apenas o *número* correspondente ao produto desejado ou digite *menu*.' });
+                        await sock.sendMessage(senderPhone, { text: getBotMessage('invalidProduct', '❌ Por favor, digite apenas o *número* correspondente ao produto desejado ou digite *menu*.') });
+                    }
+                }
+                else if (currentStep === 'ESCOLHANDO_MOD') {
+                    const session = userSession[senderPhone];
+                    const full = await loadProductFull(session.productId);
+                    if (!full) {
+                        session.step = 'MENU';
+                        await sock.sendMessage(senderPhone, { text: '⚠️ Produto indisponível. Digite *menu*.' });
+                        continue;
+                    }
+
+                    const group = full.modifierGroups[session.groupIndex];
+                    if (textLower === 'pular' || textLower === 'nenhum') {
+                        session.groupIndex += 1;
+                    } else if (group) {
+                        const choice = Number(textLower) - 1;
+                        if (isNaN(choice) || choice < 0 || choice >= group.options.length) {
+                            await sock.sendMessage(senderPhone, { text: '❌ Opção inválida. Responda com o número ou *pular*.' });
+                            continue;
+                        }
+                        const current: string[] = session.picked[group.id] ?? [];
+                        if (group.maxSelect <= 1) {
+                            session.picked[group.id] = [group.options[choice].id];
+                            session.groupIndex += 1;
+                        } else {
+                            if (current.includes(group.options[choice].id)) {
+                                session.picked[group.id] = current.filter((v) => v !== group.options[choice].id);
+                            } else {
+                                if (current.length >= group.maxSelect) {
+                                    await sock.sendMessage(senderPhone, { text: `❌ Máximo de ${group.maxSelect} opções em ${group.name}.` });
+                                    continue;
+                                }
+                                session.picked[group.id] = [...current, group.options[choice].id];
+                            }
+                            await sock.sendMessage(senderPhone, { text: `✅ *${group.name}*: ${current.length + 1}/${group.maxSelect} escolhida(s). Digite *pular* para seguir.` });
+                            continue;
+                        }
+                    }
+
+                    if (session.groupIndex < full.modifierGroups.length) {
+                        await sendModifierQuestion(senderPhone, full, session.groupIndex);
+                        continue;
+                    }
+
+                    // Todos os grupos respondidos: valida obrigatorios e fecha o pedido.
+                    const missing = full.modifierGroups.find(
+                        (g) => g.required && (session.picked[g.id] ?? []).length < Math.max(1, g.minSelect)
+                    );
+                    if (missing) {
+                        await sock.sendMessage(senderPhone, { text: `❌ Obrigatório escolher em *${missing.name}*. Digite *menu* para recomeçar.` });
+                        userSession[senderPhone].step = 'MENU';
+                        continue;
+                    }
+
+                    const product = await prisma.product.findUnique({ where: { id: session.productId } });
+                    if (product) {
+                        await createBotOrder(senderPhone, product, session.picked ?? {}, onOrderCreated);
                     }
                 }
             } catch (err) {
@@ -203,7 +488,7 @@ export function getWhatsAppSocket() {
     return sock;
 }
 
-const STATUS_MESSAGES: Record<string, string> = {
+const DEFAULT_STATUS_MESSAGES: Record<string, string> = {
     preparando:
         `🔥 *O seu pedido foi confirmado e foi para a cozinha!* 👨‍🍳\n\n` +
         `A nossa equipa já começou a preparar o seu pedido:\n` +
@@ -221,6 +506,11 @@ const STATUS_MESSAGES: Record<string, string> = {
         `Esperamos que goste da sua refeição! Muito obrigado pela preferência. Volte sempre! 🍔❤️`
 };
 
+function getStatusMessage(status: string): string {
+    const key = status === 'preparando' ? 'statusPreparando' : status === 'entrega' ? 'statusEntrega' : 'statusConcluido';
+    return getBotMessage(key, DEFAULT_STATUS_MESSAGES[status] || '');
+}
+
 /**
  * Envia ao cliente a mensagem correspondente à mudança de status do pedido.
  * Falhas de envio são registradas, mas nunca derrubam a requisição que originou a mudança.
@@ -231,7 +521,7 @@ export async function sendOrderStatusNotification(
     items: string,
     total: number
 ) {
-    const template = STATUS_MESSAGES[status];
+    const template = getStatusMessage(status);
     if (!template) return;
 
     const message = template
@@ -255,3 +545,50 @@ export async function sendWhatsAppMessage(remoteJid: string, text: string) {
 }
 
 export const initBot = startWhatsAppBot;
+
+/**
+ * Força um novo ciclo de conexão sem apagar a sessão salva: o Baileys volta a
+ * emitir o QR automaticamente quando o socket é reaberto.
+ */
+export async function reconnectBot(): Promise<void> {
+    if (sock) {
+        try {
+            sock.ev.removeAllListeners('connection.update');
+            await sock.end(undefined);
+        } catch (error) {
+            console.error('Erro ao encerrar socket anterior:', error);
+        }
+        sock = null;
+    }
+    botOnline = false;
+    setConnection({ phase: 'sincronizando', qr: null, qrIssuedAt: null, lastError: null });
+    await startWhatsAppBot();
+}
+
+/**
+ * Desconecta de verdade e apaga os credenciais salvos, forcando um novo
+ * pareamento do zero. Usado em "desconectar e parear outro numero".
+ */
+export async function logoutBot(): Promise<void> {
+    if (sock) {
+        try {
+            await sock.ev.removeAllListeners('connection.update');
+            await sock.logout();
+        } catch (error) {
+            console.error('Erro ao fazer logout do socket:', error);
+        }
+        sock = null;
+    }
+    botOnline = false;
+    setConnection({
+        phase: 'aguardando-qr',
+        online: false,
+        qr: null,
+        qrIssuedAt: null,
+        phone: null,
+        name: null,
+        platform: null,
+        since: null,
+        lastError: null,
+    });
+}

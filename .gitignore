@@ -4,3 +4,13 @@ dist/
 auth_info_baileys/
 prisma/*.db
 prisma/*.db-journal
+prisma/*.db-wal
+prisma/*.db-shm
+uploads/
+
+# Scripts de manutencao de uso unico (substituem texto em arquivos-fonte).
+# Nao fazem parte do aplicativo.
+scripts/
+
+# Configuracao local do Claude Code
+.claude/settings.local.json

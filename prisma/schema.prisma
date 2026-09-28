@@ -10,29 +10,233 @@ generator client {
 model Product {
   id          String   @id @default(uuid())
   name        String
+  /// Codigo curto unico, usado na busca e na leitura por codigo de barras.
+  sku         String?  @unique
+  /// Caminho da imagem em /uploads, ou null.
+  imageUrl    String?
   price       Float
+  /// Preco de compra. Com ele a margem real passa a ser calculavel.
+  costPrice   Float    @default(0)
   description String?
+  category    String   @default("Geral")
+  isAvailable Boolean  @default(true)
+  /// Quando falso, o produto aparece no cardapio mesmo com estoque zerado.
+  trackStock  Boolean  @default(false)
+  /// Quantidade currently in stock. 0 means "sem controle" when trackStock is false.
+  stock       Int      @default(0)
+  minStock    Int      @default(0)
+  /// True quando este produto e um combo: um "pacote" de outros produtos.
+  isCombo     Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  movements        StockMovement[]
+  modifierGroups   ProductModifierGroup[]
+  comboComponents  ComboItem[]         @relation("ComboParent")
+  comboIn          ComboItem[]         @relation("ComboChild")
+  dailyMenuItems   DailyMenuItem[]
+}
+
+/// Menu do dia: os pratos que a loja destaca em uma data especifica.
+/// Nao substitui o cardapio, apenas cria uma secao separada no topo dele.
+model DailyMenu {
+  id String @id @default(uuid())
+  /// Dia ao qual o menu se aplica, sempre gravado a meia-noite local.
+  date DateTime @unique
+  /// Observacao opcional exibida no cardapio ("Feito na hora", "Serve 2 pessoas").
+  note String?
+  items     DailyMenuItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Prato dentro de um menu do dia, com a ordem de exibicao.
+model DailyMenuItem {
+  id        String   @id @default(uuid())
+  menuId    String
+  productId String
+  sortOrder Int      @default(0)
+
+  menu    DailyMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  product Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([menuId, productId])
+  @@index([menuId])
+}
+
+/// Grupo de modificadores (Tamanho, Ponto da carne, Extras...).
+/// maxSelect = 1 significa escolha unica; > 1 permite multipla escolha.
+model ModifierGroup {
+  id        String   @id @default(uuid())
+  name      String
+  minSelect Int      @default(0)
+  maxSelect Int      @default(1)
+  required  Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  options  ModifierOption[]
+  products ProductModifierGroup[]
+}
+
+/// Opcao dentro de um grupo, com acrescimo de preco opcional.
+model ModifierOption {
+  id        String   @id @default(uuid())
+  groupId   String
+  name      String
+  /// Acrescimo em R$ (0 quando apenas informa a cozinha, ex: "Sem cebola").
+  price     Float    @default(0)
+  /// Prefixo exibido: "Add", "No", "Extra", "Sem", "P".
+  prefix    String   @default("")
+  sortOrder Int      @default(0)
+
+  group ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+}
+
+/// Liga um grupo de modificadores a um produto (N:N).
+model ProductModifierGroup {
+  productId String
+  groupId   String
+  sortOrder Int @default(0)
+
+  product Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  group   ModifierGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([productId, groupId])
+}
+
+/// Componente de um combo: "X-Burguer" = 1x Hamburguer + 1x Pao + 1x Queijo.
+model ComboItem {
+  id          String @id @default(uuid())
+  comboId     String
+  componentId String
+  quantity    Int    @default(1)
+  sortOrder   Int    @default(0)
+
+  combo     Product @relation("ComboParent", fields: [comboId], references: [id], onDelete: Cascade)
+  component Product @relation("ComboChild", fields: [componentId], references: [id], onDelete: Cascade)
+
+  @@unique([comboId, componentId])
+  @@index([comboId])
+}
+
+/// Historico de entradas, saidas e ajustes de estoque.
+model StockMovement {
+  id        String   @id @default(uuid())
+  productId String
+  /// "entrada" (compra/producao), "saida" (venda), "perda" (descarte/validade)
+  /// ou "ajuste" (contagem fisica).
+  type      String
+  /// Quantidade sempre positiva; o sinal esta em `delta`.
+  quantity  Int
+  /// Variacao real do saldo. Negativo em saida, perda eReducao por contagem.
+  /// 0 em movimentos antigos, onde o sinal e deduzido de `type`.
+  delta     Int      @default(0)
+  note      String?
+  /// Quem(originem) originou o movimento: "pdv", "whatsapp" ou "manual".
+  source    String   @default("manual")
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([createdAt])
+  @@index([type])
 }
 
 model Order {
-  id          String   @id @default(uuid())
-  clientPhone String
-  clientName  String?
-  items       String
-  total       Float
-  status      String   @default("pendente")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(uuid())
+  clientPhone   String
+  clientName    String?
+  items         String
+  /// Soma dos itens antes de desconto e gorjeta.
+  subtotal      Float    @default(0)
+  /// Desconto concedido no pedido, em R$.
+  discount      Float    @default(0)
+  /// Gorjeta, em R$.
+  tip           Float    @default(0)
+  /// Valor final cobrado = subtotal - discount + tip.
+  total         Float
+  /// Observacao do pedido / instrucao para a cozinha ("sem cebola").
+  notes         String?
+  status        String   @default("pendente")
+  /// Origem do pedido: "whatsapp" (bot) ou "pdv" (frente de caixa).
+  channel       String   @default("whatsapp")
+  /// Forma de pagamento, preenchida no PDV (pix, dinheiro, cartao).
+  paymentMethod String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// Venda pausada no PDV: o cliente esqueceu algo e a fila nao pode esperar.
+model ParkedSale {
+  id        String   @id @default(uuid())
+  label     String?
+  /// JSON com [{ id, qty }] dos itens do carrinho.
+  items     String
+  createdAt DateTime @default(now())
+}
+
+/// Turno de caixa. openShift() garante que exista no maximo um turno aberto.
+model CashShift {
+  id           String    @id @default(uuid())
+  openingFloat Float     @default(0)
+  /// Dinheiro contado no fechamento.
+  countedCash  Float?
+  /// Quanto deveria haver na gaveta no fechamento.
+  expectedCash Float?
+  /// Contado - esperado. Positivo sobrou, negativo faltou.
+  difference   Float?
+  note         String?
+  openedAt     DateTime  @default(now())
+  closedAt     DateTime?
+  /// Ultimos movimentos registrados no turno.
+  movements    CashMovement[]
+}
+
+/// Sangria (saida) e deposito (entrada) de dinheiro na gaveta.
+model CashMovement {
+  id        String   @id @default(uuid())
+  /// Turno ao qual o movimento pertence (null quando nao ha turno aberto).
+  shiftId   String?
+  /// "entrada" (deposito) ou "saida" (sangria).
+  type      String
+  amount    Float
+  note      String?
+  createdAt DateTime @default(now())
+
+  shift CashShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@index([shiftId])
 }
 
 model Config {
-  id            String   @id @default("default")
-  originAddress String
-  feePerKm      Float    @default(2.50)
-  baseFee       Float    @default(3.00)
-  googleApiKey  String   @default("")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                   String   @id @default("default")
+  businessName         String   @default("DeliveryAdmin")
+  originAddress        String
+  feePerKm             Float    @default(2.50)
+  baseFee              Float    @default(3.00)
+  googleApiKey         String   @default("")
+  minOrderValue        Float    @default(0)
+  estimatedPrepMinutes Int      @default(25)
+  pixKey               String   @default("")
+  /// Horario de abertura automatica do turno, "HH:MM". Vazio = desativado.
+  cashAutoOpen         String   @default("")
+  /// Horario de fechamento automatico do turno, "HH:MM". Vazio = desativado.
+  /// Pode ser menor que cashAutoOpen quando a loja fecha depois da meia-noite.
+  cashAutoClose        String   @default("")
+  /// Fundo de troco fixo da gaveta, usado na abertura automatica. Sem ele a
+  /// abertura automatica fica desligada: um valor inventado contaminaria a
+  /// diferenca de caixa de todo fechamento.
+  cashDefaultFloat     Float    @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model BotMessage {
+  id      String @id @default("default")
+  key     String @unique
+  value   String
 }

@@ -91,6 +91,15 @@ const PORT = process.env.PORT || 3000;
  */
 const limiteEscrita = limitePorJanela({ max: 30, janelaMs: 10_000 });
 
+/**
+ * A partir de quantos pedidos o painel avisa.
+ *
+ * 2000 e' cerca de seis meses de uma loja media. Antes disso a carga em memoria
+ * e' irrelevante; depois disso a visita comeca a custar segundos, e o aviso
+ * entra no log antes de alguem notar a lentidao. Ver o bloco em /admin.
+ */
+const AVISO_VOLUME_PEDIDOS = 2000;
+
 const VALID_ORDER_STATUS: string[] = [...ORDER_STATUSES];
 
 /*
@@ -1426,6 +1435,35 @@ app.get('/admin', async (req, res) => {
             getConfig(),
             prisma.botMessage.findMany(),
         ]);
+
+        /*
+         * Todos os pedidos sao carregados em memoria, em toda visita ao painel.
+         *
+         * Isso e' um custo conhecido e hoje invisivel, porque sao 11 pedidos. O
+         * numero que faz a conta: 300 pedidos por mes, ~250 bytes cada, sao
+         * 900 KB por pagina em um ano, e tudo vira filtro em JavaScript depois.
+         *
+         * A correcao -- passar a agregacao do `computeStats` para o banco e dar
+         * janela limitada para as abas -- NAO esta aqui de proposito. Truncar a
+         * lista e' a solucao que parece obvia e e' a errada: `computeStats`
+         * soma receita de todos os pedidos para o "total" e o "mais vendidos",
+         * e cortar a lista faria o Faturamento mostrar um numero menor que o
+         * real sem ninguem perceber. Tela que mostra menos dinheiro e' o tipo de
+         * coisa que a propria tela de Configuracoes servia de exemplo do que nao
+         * se faz aqui.
+         *
+         * Entao, enquanto nao for refeito, o sistema avisa. Um aviso no log e'
+         * de graca: o dia que o painel comecar a demorar, o log ja diz por que.
+         * Silenciar isso seria a mesma mentira em forma de lentidao.
+         */
+        if (orders.length > AVISO_VOLUME_PEDIDOS) {
+            log.warn(
+                `Painel carregou ${orders.length} pedidos em memoria. ` +
+                    `A partir de ~${AVISO_VOLUME_PEDIDOS} a visita comeca a ficar lenta. ` +
+                    `A solucao e' agregar no banco, nao truncar a lista -- truncar faz o ` +
+                    `Faturamento mostrar menos receita que a real.`
+            );
+        }
 
         const messages: Record<string, string> = {};
         for (const m of botMessages) messages[m.key] = m.value;

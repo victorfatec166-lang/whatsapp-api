@@ -302,20 +302,51 @@ export async function buscarConversas(termo: string): Promise<ResumoConversa[]> 
     return conversas.map(toResumo);
 }
 
-/** Historico de uma conversa, em ordem cronologica. */
-export async function historico(chatId: string, limite = 200): Promise<MensagemView[]> {
-    const mensagens = await prisma.message.findMany({
-        where: { chatId },
-        orderBy: { sentAt: 'asc' },
-        take: Math.min(500, Math.max(1, limite)),
+/**
+ * Historico de uma conversa, em ordem cronologica.
+ *
+ * O padrao devolve as ultimas `limite` mensagens, e nao as primeiras. A tela
+ * abre com o texto nao-empty embaixo, que e' onde a conversa esta -- uma lista
+ * que abre no "oi" de tres dias atras e' obrigar a pessoa a rolar ate o fim para
+ * descobrir o que aconteceu. `temMais` diz se existe alem disso, para o painel
+ * oferecer "ver mais antigo".
+ */
+export async function historico(
+    chatId: string,
+    limite = 100,
+    antesDe?: Date
+): Promise<{ mensagens: MensagemView[]; temMais: boolean }> {
+    const teto = Math.min(500, Math.max(1, limite));
+
+    /*
+     * Busca o bloco mais recente e inverte a ordem para exibicao.
+     *
+     * `orderBy: 'desc'` com `take` e' o que permite pegar a FIM da conversa com
+     * indice. Buscar a primeira pagina em ordem crescente e truncar em memoria
+     * exigiria ler a conversa inteira -- que e' exatamente o que se quer evitar.
+     *
+     * `antesDe` recua a busca para as mensagens mais antigas que aquele
+     * instante. Sem ele, a tela so oferece as ultimas e a conversa fica sem
+     * caminho para o comeco.
+     */
+    const ultimas = await prisma.message.findMany({
+        where: { chatId, ...(antesDe ? { sentAt: { lt: antesDe } } : {}) },
+        orderBy: { sentAt: 'desc' },
+        take: teto + 1,
     });
-    return mensagens.map((m) => ({
-        id: m.id,
-        from: m.from,
-        text: m.text,
-        sentAt: m.sentAt,
-        falhou: m.falhou,
-    }));
+
+    const temMais = ultimas.length > teto;
+    const mensagens = (temMais ? ultimas.slice(0, teto) : ultimas)
+        .map((m) => ({
+            id: m.id,
+            from: m.from,
+            text: m.text,
+            sentAt: m.sentAt,
+            falhou: m.falhou,
+        }))
+        .reverse();
+
+    return { mensagens, temMais };
 }
 
 /** Uma conversa pelo id, para a tela validar antes de escrever. */

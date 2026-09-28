@@ -55,13 +55,23 @@ router.get('/chat', async (req: Request, res: Response) => {
     }
 });
 
-/** Historico de uma conversa. */
+/**
+ * Historico de uma conversa.
+ *
+ * Devolve o bloco mais recente. `?antes=<iso>` pega a pagina anterior, para o
+ * botao "ver mais antigo" da tela -- sem ele, uma conversa de 400 mensagens
+ * ficaria presa nas 100 ultimas sem caminho para o comeco.
+ */
 router.get('/chat/:id', async (req: Request, res: Response) => {
     try {
         const conversa = await obterConversa(req.params.id);
         if (!conversa) return res.status(404).json({ error: 'Conversa nao encontrada.' });
-        const [mensagens, pedido] = await Promise.all([
-            historico(conversa.id),
+
+        const antes = typeof req.query.antes === 'string' ? new Date(req.query.antes) : null;
+        const valido = antes && !Number.isNaN(antes.getTime()) ? antes : null;
+
+        const [hist, pedido] = await Promise.all([
+            historico(conversa.id, 100, valido ?? undefined),
             conversa.orderId
                 ? prisma.order.findUnique({
                       where: { id: conversa.orderId },
@@ -69,7 +79,7 @@ router.get('/chat/:id', async (req: Request, res: Response) => {
                   })
                 : Promise.resolve(null),
         ]);
-        res.json({ conversa, mensagens, pedido });
+        res.json({ conversa, mensagens: hist.mensagens, temMais: hist.temMais, pedido });
     } catch (error) {
         log.error('Erro ao ler conversa', { erro: String(error) });
         res.status(500).json({ error: 'Erro ao ler conversa' });

@@ -147,7 +147,7 @@ function conversaItem(c: ResumoConversa): string {
 
 function mensagem(m: MensagemView): string {
     const doCliente = m.from === 'cliente';
-    return `                    <div class="flex ${doCliente ? 'justify-start' : 'justify-end'}">
+    return `                    <div data-msg="${escapeHtml(m.sentAt)}" class="flex ${doCliente ? 'justify-start' : 'justify-end'}">
                         <div class="max-w-[80%] ${doCliente ? '' : 'items-end'}">
                             <div class="px-3 py-2 rounded-card text-sm border ${
                                 doCliente
@@ -320,7 +320,8 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
 
             function chatMensagem(m) {
                 var doCliente = m.from === 'cliente';
-                return '<div class="flex ' + (doCliente ? 'justify-start' : 'justify-end') + '">' +
+                // data-msg guarda o instante, e' o cursor da pagina anterior.
+                return '<div data-msg="' + esc(m.sentAt) + '" class="flex ' + (doCliente ? 'justify-start' : 'justify-end') + '">' +
                     '<div class="max-w-[80%]">' +
                     '<div class="px-3 py-2 rounded-card text-sm border ' +
                     (doCliente ? 'bg-surface-2 border-line text-ink' : 'bg-accent text-white border-transparent') + '">' +
@@ -397,6 +398,10 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                     : '';
 
                 var corpo = '<div id="chatMensagens" class="flex-1 overflow-y-auto p-4 space-y-3" style="max-height:26rem">' +
+                    (dados.temMais
+                        ? '<div class="text-center pb-1"><button type="button" onclick="chatMaisAntigas()" ' +
+                          'class="btn btn-ghost btn-sm"><i class="fa-solid fa-chevron-up"></i> Ver mais antigo</button></div>'
+                        : '') +
                     (dados.mensagens.length === 0
                         ? '<p class="text-caption text-ink-3 text-center">Sem mensagens ainda.</p>'
                         : dados.mensagens.map(chatMensagem).join('')) +
@@ -492,6 +497,35 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
             function chatRola() {
                 var caixa = document.getElementById('chatMensagens');
                 if (caixa) caixa.scrollTop = caixa.scrollHeight;
+            }
+
+            /**
+             * Carrega as mensagens mais antigas e põe em cima.
+             *
+             * A tela abre com as ultimas 100, que e' onde a conversa esta. Uma
+             * conversa de 400 mensagens nao cabe: desenhar tudo deixava a tela
+             * lenta e empurrava o texto para longe da conversa atual. As
+             * antigas entram por cima, e a rolagem sobe junto -- senao a
+             * conversa "pula" e a pessoa perde o lugar.
+             */
+            async function chatMaisAntigas() {
+                var caixa = document.getElementById('chatMensagens');
+                var primeira = caixa ? caixa.querySelector('[data-msg]') : null;
+                if (!primeira) return;
+                try {
+                    var r = await fetch('/api/admin/chat/' + CHAT_ABERTA + '?antes=' + encodeURIComponent(primeira.getAttribute('data-msg')));
+                    var d = await r.json();
+                    if (!d.mensagens || d.mensagens.length === 0) return;
+                    var antes = caixa.scrollHeight - caixa.scrollTop;
+                    var botao = caixa.querySelector('button');
+                    if (botao) botao.parentNode.removeChild(botao);
+                    caixa.insertAdjacentHTML('afterbegin', d.mensagens.map(chatMensagem).join(''));
+                    if (!d.temMais) {
+                        caixa.insertAdjacentHTML('afterbegin',
+                            '<div class="text-center py-2"><p class="text-caption text-ink-3">Inicio da conversa</p></div>');
+                    }
+                    caixa.scrollTop = caixa.scrollHeight - antes;
+                } catch (e) { log.error('Erro ao carregar mensagens antigas:', e); }
             }
 
             /** Mensagem chegou. So atualiza a conversa que esta aberta. */

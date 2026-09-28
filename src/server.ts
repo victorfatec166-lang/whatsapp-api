@@ -26,6 +26,7 @@ import { renderHome } from './views/home';
 // importando dava a impressao de que o servidor ainda as desenhava.
 import { renderFaturamento } from './views/faturamento';
 import { loadHomeData, estimateMargin } from './services/home';
+import { validar, falhou, vendaPdv, mudancaStatus } from './services/validation';
 import { customerList, summarizeCustomers } from './services/customers';
 import {
     applyMovement,
@@ -335,14 +336,18 @@ fetchOrdersForCalendar();
  */
 app.post('/api/admin/pdv/orders', async (req, res) => {
     try {
-        const body = (req.body ?? {}) as {
-            items?: unknown;
-            customer?: unknown;
-            paymentMethod?: unknown;
-            discount?: unknown;
-            tip?: unknown;
-            notes?: unknown;
-        };
+        /*
+         * Forma primeiro, regra depois.
+         *
+         * O schema confere a FORMA: se items e' lista, se cada linha tem id, se
+         * a quantidade e' numero. A REGRA continua com o priceCart logo abaixo:
+         * se o produto existe, se esta disponivel, se o modificador pertence ao
+         * produto e quanto custa. Nao misturei as duas coisas, e de proposito --
+         * o preco nunca veio do navegador e nao vai passar a vir.
+         */
+        const checado = validar(vendaPdv, req.body);
+        if (falhou(checado)) return res.status(400).json({ error: checado.error });
+        const body = checado.dados;
 
         // Preco, modificadores e estoque sao resolvidos AQUI, no servidor.
         // O navegador nunca envia valores trusted.
@@ -356,12 +361,15 @@ app.post('/api/admin/pdv/orders', async (req, res) => {
         // Desconto e gorjeta vem do cliente, mas sao normalizados aqui:
         // desconto nunca passa do subtotal e gorjeta nunca e negativa.
         const totals = computeTotals(subtotal, body.discount, body.tip);
-        const notes = typeof body.notes === 'string' ? body.notes.trim().slice(0, 300) : '';
 
-        const paymentRaw = typeof body.paymentMethod === 'string' ? body.paymentMethod : 'pix';
+        // O schema ja garante que sao strings, entao aqui so normaliza.
+        const notes = (body.notes ?? '').trim().slice(0, 300);
+        const customer = (body.customer ?? '').trim().slice(0, 80);
+
+        // Forma de pagamento desconhecida cai em pix, e nao em erro: o caixa
+        // nao pode ficar travado por causa de um valor novo no seletor.
+        const paymentRaw = body.paymentMethod ?? 'pix';
         const paymentMethod = PDV_PAYMENT_LABELS[paymentRaw] ? paymentRaw : 'pix';
-
-        const customer = typeof body.customer === 'string' ? body.customer.trim().slice(0, 80) : '';
 
         /*
          * Pedido e baixa de estoque no mesmo commit.
@@ -1126,16 +1134,16 @@ app.get('/admin/events', (req, res) => {
 app.post('/admin/order/:id/status', async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body as { status?: string };
 
-        if (!status || !VALID_ORDER_STATUS.includes(status)) {
-            return res.status(400).json({
-                success: false,
-                error: `Status invalido. Valores aceitos: ${VALID_ORDER_STATUS.join(', ')}.`,
-            });
-        }
+        // O enum do schema vem de ORDER_STATUSES, a mesma fonte que o Kanban
+        // e os relatorios usam. Adicionar um status la passa a valer aqui sem
+        // tocar nesta rota.
+        const checado = validar(mudancaStatus, req.body);
+        if (falhou(checado)) return res.status(400).json({ success: false, error: checado.error });
+        const { status } = checado.dados;
 
         const updated = await prisma.order.update({ where: { id }, data: { status } });
+
 
         if (updated.clientPhone) {
             await sendOrderStatusNotification(updated.clientPhone, updated.status, updated.items, updated.total);

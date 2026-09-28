@@ -299,7 +299,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                     userSession[senderPhone].offered = undefined;
                     
                     const mainMenu = getBotMessage('mainMenu',
-                        '🍔 *BEM-VINDO AO NOSSO DELIVERY* 🍕\n' +
+                        '🍔 *BEM-VINDO* 🍕\n' +
                         '━━━━━━━━━━━━━━━━━━━━━\n' +
                         'Escolha uma opção:\n\n' +
                         '1️⃣ *Ver Cardápio e Pedir*\n' +

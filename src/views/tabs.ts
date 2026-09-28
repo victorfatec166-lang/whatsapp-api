@@ -52,7 +52,7 @@ function orderCard(o: OrderWithProductless, next: string | null, tint: string, a
     return `                        <div class="surface p-3 rounded-xl border card-${tint.replace('bg-', '')} shadow-sm">
                             <div class="flex justify-between items-start gap-2 font-semibold ink text-sm mb-1">
                                 <span class="truncate">${escapeHtml(o.clientName || 'Cliente')}</span>
-                                <span class="${accent} shrink-0">R$ ${money(o.total)}</span>
+                                <span class="${accent} shrink-0">${money(o.total)}</span>
                             </div>
                             <p class="text-xs ink-3 mb-2 break-words">${escapeHtml(o.items)}</p>
                             <p class="text-[11px] ink-3 mb-2 flex items-center gap-2 flex-wrap">
@@ -145,10 +145,6 @@ export function renderKanban(d: KanbanData): string {
 
 type ConfigData = {
     businessName: string;
-    originAddress: string;
-    baseFee: number;
-    feePerKm: number;
-    googleApiKey: string;
     minOrderValue: number;
     estimatedPrepMinutes: number;
     pixKey: string;
@@ -185,29 +181,6 @@ export function renderConfig(c: ConfigData): string {
                     </div>
                 </div>
 
-                <div class="surface p-5 rounded-2xl shadow-sm border line">
-                    <h3 class="font-bold ink mb-4 flex items-center gap-2"><i class="fa-solid fa-truck accent-amber"></i> Entrega</h3>
-                    <div class="space-y-3">
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Taxa base (R$)</label>
-                                <input type="number" step="0.01" min="0" name="baseFee" value="${escapeHtml(c.baseFee)}" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Taxa por km (R$)</label>
-                                <input type="number" step="0.01" min="0" name="feePerKm" value="${escapeHtml(c.feePerKm)}" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold ink-2 mb-1">Endereco de origem</label>
-                            <input type="text" name="originAddress" value="${escapeHtml(c.originAddress)}" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold ink-2 mb-1">Google Maps API Key</label>
-                            <input type="password" name="googleApiKey" value="${escapeHtml(c.googleApiKey)}" placeholder="Vazio = estimativa padrao" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                        </div>
-                    </div>
-                </div>
                 <div class="surface p-5 rounded-2xl shadow-sm border line">
                     <h3 class="font-bold ink mb-1 flex items-center gap-2"><i class="fa-solid fa-clock accent-amber"></i> Agenda do caixa</h3>
                     <p class="text-xs ink-3 mb-4">
@@ -259,12 +232,18 @@ export function renderConfig(c: ConfigData): string {
 
 /* ------------------------------------------------------------ Calendario */
 
-type CalendarData = { totalOrders: number; totalRevenue: number };
+/**
+ * Calendario: contagem de pedidos por dia.
+ *
+ * Nao mostra faturamento. O calendario responde "quantos pedidos houve", que
+ * e pergunta de operacao; quanto entrou em dinheiro e' da aba Faturamento.
+ */
+type CalendarData = { totalOrders: number; totalRevenue: number; daysInPeriod: number };
 
 export function renderCalendar(d: CalendarData): string {
     return `        <div class="flex flex-wrap items-center gap-3 mb-5">
             <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Pedidos no periodo:</span> <span class="font-bold ink ml-1">${d.totalOrders}</span></div>
-            <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Faturamento no periodo:</span> <span class="font-bold accent-amber-strong ml-1">R$ ${money(d.totalRevenue)}</span></div>
+            <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Media por dia:</span> <span class="font-bold ink ml-1">${(d.totalOrders / Math.max(1, d.daysInPeriod)).toFixed(1).replace('.', ',')}</span></div>
         </div>
 
         <div class="flex items-center gap-4 mb-5">
@@ -319,7 +298,7 @@ export function renderStats(s: DashboardStats): string {
             ${card(
                 s.byChannel.length ? s.byChannel[0].label : 'PDV / Balcao',
                 s.byChannel.length ? String(s.byChannel[0].orders) + ' pedidos' : '0',
-                s.byChannel.length ? 'R$ ' + money(s.byChannel[0].revenue) : 'sem dados',
+                s.byChannel.length ? money(s.byChannel[0].revenue) : 'sem dados',
                 'ink'
             )}
         </div>
@@ -343,7 +322,7 @@ export function renderStats(s: DashboardStats): string {
                 <p class="text-xs ink-3 mb-4">Ultimos ${s.revenueByDay.length} dia(s) com pedidos</p>
                 ${s.revenueByDay.length === 0 ? '<p class="text-sm ink-3 py-4">Sem dados ainda.</p>' : ''}
                 <div class="flex items-end gap-2 h-40">
-                    ${s.revenueByDay.map((d) => `                    <div class="flex-1 flex flex-col items-center gap-1" title="${d.label}: R$ ${money(d.revenue)} (${d.orders} pedidos)">
+                    ${s.revenueByDay.map((d) => `                    <div class="flex-1 flex flex-col items-center gap-1" title="${d.label}: ${money(d.revenue)} (${d.orders} pedidos)">
                         <div class="w-full bar-track flex items-end" style="height:100%">
                             <div class="bar-fill-emerald w-full" style="height:${Math.round((d.revenue / maxDay) * 100)}%"></div>
                         </div>
@@ -379,12 +358,13 @@ export function renderStats(s: DashboardStats): string {
 
 /* ------------------------------------------------------------- Relatorios */
 
-type ReportData = {
+export type ReportData = {
     rowsHtml: string;
     count: number;
     total: number;
     from: string;
     to: string;
+    /** Turnos fechados: mantidos no tipo, mas o Z report foi para o item Caixa. */
     shifts: Array<{
         id: string;
         openedAt: string;
@@ -398,92 +378,15 @@ type ReportData = {
     }>;
 };
 
-export function renderReports(d: ReportData): string {
-    return `        <form method="GET" action="/admin" class="surface border line rounded-2xl p-4 shadow-sm mb-5 flex flex-wrap items-end gap-3">
-            <input type="hidden" name="tab" value="reports">
-            <div>
-                <label class="block text-xs font-semibold ink-2 mb-1">De</label>
-                <input type="date" name="from" value="${escapeHtml(d.from)}" class="px-3 py-2 text-sm border line-in rounded-lg">
-            </div>
-            <div>
-                <label class="block text-xs font-semibold ink-2 mb-1">Ate</label>
-                <input type="date" name="to" value="${escapeHtml(d.to)}" class="px-3 py-2 text-sm border line-in rounded-lg">
-            </div>
-            <div>
-                <label class="block text-xs font-semibold ink-2 mb-1">Status</label>
-                <select name="status" class="px-3 py-2 text-sm border line-in rounded-lg">
-                    <option value="">Todos</option>
-                    <option value="pendente">Pendente</option>
-                    <option value="preparando">Preparando</option>
-                    <option value="entrega">Em entrega</option>
-                    <option value="concluido">Concluido</option>
-                </select>
-            </div>
-            <button type="submit" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"><i class="fa-solid fa-filter"></i> Filtrar</button>
-            <a href="/admin/reports.csv?from=${escapeHtml(d.from)}&to=${escapeHtml(d.to)}" class="chip px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
-                <i class="fa-solid fa-file-csv"></i> Exportar CSV
-            </a>
-            <span class="text-sm ink-3 ml-auto">${d.count} pedido(s) &middot; R$ ${money(d.total)}</span>
-        </form>
-
-        <div class="surface border line rounded-2xl shadow-sm overflow-hidden">
-            ${d.count === 0 ? '<p class="text-sm ink-3 text-center py-10">Nenhum pedido encontrado no periodo.</p>' : `            <div class="table-wrap">
-                <table>
-                    <thead class="surface-2 ink-3">
-                        <tr>
-                            <th>Data</th><th>Cliente</th><th>Contato</th><th>Itens</th><th>Desc/Gorj</th><th>Total</th><th>Status</th><th>Canal</th>
-                        </tr>
-                    </thead>
-                    <tbody class="ink">${d.rowsHtml}</tbody>
-                </table>
-            </div>`}
-        </div>
-
-        <h3 class="font-bold ink mt-8 mb-3 flex items-center gap-2"><i class="fa-solid fa-receipt accent-amber"></i> Fechos de caixa (Z report)</h3>
-        ${
-            d.shifts.length === 0
-                ? '<p class="text-sm ink-3">Nenhum turno fechado ainda. Abra um turno no PDV para controlar o caixa.</p>'
-                : `<div class="surface border line rounded-2xl shadow-sm overflow-hidden">
-            <div class="table-wrap">
-                <table>
-                    <thead class="surface-2 ink-3">
-                        <tr>
-                            <th>Aberto</th><th>Fechado</th><th>Float</th><th>Vendas</th><th>Pedidos</th>
-                            <th>Esperado</th><th>Contado</th><th>Resultado</th>
-                        </tr>
-                    </thead>
-                    <tbody class="ink">
-                        ${d.shifts
-                            .map((s) => {
-                                const diff = s.difference ?? 0;
-                                const tone = Math.abs(diff) < 0.01 ? 'badge-emerald' : diff > 0 ? 'badge-amber' : 'badge-red';
-                                const label = Math.abs(diff) < 0.01 ? 'Bateu' : diff > 0 ? 'Sobrou' : 'Faltou';
-                                return `<tr>
-                                    <td class="text-xs ink-3">${escapeHtml(s.openedAt)}</td>
-                                    <td class="text-xs ink-3">${escapeHtml(s.closedAt)}</td>
-                                    <td class="text-sm">R$ ${escapeHtml(s.openingFloat.toFixed(2))}</td>
-                                    <td class="text-sm">R$ ${escapeHtml(s.revenue.toFixed(2))}</td>
-                                    <td class="text-sm">${s.orders}</td>
-                                    <td class="text-sm">R$ ${escapeHtml((s.expectedCash ?? 0).toFixed(2))}</td>
-                                    <td class="text-sm">R$ ${escapeHtml((s.countedCash ?? 0).toFixed(2))}</td>
-                                    <td><span class="${tone} text-xs px-2 py-0.5 rounded-full">${label} ${Math.abs(diff) < 0.01 ? '' : 'R$ ' + Math.abs(diff).toFixed(2)}</span></td>
-                                </tr>`;
-                            })
-                            .join('')}
-                    </tbody>
-                </table>
-            </div>
-        </div>`
-        }`;
-}
-
 /* -------------------------------------------------------------------- Bot */
 
-type BotData = { messages: Record<string, string> };
+export type BotData = { messages: Record<string, string> };
 
 const BOT_FIELDS: Array<{ key: string; label: string; rows: number; hint?: string }> = [
     { key: 'mainMenu', label: 'Mensagem de boas-vindas', rows: 7, hint: 'Enviada quando o cliente manda "menu" ou "oi".' },
     { key: 'menuHeader', label: 'Cabecalho do cardapio', rows: 1 },
+    { key: 'dailyMenuTitle', label: 'Titulo do menu do dia', rows: 1, hint: 'Secao destacada no topo do cardapio.' },
+    { key: 'regularMenuTitle', label: 'Titulo do cardapio normal', rows: 1, hint: 'Aparece abaixo do menu do dia, quando ha um.' },
     { key: 'menuFooter', label: 'Rodape do cardapio', rows: 2 },
     { key: 'menuEmpty', label: 'Cardapio vazio', rows: 2 },
     { key: 'orderReceived', label: 'Pedido recebido', rows: 5, hint: 'Use {items} e {total} como variaveis.' },
@@ -527,79 +430,3 @@ export function renderBot(d: BotData): string {
 }
 
 /* ---------------------------------------------------------------- Sistema */
-
-type SystemData = {
-    botOnline: boolean;
-    dbPath: string;
-    nodeVersion: string;
-    platform: string;
-    uptime: string;
-    memoryMb: number;
-    counts: { orders: number; products: number; messages: number; config: number };
-    validStatuses: string[];
-};
-
-export function renderSystem(d: SystemData): string {
-    const info = (label: string, value: string) => `                    <div class="flex justify-between gap-3 py-2 border-b line last:border-0">
-                        <span class="text-sm ink-3">${label}</span>
-                        <span class="text-sm font-medium ink text-right">${value}</span>
-                    </div>`;
-
-    return `        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-5xl">
-            <div class="surface border line rounded-2xl p-5 shadow-sm">
-                <h3 class="font-bold ink mb-4 flex items-center gap-2"><i class="fa-solid fa-heart-pulse accent-emerald"></i> Saude do sistema</h3>
-                <div class="flex items-center justify-between p-3 rounded-xl mb-4 ${d.botOnline ? 'badge-emerald' : 'badge-red'}">
-                    <span class="text-sm font-semibold flex items-center gap-2">
-                        <i class="fa-solid fa-whatsapp"></i> Bot WhatsApp
-                    </span>
-                    <span class="text-xs font-bold uppercase">${d.botOnline ? 'Online' : 'Offline'}</span>
-                </div>
-                ${info('Node.js', escapeHtml(d.nodeVersion))}
-                ${info('Plataforma', escapeHtml(d.platform))}
-                ${info('Uptime', escapeHtml(d.uptime))}
-                ${info('Memoria', d.memoryMb + ' MB')}
-                ${info('Banco de dados', escapeHtml(d.dbPath))}
-            </div>
-
-            <div class="surface border line rounded-2xl p-5 shadow-sm">
-                <h3 class="font-bold ink mb-4 flex items-center gap-2"><i class="fa-solid fa-database accent-amber"></i> Registros</h3>
-                ${info('Pedidos', String(d.counts.orders))}
-                ${info('Produtos', String(d.counts.products))}
-                ${info('Mensagens do bot', String(d.counts.messages))}
-                ${info('Configuracoes', String(d.counts.config))}
-                <div class="mt-4 flex flex-wrap gap-2">
-                    <a href="/admin/reports.csv" class="chip px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"><i class="fa-solid fa-file-csv"></i> Backup CSV</a>
-                </div>
-            </div>
-
-            <div class="surface border line rounded-2xl p-5 shadow-sm">
-                <h3 class="font-bold ink mb-4 flex items-center gap-2"><i class="fa-solid fa-list-check accent-amber"></i> Status validos de pedido</h3>
-                <p class="text-sm ink-3 mb-3">Use exatamente um destes valores ao mudar o status pela API:</p>
-                <div class="flex flex-wrap gap-2">
-                    ${d.validStatuses.map((s) => `<span class="badge-slate px-2.5 py-1 rounded-lg text-xs font-mono">${escapeHtml(s)}</span>`).join('')}
-                </div>
-            </div>
-
-            <div class="surface border line rounded-2xl p-5 shadow-sm border-l-4" style="border-left-color: var(--badge-red-ink)">
-                <h3 class="font-bold accent-red mb-2 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation"></i> Zona de risco</h3>
-                <p class="text-sm ink-3 mb-4">Acoes destrutivas nao podem ser desfeitas.</p>
-                <div class="flex flex-wrap gap-2">
-                    <button onclick="resetCompleted()" class="px-3 py-2 rounded-lg text-sm font-medium transition badge-amber">Desfazer concluidos</button>
-                    <button onclick="reconnectBot()" class="px-3 py-2 rounded-lg text-sm font-medium transition badge-slate">Reconectar bot</button>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            async function resetCompleted() {
-                confirmThen('Desfazer TODOS os pedidos concluidos? Eles voltam para "Pendente", inclusive os de hoje. Use apenas se conclusion por engano.', async function () {
-                    var r = await postJSON('/admin/orders/reset-completed', {});
-                    flash(r.ok ? 'ok' : 'err', r.ok ? (r.data.reset + ' pedido(s) resetados.') : (r.data.error || 'Erro'));
-                });
-            }
-            async function reconnectBot() {
-                var r = await postJSON('/admin/bot/reconnect', {});
-                flash(r.ok ? 'ok' : 'err', r.ok ? 'Solicitacao de reconexao enviada.' : (r.data.error || 'Erro'));
-            }
-        </script>`;
-}

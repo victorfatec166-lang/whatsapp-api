@@ -1,5 +1,6 @@
 import { escapeHtml } from './html';
 import { currency } from '../services/stats';
+import { renderCatalog, type CatalogData } from './catalog';
 import {
     summarize,
     stockStatus,
@@ -19,10 +20,12 @@ type InventoryData = {
     summary: InventorySummary;
     movements: MovementView[];
     categories: string[];
-    /** Produtos no minimo ou zerados, com a quantidade sugerida de compra. */
+    /** Produtos controlledos no minimo ou zerados, com a quantidade sugerida. */
     reorder: Array<StockRow & { faltam: number }>;
     /** Perdas por descarte/validade desde a meia-noite. */
     waste: WasteSummary;
+    /** Dados do catalogo, que virou a aba "Catalogo" desta mesma tela. */
+    catalog: CatalogData;
 };
 
 function money(n: number): string {
@@ -75,7 +78,7 @@ export function renderInventory(d: InventoryData): string {
                                 ${alertaMin}
                             </div>
                         </td>
-                        <td class="accent-amber-strong font-semibold whitespace-nowrap">R$ ${money(r.price)}</td>
+                        <td class="accent-amber-strong font-semibold whitespace-nowrap">${money(r.price)}</td>
                         <td>${stockCell}</td>
                         <td class="text-sm ink-3">${r.trackStock ? r.minStock : '-'}</td>
                         <td><span class="${badge} text-xs px-2 py-0.5 rounded-full whitespace-nowrap">${label}</span></td>
@@ -129,12 +132,26 @@ export function renderInventory(d: InventoryData): string {
 
     const semAbertura = d.summary.missingMin;
 
-    return `        <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+    return `        <div class="inline-flex rounded-card border border-line overflow-hidden mb-5" role="tablist" aria-label="Produtos e estoque">
+                <button type="button" id="tabCatalogo" onclick="stockSetTab('catalogo')" class="px-4 py-2 text-body font-medium transition bg-accent text-white" aria-selected="true">
+                    <i class="fa-solid fa-utensils"></i> Catalogo
+                </button>
+                <button type="button" id="tabSaldos" onclick="stockSetTab('saldos')" class="px-4 py-2 text-body font-medium transition" aria-selected="false">
+                    <i class="fa-solid fa-boxes-stacked"></i> Saldos
+                </button>
+            </div>
+
+            <div id="painelCatalogo" class="hidden">
+${renderCatalog(d.catalog)}
+            </div>
+
+            <div id="painelSaldos">
+
             ${card('Itens controlados', String(d.summary.tracked), d.summary.untracked + ' sem controle', 'ink')}
             ${card('Unidades em estoque', String(d.summary.units), 'soma de todos os itens', 'accent-amber-strong')}
             ${card('Estoque baixo', String(d.summary.low), 'no ou abaixo do minimo', 'accent-orange')}
             ${card('Zerados', String(d.summary.empty), 'sem unidades para venda', 'accent-red')}
-            ${card('Capital em estoque', 'R$ ' + money(d.summary.costValue), 'valor de venda: R$ ' + money(d.summary.value), 'accent-emerald')}
+            ${card('Capital em estoque', money(d.summary.costValue), 'valor de venda: ' + money(d.summary.value), 'accent-emerald')}
         </div>
 
         ${
@@ -166,7 +183,7 @@ ${reorderRows}
                 <h3 class="font-bold ink mb-2 flex items-center gap-2"><i class="fa-solid fa-trash-can accent-red"></i> Perdas de hoje</h3>
                 <p class="text-3xl font-extrabold accent-red">${d.waste.units} un.</p>
                 <p class="text-sm ink-3 mt-1">${d.waste.count} descarte(s) registrado(s)</p>
-                <p class="text-sm ink-3 mt-2">Impacto no custo: <strong class="ink">R$ ${money(d.waste.cost)}</strong></p>
+                <p class="text-sm ink-3 mt-2">Impacto no custo: <strong class="ink">${money(d.waste.cost)}</strong></p>
                 <p class="text-xs ink-3 mt-3">Salgados e doces vencem: registre o descarte para acompanhar o desperdicio.</p>
             </div>
         </div>`
@@ -501,5 +518,29 @@ ${movementRows}
                     location.reload();
                 } catch (e) { flash('err', 'Erro de conexao'); }
             }
+
+            /* Abas Catalogo / Saldos. O catalogo e a acao mais comum do dono
+               da loja, entao e a aba que abre por padrao. */
+            function stockSetTab(qual) {
+                var catalogo = qual === 'catalogo';
+                var pc = document.getElementById('painelCatalogo');
+                var ps = document.getElementById('painelSaldos');
+                var tc = document.getElementById('tabCatalogo');
+                var ts = document.getElementById('tabSaldos');
+                if (!pc || !ps || !tc || !ts) return;
+                pc.classList.toggle('hidden', !catalogo);
+                ps.classList.toggle('hidden', catalogo);
+                tc.className = 'px-4 py-2 text-body font-medium transition ' + (catalogo ? 'bg-accent text-white' : '');
+                ts.className = 'px-4 py-2 text-body font-medium transition ' + (catalogo ? '' : 'bg-accent text-white');
+                tc.setAttribute('aria-selected', catalogo ? 'true' : 'false');
+                ts.setAttribute('aria-selected', catalogo ? 'false' : 'true');
+                try { localStorage.setItem('estoqueAba', qual); } catch (e) {}
+            }
+
+            (function restauraAba() {
+                var qual = 'catalogo';
+                try { qual = localStorage.getItem('estoqueAba') || 'catalogo'; } catch (e) {}
+                stockSetTab(qual);
+            })();
         </script>`;
 }

@@ -44,22 +44,16 @@ export type HomeAlert = {
 
 export type HomeData = {
     businessName: string;
-    today: { revenue: number; orders: number };
+    today: { orders: number };
     /** Variacao percentual vs o dia anterior; null quando nao ha base. */
-    delta: { revenue: number | null; orders: number | null };
-    averageTicket: number;
-    yesterday: { revenue: number; orders: number } | null;
+    delta: { orders: number | null };
     queue: { pendente: number; preparando: number; entrega: number; concluidoHoje: number };
     topProducts: Array<{ name: string; qty: number }>;
-    last7Days: Array<{ label: string; revenue: number; orders: number }>;
-    /** Lucro estimado de hoje, quando ha preco de custo cadastrado. */
-    margin: { value: number; percent: number | null } | null;
     setup: SetupCheck[];
     alerts: HomeAlert[];
     cash: CashState;
     parkedCount: number;
     botOnline: boolean;
-    stats: DashboardStats;
     /** Menu do dia de hoje, ou null se ainda nao foi definido. */
     dailyMenu: DailyMenuView | null;
     /** Menu mais recente de um dia anterior, para oferecer "copiar". */
@@ -67,6 +61,15 @@ export type HomeData = {
     /** Produtos disponiveis para montar o menu do dia, em ordem alfabetica. */
     menuProducts: Array<{ id: string; name: string; price: number; category: string }>;
 };
+
+/**
+ * A Home e' so operacao: nada de receita, ticket, margem ou grafico de
+ * faturamento. Tudo que mexe em dinheiro foi para a aba Faturamento, e os
+ * campos correspondentes sairam daqui de proposito -- assim nao ha como o
+ * valor voltar a aparecer na tela inicial por engano.
+ *
+ * estimateMargin() continua exportado: a aba Faturamento usa a mesma conta.
+ */
 
 function startOfDay(d: Date): Date {
     const x = new Date(d);
@@ -85,10 +88,13 @@ function pct(today: number, yesterday: number): number | null {
  * preco de custo do produto. Sem nenhum item com custo cadastrado, devolve
  * null em vez de um numero inventado.
  */
-function estimateMargin(
+/** Lucro estimado. percent e null quando algum item nao tem custo cadastrado. */
+export type MarginEstimate = { value: number; percent: number | null };
+
+export function estimateMargin(
     orders: OrderWithProductless[],
     products: Array<{ name: string; price: number; costPrice: number }>
-): HomeData['margin'] {
+): MarginEstimate | null {
     const byName = new Map(products.map((p) => [p.name, p]));
     let revenue = 0;
     let cost = 0;
@@ -116,47 +122,58 @@ function estimateMargin(
     return { value, percent: Math.round(((revenue - cost) / revenue) * 1000) / 10 };
 }
 
+/**
+ * O que ainda falta para a loja funcionar.
+ *
+ * Cada item diz o que fazer e, enquanto nao estiver feito, o que quebra sem
+ * ele -- e' mais util que repetir o titulo. So entram aqui etapas que o dono
+ * realmente precisa cumprir; nada que ele nao consiga fazer pela tela.
+ *
+ * O "endereco de origem" saiu daqui: o campo nao existe mais no Config, entao
+ * o item era um beco sem saida que nunca marcava como concluido.
+ */
 async function buildSetupChecks(
     products: Array<{ id: string; trackStock: boolean }>,
-    config: { pixKey: string; originAddress: string },
+    config: { pixKey: string },
     botOnline: boolean
 ): Promise<SetupCheck[]> {
     const tracked = products.filter((p) => p.trackStock).length;
-    const hasDefaultAddress = !config.originAddress || config.originAddress === 'Rua Principal, 100';
+    const cadastrados = products.length;
 
     return [
         {
             id: 'produtos',
-            label: 'Cadastrar produtos no cardapio',
-            detail: products.length === 0 ? 'Nenhum produto ainda' : `${products.length} produto(s) cadastrados`,
-            href: '/admin?tab=pdv',
-            done: products.length > 0,
+            label: 'Cadastre seus produtos',
+            detail:
+                cadastrados === 0
+                    ? 'Sem produtos o cardapio fica vazio para o cliente'
+                    : cadastrados === 1
+                      ? '1 produto no cardapio'
+                      : cadastrados + ' produtos no cardapio',
+            // O cadastro de produtos vive em Produtos e Estoque; o PDV so vende.
+            href: '/admin?tab=estoque',
+            done: cadastrados > 0,
         },
         {
             id: 'whatsapp',
-            label: 'Conectar o WhatsApp',
-            detail: botOnline ? 'Bot conectado e recebendo pedidos' : 'Bot desconectado: nenhum pedido chega pelo WhatsApp',
+            label: 'Conecte o WhatsApp',
+            detail: botOnline
+                ? 'Bot conectado e recebendo pedidos'
+                : 'Sem ele nenhum pedido chega pelo WhatsApp',
             href: '/admin?tab=whatsapp',
             done: botOnline,
         },
         {
             id: 'pix',
-            label: 'Cadastrar a chave PIX',
-            detail: config.pixKey ? 'Chave PIX configurada' : 'Sem chave, o cliente nao tem como pagar',
+            label: 'Cadastre a chave PIX',
+            detail: config.pixKey ? 'Chave PIX configurada' : 'O cliente nao tem como pagar',
             href: '/admin?tab=config',
             done: config.pixKey.length > 0,
         },
         {
-            id: 'origem',
-            label: 'Definir o endereco de origem',
-            detail: hasDefaultAddress ? 'Ainda no endereco padrao' : config.originAddress,
-            href: '/admin?tab=config',
-            done: !hasDefaultAddress,
-        },
-        {
             id: 'estoque',
-            label: 'Controlar o estoque de algum produto',
-            detail: tracked === 0 ? 'Nenhum produto baixa estoque na venda' : `${tracked} produto(s) com controle`,
+            label: 'Ative o controle de estoque',
+            detail: tracked === 0 ? 'Nenhum produto baixa o saldo na venda' : tracked + ' produto(s) com controle',
             href: '/admin?tab=estoque',
             done: tracked > 0,
         },
@@ -229,7 +246,7 @@ function buildAlerts(
             tone: 'amber',
             title: `${cash.pendingCount} turno(s) sem conferencia`,
             detail: 'Fechados pela agenda: falta contar o dinheiro da gaveta.',
-            href: '/admin?tab=reports',
+            href: '/admin?tab=faturamento&aba=caixa',
             cta: 'Conferir',
         });
     }
@@ -288,22 +305,14 @@ export async function loadHomeData(opts: {
         pendingCount,
     };
 
-    // ---- lucro estimado de hoje ----
-    // So e confiavel onde existe preco de custo. Sem ele, mostrar lucro seria
-    // inventar numero, entao devolvemos null em vez de estimar.
-    const margin = estimateMargin(todayOrders, products);
-
     const setup = await buildSetupChecks(products, config, botOnline);
 
     return {
         businessName: config.businessName,
-        today: { revenue: sum(todayOrders), orders: todayOrders.length },
-        yesterday: yesterdayOrders.length > 0 ? { revenue: sum(yesterdayOrders), orders: yesterdayOrders.length } : null,
+        today: { orders: todayOrders.length },
         delta: {
-            revenue: yesterdayOrders.length > 0 ? pct(sum(todayOrders), sum(yesterdayOrders)) : null,
             orders: yesterdayOrders.length > 0 ? pct(todayOrders.length, yesterdayOrders.length) : null,
         },
-        averageTicket: todayOrders.length > 0 ? Math.round((sum(todayOrders) / todayOrders.length) * 100) / 100 : 0,
         queue: {
             pendente: orders.filter((o) => o.status === 'pendente').length,
             preparando: orders.filter((o) => o.status === 'preparando').length,
@@ -311,14 +320,11 @@ export async function loadHomeData(opts: {
             concluidoHoje: orders.filter((o) => o.status === 'concluido' && o.updatedAt >= todayStart).length,
         },
         topProducts: stats.topProducts.slice(0, 3).map((p) => ({ name: p.name, qty: p.qty })),
-        last7Days: stats.revenueByDay.slice(-7).map((d) => ({ label: d.label, revenue: d.revenue, orders: d.orders })),
-        margin,
         setup,
         alerts: buildAlerts(reorder, parked, cash, botOnline),
         cash,
         parkedCount: parked.length,
         botOnline,
-        stats,
         dailyMenu,
         previousMenu,
         // Pausados nao entram no cardapio, entao nao podem ser escolhidos.

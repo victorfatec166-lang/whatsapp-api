@@ -1,17 +1,33 @@
 import { escapeHtml } from './html';
 
-export type TabId = 'home' | 'kanban' | 'pdv' | 'estoque' | 'config' | 'calendario' | 'stats' | 'bot' | 'reports' | 'system' | 'whatsapp';
+export type TabId =
+    | 'home'
+    | 'kanban'
+    | 'pdv'
+    | 'estoque'
+    | 'calendario'
+    | 'faturamento'
+    | 'caixa'
+    | 'clientes'
+    | 'whatsapp'
+    | 'bot'
+    | 'stats'
+    | 'reports'
+    | 'config'
+    | 'system';
 
 /**
  * Ordem da sidebar: primeiro o que voce usa todo dia (operacao), depois o
- * setup do WhatsApp, depois analise e por ultimo ajustes. Within each group
- * the most used screen comes first.
+ * setup do WhatsApp, depois ajustes, e por ultimo o dinheiro.
+ *
+ * Faturamento fica no fim de proposito: e' a unica aba que mostra quanto o
+ * negocio fatura, e ela esta pronta para receber um portao de senha.
  */
 export const TAB_GROUPS = [
     { id: 'operacao', label: 'Operacao' },
     { id: 'whatsapp', label: 'WhatsApp' },
-    { id: 'analise', label: 'Analise' },
     { id: 'ajustes', label: 'Ajustes' },
+    { id: 'faturamento', label: 'Faturamento' },
 ] as const;
 
 export type TabGroupId = (typeof TAB_GROUPS)[number]['id'];
@@ -19,19 +35,35 @@ export type TabGroupId = (typeof TAB_GROUPS)[number]['id'];
 export const TABS: Array<{ id: TabId; group: TabGroupId; label: string; icon: string; hint: string }> = [
     { id: 'home', group: 'operacao', label: 'Inicio', icon: 'fa-solid fa-house', hint: 'Resumo do dia e atalhos' },
     { id: 'kanban', group: 'operacao', label: 'Pedidos', icon: 'fa-solid fa-chart-pie', hint: 'Gestao de pedidos em tempo real' },
-    { id: 'pdv', group: 'operacao', label: 'PDV e Cardapio', icon: 'fa-solid fa-cash-register', hint: 'Vender no balcao e gerenciar produtos' },
-    { id: 'estoque', group: 'operacao', label: 'Estoque', icon: 'fa-solid fa-boxes-stacked', hint: 'Saldo de itens e movimentacoes' },
+    { id: 'pdv', group: 'operacao', label: 'PDV', icon: 'fa-solid fa-cash-register', hint: 'Vender no balcao' },
+    { id: 'estoque', group: 'operacao', label: 'Produtos e Estoque', icon: 'fa-solid fa-boxes-stacked', hint: 'Catalogo, saldos e reposicao' },
     { id: 'calendario', group: 'operacao', label: 'Calendario', icon: 'fa-solid fa-calendar-days', hint: 'Pedidos por dia' },
 
-    { id: 'whatsapp', group: 'whatsapp', label: 'Conectar WhatsApp', icon: 'fa-solid fa-qrcode', hint: 'Parear e desconectar o bot' },
-    { id: 'bot', group: 'whatsapp', label: 'Mensagens do Bot', icon: 'fa-solid fa-comment-dots', hint: 'Textos e respostas do bot' },
-
-    { id: 'stats', group: 'analise', label: 'Estatisticas', icon: 'fa-solid fa-chart-line', hint: 'Indicadores e graficos' },
-    { id: 'reports', group: 'analise', label: 'Relatorios', icon: 'fa-solid fa-file-lines', hint: 'Pedidos exportaveis' },
+    { id: 'whatsapp', group: 'whatsapp', label: 'WhatsApp', icon: 'fa-brands fa-whatsapp', hint: 'Conexao e textos do bot' },
 
     { id: 'config', group: 'ajustes', label: 'Configuracoes', icon: 'fa-solid fa-gear', hint: 'Entrega e negocio' },
-    { id: 'system', group: 'ajustes', label: 'Sistema / Admin', icon: 'fa-solid fa-server', hint: 'Saude do sistema' },
+
+    // Um item so: resumo, caixa, clientes e pedidos vivem em sub-abas aqui.
+    { id: 'faturamento', group: 'faturamento', label: 'Faturamento', icon: 'fa-solid fa-chart-column', hint: 'Receita, caixa, clientes e pedidos' },
 ];
+
+/**
+ * Itens que sairam da sidebar e para onde vao.
+ *
+ * IsTabId() so aceita o que esta em TABS, entao um ?tab=antigo deixaria de
+ * funcionar silenciosamente. Mapeamos para o destino real em vez disso.
+ * O "#" aponta a sub-aba que a tela antiga virava.
+ */
+export const LEGACY_TABS: Record<string, string> = {
+    bot: 'whatsapp#textos-bot',
+    stats: 'faturamento#resumo',
+    reports: 'faturamento#pedidos',
+    caixa: 'faturamento#caixa',
+    clientes: 'faturamento#clientes',
+    // O catalogo saiu do PDV e virou aba de Produtos e Estoque.
+    products: 'estoque',
+    system: 'config',
+};
 
 export function isTabId(v: unknown): v is TabId {
     return typeof v === 'string' && TABS.some((t) => t.id === v);
@@ -132,6 +164,91 @@ const APP_SCRIPTS = `
                         (kind === 'ok' ? 'badge-success' : 'badge-danger');
                     box.textContent = message;
                     box.classList.remove('hidden');
+                }
+
+                // ---- Janelas pop-up ----
+                // Fica aqui, e' nao no corpo da pagina: modalBind depende de
+                // postJSON e flash, que sao daqui. Se a janela declarasse o
+                // proprio bloco de script no corpo, a ordem entre os dois
+                // seria o que decide se o botao funciona -- e ja foi uma
+                // janela que nao abria por causa disso.
+                function modalShow(id) {
+                    var m = document.getElementById(id);
+                    if (!m) return;
+                    m.classList.remove('hidden');
+                    m.classList.add('flex');
+                    var foco = m.querySelector('[autofocus]');
+                    if (foco) foco.focus();
+                }
+
+                function modalHide(id) {
+                    var m = document.getElementById(id);
+                    if (!m) return;
+                    m.classList.add('hidden');
+                    m.classList.remove('flex');
+                }
+
+                // Clique fora do painel tambem fecha.
+                document.addEventListener('click', function (ev) {
+                    var alvo = ev.target;
+                    if (!alvo || !alvo.classList) return;
+                    if (!alvo.classList.contains('modal-backdrop')) return;
+                    var painel = alvo.querySelector('.modal-panel');
+                    if (painel && painel.contains(ev.target)) return;
+                    modalHide(alvo.id);
+                });
+
+                // Esc fecha a janela do topo.
+                document.addEventListener('keydown', function (ev) {
+                    if (ev.key !== 'Escape') return;
+                    var abertas = [].slice.call(document.querySelectorAll('.modal-backdrop.flex'));
+                    var topo = abertas[abertas.length - 1];
+                    if (topo) modalHide(topo.id);
+                });
+
+                /**
+                 * Liga uma janela gerada por renderModal() ao comportamento
+                 * acima. Deriva os nomes de id, entao duas janelas nao conflitam
+                 * e nenhuma delas precisa de Javascript proprio.
+                 */
+                function modalBind(id, endpoint, pendingLabel, successMessage, after) {
+                    window[id + 'Open'] = function () { modalShow(id); };
+                    window[id + 'Close'] = function () { modalHide(id); };
+
+                    window[id + 'Send'] = async function (ev) {
+                        if (ev) ev.preventDefault();
+                        var form = document.getElementById(id + '-form');
+                        var btn = document.getElementById(id + '-submit');
+                        if (!form || !btn) return false;
+
+                        // Campo numerico volta como texto no value; converte.
+                        var payload = {};
+                        [].slice.call(form.elements).forEach(function (el) {
+                            if (!el.name) return;
+                            var v = el.value;
+                            if (el.type === 'number') v = v === '' ? 0 : parseFloat(v);
+                            payload[el.name] = v;
+                        });
+
+                        btn.disabled = true;
+                        var original = btn.innerHTML;
+                        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ' + (pendingLabel || 'Salvando...');
+
+                        var r = await postJSON(endpoint, payload);
+                        btn.disabled = false;
+                        btn.innerHTML = original;
+
+                        if (!r.ok) {
+                            flash('err', (r.data && r.data.error) || 'Nao foi possivel salvar.');
+                            return false;
+                        }
+
+                        form.reset();
+                        modalHide(id);
+                        flash('ok', successMessage);
+                        if (after && typeof window[after] === 'function') window[after](r, id);
+                        return false;
+                    };
                 }
 `;
 

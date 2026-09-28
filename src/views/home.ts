@@ -1,6 +1,7 @@
 import { escapeHtml } from './html';
 import { currency } from '../services/stats';
 import type { HomeData } from '../services/home';
+import { renderCashModals, cashModalsScript } from './cashModals';
 
 function money(n: number): string {
     return escapeHtml(currency(n));
@@ -30,85 +31,63 @@ function kpi(label: string, value: string, sub: string, tone: string): string {
 }
 
 export function renderHome(d: HomeData): string {
-    /* ---------------------------------------------------------- checklist */
+    /* ------------------------------------------------------ precisa de atencao */
+    // Alertas e pendencias eram dois blocos empilhados, cada um com um card
+    // por item. Sao a mesma coisa -- "faca isto agora" -- entao viraram uma
+    // lista so, no topo da tela, e o bloco some quando esta vazio.
     const pendentes = d.setup.filter((s) => !s.done);
-    const feitos = d.setup.length - pendentes.length;
 
-    const checklist =
-        pendentes.length === 0
-            ? ''
-            : `        <div class="card mb-5 border-l-4" style="border-left-color: var(--success)">
+    const atencaoLista = [
+        ...d.alerts.map(
+            (a) => `                    <li class="border-b border-line last:border-0">
+                        <a href="${a.href}" class="flex items-center gap-3 py-3 row-hover">
+                            <i class="fa-solid ${a.tone === 'red' ? 'fa-triangle-exclamation text-accent-red' : 'fa-bell text-accent-orange'} shrink-0"></i>
+                            <span class="min-w-0 flex-1">
+                                <span class="block text-body font-medium text-ink">${escapeHtml(a.title)}</span>
+                                <span class="block text-caption text-ink-3">${escapeHtml(a.detail)}</span>
+                            </span>
+                            <span class="text-caption font-semibold text-accent-strong shrink-0 hidden sm:block">${escapeHtml(a.cta)}</span>
+                            <i class="fa-solid fa-chevron-right text-ink-3 text-xs shrink-0"></i>
+                        </a>
+                    </li>`
+        ),
+        ...pendentes.map(
+            (s) => `                    <li class="border-b border-line last:border-0">
+                        <a href="${s.href}" class="flex items-center gap-3 py-3 row-hover">
+                            <i class="fa-regular fa-circle text-ink-3 shrink-0"></i>
+                            <span class="min-w-0 flex-1">
+                                <span class="block text-body font-medium text-ink">${escapeHtml(s.label)}</span>
+                                <span class="block text-caption text-ink-3">${escapeHtml(s.detail)}</span>
+                            </span>
+                            <i class="fa-solid fa-chevron-right text-ink-3 text-xs shrink-0"></i>
+                        </a>
+                    </li>`
+        ),
+    ].join('\n');
+
+    const atencao =
+        d.alerts.length === 0 && pendentes.length === 0
+            ? d.setup.length > 0
+                ? `        <div class="card card-pad mb-5 flex items-center gap-3">
+                    <i class="fa-solid fa-circle-check text-accent-emerald"></i>
+                    <p class="text-body text-ink">Nada pendente. Loja pronta.</p>
+                </div>`
+                : ''
+            : `        <div class="card mb-5">
             <div class="card-pad">
-                <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-                    <h3 class="text-title flex items-center gap-2">
-                        <i class="fa-solid fa-list-check text-accent"></i> Deixe a loja pronta
-                    </h3>
-                    <span class="badge badge-warn">${feitos} de ${d.setup.length} concluidos</span>
+                <div class="flex items-baseline justify-between gap-3 mb-4">
+                    <h3 class="text-title">Precisa de atencao</h3>
+                    <span class="text-caption text-ink-3">${d.alerts.length + pendentes.length} item(ns)</span>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                    ${d.setup
-                        .map(
-                            (s) => `                    <a href="${s.href}"
-                        class="flex items-start gap-3 p-3 rounded-card border border-line row-hover ${s.done ? 'opacity-60' : ''}">
-                        <i class="fa-solid ${s.done ? 'fa-circle-check text-accent-emerald' : 'fa-circle text-accent'} mt-1 shrink-0"></i>
-                        <span class="min-w-0">
-                            <span class="block text-body font-medium text-ink">${escapeHtml(s.label)}</span>
-                            <span class="block text-caption text-ink-3 truncate">${escapeHtml(s.detail)}</span>
-                        </span>
-                    </a>`
-                        )
-                        .join('\n')}
-                </div>
+                <ul>
+${atencaoLista}
+                </ul>
             </div>
         </div>`;
 
-    /* ------------------------------------------------------------ alertas */
-    const alerts =
-        d.alerts.length === 0
-            ? ''
-            : `        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-5">
-            ${d.alerts
-                .map((a) => {
-                    const border =
-                        a.tone === 'red' ? 'var(--danger)' : a.tone === 'amber' ? 'var(--warning)' : 'var(--text-3)';
-                    const icon = a.tone === 'red' ? 'fa-triangle-exclamation' : 'fa-bell';
-                    const tone = a.tone === 'red' ? 'text-accent-red' : 'text-accent-orange';
-                    return `                <a href="${a.href}" class="card p-4 border-l-4 row-hover" style="border-left-color: ${border}">
-                    <div class="flex items-start gap-3">
-                        <i class="fa-solid ${icon} mt-0.5 shrink-0 ${tone}"></i>
-                        <div class="min-w-0 flex-1">
-                            <p class="text-body font-semibold text-ink">${escapeHtml(a.title)}</p>
-                            <p class="text-caption text-ink-3 truncate mt-0.5">${escapeHtml(a.detail)}</p>
-                        </div>
-                    </div>
-                    <p class="text-caption font-semibold text-accent-strong mt-2">${escapeHtml(a.cta)} <i class="fa-solid fa-arrow-right text-[10px]"></i></p>
-                </a>`;
-                })
-                .join('\n')}
-        </div>`;
-
-    /* --------------------------------------------------------- grafico 7d */
-    const maxRevenue = Math.max(...d.last7Days.map((x) => x.revenue), 1);
-    const bars = d.last7Days
-        .map(
-            (x) => `                    <div class="flex-1 min-w-0 flex flex-col items-center gap-1">
-                        <span class="text-micro text-ink-3">${x.revenue > 0 ? money(x.revenue) : ''}</span>
-                        <div class="w-full max-w-[2.5rem] rounded-t bg-accent opacity-70" style="height: ${Math.max(3, Math.round((x.revenue / maxRevenue) * 100))}px"></div>
-                        <span class="text-micro text-ink-3">${escapeHtml(x.label)}</span>
-                    </div>`
-        )
-        .join('\n');
-
-    const grafico =
-        d.last7Days.length > 0
-            ? `        <div class="card card-pad">
-            <h3 class="text-title mb-1">Faturamento dos ultimos dias</h3>
-            <p class="text-caption text-ink-3 mb-5">Receita por dia, em reais</p>
-            <div class="flex items-end gap-2 h-[8.5rem]">
-${bars}
-            </div>
-        </div>`
-            : '';
+    // O faturamento por dia foi para a aba Faturamento. A Home mostra so
+    // operacao: quem abre o painel precisa ver a fila, nao o caixa.
+    const grafico = '';
 
     /* ------------------------------------------------------------- caixa */
     const c = d.cash;
@@ -118,145 +97,183 @@ ${bars}
           }`
         : 'Agenda desativada';
 
+    // O card diz se o turno esta aberto e deixa abrir/fechar direto daqui --
+    // sao o primeiro e o ultimo gesto do dia. Nao mostra dinheiro: o valor
+    // guardado e a conferencia morao na aba Faturamento, que exige senha.
     const caixaEstado = c.shift
-        ? `<p class="text-body text-ink mt-2"><i class="fa-solid fa-circle-check text-accent-emerald"></i> Turno aberto desde ${escapeHtml(c.shift.openedAt)}</p>
-           <p class="text-caption text-ink-3 mt-1">Esperado na gaveta: <strong class="text-ink">R$ ${money(c.shift.totals.expected)}</strong></p>`
+        ? `<p class="text-body text-ink mt-2"><i class="fa-solid fa-circle-check text-accent-emerald"></i> Turno aberto desde ${escapeHtml(c.shift.openedAt)}</p>`
         : `<p class="text-body text-ink-3 mt-2"><i class="fa-solid fa-circle-xmark"></i> Nenhum turno aberto</p>`;
 
-    const caixa = `        <div class="card card-pad">
-            <h3 class="text-title mb-1 flex items-center gap-2"><i class="fa-solid fa-cash-register text-accent"></i> Caixa</h3>
-            <p class="text-caption text-ink-3">${escapeHtml(agendaTexto)}</p>
-            ${caixaEstado}
-            ${
-                c.pendingCount > 0
-                    ? `<p class="text-caption text-accent-orange mt-2"><i class="fa-solid fa-triangle-exclamation"></i> ${c.pendingCount} turno(s) aguardando conferencia</p>`
-                    : ''
-            }
-            <a href="/admin?tab=reports" class="btn btn-ghost btn-sm mt-3">
-                <i class="fa-solid fa-receipt"></i> Ver turnos
-            </a>
+    const botaoCaixa = c.shift
+        ? `<button type="button" onclick="cashCloseModalOpen()" class="btn btn-danger btn-sm flex-1">
+                    <i class="fa-solid fa-lock"></i> Fechar caixa
+                </button>`
+        : `<button type="button" onclick="cashOpenModalOpen()" class="btn btn-primary btn-sm flex-1">
+                    <i class="fa-solid fa-lock-open"></i> Abrir caixa
+                </button>`;
+
+    const caixa = `        <div class="card">
+            <div class="card-pad pb-3">
+                <h3 class="text-title">Caixa</h3>
+                <p class="text-caption text-ink-3">${escapeHtml(agendaTexto)}</p>
+                ${caixaEstado}
+                ${
+                    c.pendingCount > 0
+                        ? `<p class="text-caption text-accent-orange mt-2"><i class="fa-solid fa-triangle-exclamation"></i> ${c.pendingCount} turno(s) aguardando conferencia</p>`
+                        : ''
+                }
+            </div>
+            <div class="px-5 pb-5 flex gap-2">
+                ${botaoCaixa}
+                <a href="/admin?tab=faturamento&aba=caixa" class="btn btn-ghost btn-sm">
+                    <i class="fa-solid fa-receipt"></i> Turnos
+                </a>
+            </div>
         </div>`;
 
     /* ------------------------------------------------------- mais vendidos */
-    const top =
-        d.topProducts.length === 0
-            ? `<p class="text-body text-ink-3 py-4">Sem vendas registradas ainda.</p>`
-            : d.topProducts
-                  .map(
-                      (p) => `                    <div class="flex items-center justify-between gap-3 py-2 border-b border-line last:border-0">
-                        <span class="text-body text-ink truncate">${escapeHtml(p.name)}</span>
-                        <span class="text-body font-semibold text-accent-strong shrink-0">${p.qty} un.</span>
-                    </div>`
-                  )
-                  .join('\n');
-
-    /* ------------------------------------------------------------- fila */
-    const filaItem = (label: string, value: number, cor: string) =>
-        `                    <div class="flex items-center justify-between gap-2">
-                            <span class="text-body text-ink-2 flex items-center gap-2"><span class="w-2 h-2 rounded-full ${cor}"></span>${label}</span>
-                            <span class="text-body font-semibold text-ink">${value}</span>
-                        </div>`;
-
-    /* -------------------------------------------------------- menu do dia */
-    const dm = d.dailyMenu;
-    const menuSection = `        <div class="card card-pad border-l-4" style="border-left-color: var(--accent)">
-            <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
-                <div>
-                    <h3 class="text-title flex items-center gap-2">
-                        <i class="fa-solid fa-star text-accent"></i> Menu de hoje
-                    </h3>
-                    <p class="text-caption text-ink-3 mt-0.5">Aparece no topo do cardapio do WhatsApp</p>
-                </div>
-                <button type="button" onclick="menuOpen()" class="btn btn-primary btn-sm">
-                    <i class="fa-solid fa-pen"></i> ${dm ? 'Editar' : 'Definir'}
-                </button>
+    const topSection = `        <div class="card">
+            <div class="card-pad pb-2">
+                <h3 class="text-title">Mais vendidos</h3>
+                <p class="text-caption text-ink-3">No historico completo</p>
             </div>
-            ${
-                dm && dm.items.length > 0
-                    ? `${dm.note ? `<p class="text-body text-ink-2 mb-3 italic">${escapeHtml(dm.note)}</p>` : ''}
-            <div class="space-y-1.5">
-                ${dm.items
-                    .map(
-                        (i) => `                <div class="flex items-center justify-between gap-3 py-1.5 border-b border-line last:border-0">
-                    <span class="text-body text-ink truncate">${escapeHtml(i.name)}</span>
-                    <span class="text-body font-semibold text-accent-strong shrink-0">${money(i.price)}</span>
-                </div>`
-                    )
-                    .join('\n')}
-            </div>`
-                    : '<p class="text-body text-ink-3 py-2">Nenhum prato definido para hoje. O cardapio normal continua valendo.</p>'
-            }
-            ${
-                dm && dm.items.length > 0
-                    ? `<p class="text-caption text-ink-3 mt-3"><i class="fa-solid fa-circle-info"></i> Editar aqui ja muda o que o cliente ve no WhatsApp.</p>`
-                    : ''
-            }
+            <div class="px-5 pb-3">
+                ${
+                    d.topProducts.length === 0
+                        ? '<p class="text-body text-ink-3 py-3">Sem vendas registradas ainda.</p>'
+                        : d.topProducts
+                              .map(
+                                  (p, i) => `                <div class="flex items-center gap-3 py-2.5 ${i < d.topProducts.length - 1 ? 'border-b border-line' : ''}">
+                            <span class="text-caption font-semibold text-ink-3 w-4 shrink-0">${i + 1}</span>
+                            <span class="text-body text-ink truncate flex-1">${escapeHtml(p.name)}</span>
+                            <span class="text-body font-semibold text-accent-strong shrink-0">${p.qty} un.</span>
+                        </div>`
+                              )
+                              .join('\n')
+                }
+            </div>
         </div>`;
 
-    return `        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            ${kpi('Faturamento hoje', money(d.today.revenue), deltaBadge(d.delta.revenue), 'text-accent-strong')}
-            ${kpi('Pedidos hoje', String(d.today.orders), deltaBadge(d.delta.orders), 'text-accent')}
-            ${kpi(
-                'Ticket medio',
-                money(d.averageTicket),
-                d.yesterday ? `ontem: ${money(d.yesterday.revenue)}` : 'sem pedidos ontem',
-                'text-accent-orange'
-            )}
-            ${kpi(
-                'Lucro estimado',
-                d.margin ? money(d.margin.value) : '--',
-                d.margin
-                    ? `margem de ${String(d.margin.percent).replace('.', ',')}%`
-                    : 'cadastre o custo dos produtos',
-                d.margin ? 'text-accent-emerald' : 'text-ink-3'
-            )}
-        </div>
+    /* ------------------------------------------------------------- acoes */
+    // Subiram para o topo da coluna lateral: sao as quatro telas que o dono
+    // abre o dia inteiro. Antes eram tres cards no fim da pagina, embaixo de
+    // todo o resto, o que obrigava a rolar para chegar neles.
+    const acoes = `        <div class="card">
+            <div class="card-pad pb-2">
+                <h3 class="text-title">Ir para</h3>
+            </div>
+            <div class="px-2 pb-2">
+                <a href="/admin?tab=pdv" class="flex items-center gap-3 px-3 py-2.5 rounded-card row-hover">
+                    <i class="fa-solid fa-cash-register text-accent"></i>
+                    <span class="text-body font-medium text-ink flex-1">Vender no balcao</span>
+                    <i class="fa-solid fa-chevron-right text-ink-3 text-xs"></i>
+                </a>
+                <a href="/admin?tab=kanban" class="flex items-center gap-3 px-3 py-2.5 rounded-card row-hover">
+                    <i class="fa-solid fa-chart-pie text-accent"></i>
+                    <span class="text-body font-medium text-ink flex-1">Ver pedidos</span>
+                    <i class="fa-solid fa-chevron-right text-ink-3 text-xs"></i>
+                </a>
+                <a href="/admin?tab=estoque" class="flex items-center gap-3 px-3 py-2.5 rounded-card row-hover">
+                    <i class="fa-solid fa-boxes-stacked text-accent"></i>
+                    <span class="text-body font-medium text-ink flex-1">Produtos e estoque</span>
+                    <i class="fa-solid fa-chevron-right text-ink-3 text-xs"></i>
+                </a>
+                <a href="/admin?tab=whatsapp" class="flex items-center gap-3 px-3 py-2.5 rounded-card row-hover">
+                    <i class="fa-solid ${d.botOnline ? 'fa-whatsapp text-accent-emerald' : 'fa-plug-circle-xmark text-accent-red'}"></i>
+                    <span class="text-body font-medium text-ink flex-1">WhatsApp</span>
+                    <span class="text-micro text-ink-3 shrink-0">${d.botOnline ? 'conectado' : 'desconectado'}</span>
+                </a>
+            </div>
+        </div>`;
 
-        ${alerts}
-        ${checklist}
+    /* ------------------------------------------------------------- fila */
+    // A fila vira uma faixa de contadores lado a lado: da para ler os quatro
+    // numeros de relance, sem varrer quatro linhas com o olho.
+    const filaContador = (label: string, value: number, cor: string) => `                <div class="flex-1 min-w-0 text-center px-2">
+                    <p class="text-3xl font-extrabold ink leading-none">${value}</p>
+                    <p class="text-micro text-ink-3 mt-1.5 flex items-center justify-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full ${cor}"></span>${label}
+                    </p>
+                </div>`;
 
-        ${menuSection}
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
-            <div class="card card-pad">
-                <h3 class="text-title mb-1 flex items-center gap-2"><i class="fa-solid fa-list text-accent"></i> Fila de hoje</h3>
-                <p class="text-caption text-ink-3 mb-4">Pedidos em aberto agora</p>
-                <div class="space-y-2">
-                    ${filaItem('Aguardando', d.queue.pendente, 'bg-accent')}
-                    ${filaItem('Na cozinha', d.queue.preparando, 'bg-accent-orange')}
-                    ${filaItem('Em entrega', d.queue.entrega, 'bg-accent-emerald')}
-                    ${filaItem('Concluidos hoje', d.queue.concluidoHoje, 'bg-ink-3')}
+    const filaSection = `        <div class="card mb-5">
+            <div class="flex flex-wrap items-center justify-between gap-3 card-pad pb-3">
+                <div>
+                    <h3 class="text-title">Pedidos agora</h3>
+                    <p class="text-caption text-ink-3">O que esta em aberto neste momento</p>
                 </div>
-                <a href="/admin?tab=pedidos" class="btn btn-ghost btn-sm mt-4">
+                <a href="/admin?tab=kanban" class="btn btn-ghost btn-sm">
                     <i class="fa-solid fa-chart-pie"></i> Abrir pedidos
                 </a>
             </div>
+            <div class="flex divide-x divide-line border-t border-line">
+                ${filaContador('Aguardando', d.queue.pendente, 'bg-accent')}
+                ${filaContador('Na cozinha', d.queue.preparando, 'bg-accent-orange')}
+                ${filaContador('Em entrega', d.queue.entrega, 'bg-accent-emerald')}
+                ${filaContador('Concluidos', d.queue.concluidoHoje, 'bg-ink-3')}
+            </div>
+        </div>`;
 
-            <div class="card card-pad">
-                <h3 class="text-title mb-1 flex items-center gap-2"><i class="fa-solid fa-trophy text-accent"></i> Mais vendidos</h3>
-                <p class="text-caption text-ink-3 mb-3">No historico completo</p>
-${top}
+    // Janelas de abrir e fechar caixa. O layout vem de ui/modal.ts.
+    const cashModalsHtml = renderCashModals();
+    const cashModalsHtmlScript = cashModalsScript();
+
+    /* -------------------------------------------------------- menu do dia */
+    const dm = d.dailyMenu;    const temMenu = !!dm && dm.items.length > 0;
+    const menuSection = `        <div class="card">
+            <div class="flex flex-wrap items-center justify-between gap-3 card-pad pb-3">
+                <div>
+                    <h3 class="text-title">Menu de hoje</h3>
+                    <p class="text-caption text-ink-3">Aparece no topo do cardapio do WhatsApp</p>
+                </div>
+                <button type="button" onclick="menuOpen()" class="btn ${temMenu ? 'btn-ghost' : 'btn-primary'} btn-sm">
+                    <i class="fa-solid ${temMenu ? 'fa-pen' : 'fa-plus'}"></i> ${temMenu ? 'Editar' : 'Definir'}
+                </button>
+            </div>
+            ${
+                temMenu
+                    ? `<div class="px-5 pb-4">
+                ${dm.note ? `<p class="text-body text-ink-2 mb-3 italic">${escapeHtml(dm.note)}</p>` : ''}
+                <ul>
+                    ${dm.items
+                        .map(
+                            (i, idx) => `                    <li class="flex items-center justify-between gap-3 py-2 ${idx < dm.items.length - 1 ? 'border-b border-line' : ''}">
+                        <span class="text-body text-ink truncate">${escapeHtml(i.name)}</span>
+                        <span class="text-body font-semibold text-accent-strong shrink-0">${money(i.price)}</span>
+                    </li>`
+                        )
+                        .join('\n')}
+                </ul>
+            </div>`
+                    : `<div class="px-5 pb-4">
+                <p class="text-body text-ink-3">Nenhum prato definido para hoje. O cardapio normal continua valendo.</p>
+            </div>`
+            }
+        </div>`;
+
+    return `        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+            ${kpi('Pedidos hoje', String(d.today.orders), deltaBadge(d.delta.orders), 'text-accent')}
+            ${kpi('Em aberto', String(d.queue.pendente + d.queue.preparando + d.queue.entrega), 'aguardando ou em preparo', 'text-accent-orange')}
+            ${kpi('Concluidos', String(d.queue.concluidoHoje), 'finalizados hoje', 'text-accent-emerald')}
+            ${kpi('Itens no cardapio', String(d.menuProducts.length), 'disponiveis para vender', 'text-ink-2')}
+        </div>
+
+        ${atencao}
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+            <div class="lg:col-span-2 space-y-5">
+                ${filaSection}
+                ${menuSection}
             </div>
 
-            ${caixa}
+            <div class="space-y-5">
+                ${acoes}
+                ${caixa}
+                ${topSection}
+            </div>
         </div>
 
-        ${grafico}
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
-            <a href="/admin?tab=pdv" class="card p-4 row-hover flex items-center gap-3">
-                <i class="fa-solid fa-cash-register text-accent"></i>
-                <span><span class="block text-body font-semibold text-ink">Venda rapida</span><span class="block text-caption text-ink-3">Abrir o PDV</span></span>
-            </a>
-            <a href="/admin?tab=estoque" class="card p-4 row-hover flex items-center gap-3">
-                <i class="fa-solid fa-boxes-stacked text-accent"></i>
-                <span><span class="block text-body font-semibold text-ink">Estoque</span><span class="block text-caption text-ink-3">Saldos e entradas</span></span>
-            </a>
-            <a href="/admin?tab=whatsapp" class="card p-4 row-hover flex items-center gap-3">
-                <i class="fa-solid ${d.botOnline ? 'fa-whatsapp text-accent-emerald' : 'fa-plug-circle-xmark text-accent-red'}"></i>
-                <span><span class="block text-body font-semibold text-ink">WhatsApp</span><span class="block text-caption text-ink-3">${d.botOnline ? 'Bot conectado' : 'Bot desconectado'}</span></span>
-            </a>
-        </div>
+        ${cashModalsHtml}
 
         <!-- Modal: menu do dia -->
         <div id="menuModal" class="modal-backdrop hidden">
@@ -482,5 +499,7 @@ ${top}
             document.addEventListener('change', function (e) {
                 if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-menu-pick')) menuSyncCount();
             });
-        </script>`;
+        </script>
+
+        ${cashModalsHtmlScript}`;
 }

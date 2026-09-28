@@ -6,21 +6,22 @@ import QRCode from 'qrcode';
 import adminRoutes from './routes/adminRoutes';
 import { addClient, notifyClients, notifyConnection, getClientCount } from './services/sse';
 import { initBot, sendOrderStatusNotification, isBotOnline, loadBotMessages, reconnectBot, logoutBot, getConnectionState, onConnectionChange, QR_TTL_MS } from './services/bot';
-import { renderLayout, tabHint, isTabId, type TabId } from './views/layout';
-import { renderPairing, PAIRING_CLIENT_SCRIPT } from './views/pairing';
+import { renderLayout, tabHint, isTabId, LEGACY_TABS, type TabId } from './views/layout';
+import { PAIRING_CLIENT_SCRIPT } from './views/pairing';
+import { renderWhatsApp } from './views/whatsapp';
 import { renderPdv, PDV_PAYMENT_LABELS } from './views/pdv';
 import {
     renderKanban,
     renderConfig,
     renderCalendar,
-    renderStats,
-    renderReports,
-    renderBot,
-    renderSystem,
 } from './views/tabs';
 import { renderInventory } from './views/inventory';
 import { renderHome } from './views/home';
-import { loadHomeData } from './services/home';
+import { renderCash } from './views/cash';
+import { renderCustomers } from './views/customers';
+import { renderFaturamento } from './views/faturamento';
+import { loadHomeData, estimateMargin } from './services/home';
+import { customerList, summarizeCustomers } from './services/customers';
 import {
     applyMovement,
     setStockTo,
@@ -29,6 +30,7 @@ import {
     registerSale,
     reorderList,
     wasteSummary,
+    stockStatus,
     type StockRow,
 } from './services/stock';
 import {
@@ -52,7 +54,6 @@ import {
     computeStats,
     toCsv,
     toReportRows,
-    countRows,
     currency,
     ORDER_STATUSES,
     type OrderWithProductless,
@@ -1155,11 +1156,12 @@ app.post('/admin/config/save', async (req, res) => {
     try {
         const b = req.body ?? {};
         const data = {
-            businessName: String(b.businessName ?? 'DeliveryAdmin').trim() || 'DeliveryAdmin',
-            originAddress: String(b.originAddress ?? '').trim(),
-            baseFee: toNumber(b.baseFee, 3),
-            feePerKm: toNumber(b.feePerKm, 2.5),
-            googleApiKey: String(b.googleApiKey ?? '').trim(),
+            // Sem fallback hardcoded: um nome inventado ("DeliveryAdmin") e o
+            // que aparecia no logo antes de o dono preencher a configuracao.
+            businessName: String(b.businessName ?? '').trim(),
+            // Colunas de entrega (originAddress/baseFee/feePerKm/googleApiKey)
+            // nao sao mais gravadas: ninguem le mais. Ficam no schema para
+            // sumirem na proxima migration.
             minOrderValue: toNumber(b.minOrderValue, 0),
             estimatedPrepMinutes: Math.max(0, Math.round(toNumber(b.estimatedPrepMinutes, 25))),
             pixKey: String(b.pixKey ?? '').trim(),
@@ -1173,7 +1175,7 @@ app.post('/admin/config/save', async (req, res) => {
         await prisma.config.upsert({
             where: { id: 'default' },
             update: data,
-            create: { id: 'default', ...data },
+            create: { id: 'default', ...data, originAddress: '' },
         });
 
         res.json({ success: true });
@@ -1238,10 +1240,21 @@ app.get('/admin/reports.csv', async (req, res) => {
 
 app.get('/admin', async (req, res) => {
     try {
-        // "products" foi fundido na aba do PDV: links antigos continuam valendo.
-        const requestedTab = req.query.tab === 'products' ? 'pdv' : req.query.tab;
+        // Itens que sairam da sidebar (bot, stats, products, system) ainda
+        // podem estar em links antigos, favoritos ou prints. Mandamos para o
+        // destino real em vez de deixar cair na Home sem explicacao.
+        const rawTab = typeof req.query.tab === 'string' ? req.query.tab : '';
+        const legado = LEGACY_TABS[rawTab];
+        if (legado) {
+            // O destino pode trazer um fragmento (#textos-bot). encodeURIComponent
+            // escaparia o "#" e o navegador nunca rolaria ate a ancora.
+            const [destino, ancora] = legado.split('#');
+            const url = '/admin?tab=' + encodeURIComponent(destino) + (ancora ? '#' + ancora : '');
+            return res.redirect(303, url);
+        }
+
         // Sem ?tab= a home e a primeira tela; "pedidos" segue acessivel pelo menu.
-        const active: TabId = isTabId(requestedTab) ? requestedTab : 'home';
+        const active: TabId = isTabId(rawTab) ? rawTab : 'home';
 
         const [products, orders, config, botMessages] = await Promise.all([
             prisma.product.findMany({ orderBy: { createdAt: 'asc' } }),
@@ -1292,10 +1305,6 @@ app.get('/admin', async (req, res) => {
             case 'config': {
                 body = renderConfig({
                     businessName: config.businessName,
-                    originAddress: config.originAddress,
-                    baseFee: config.baseFee,
-                    feePerKm: config.feePerKm,
-                    googleApiKey: config.googleApiKey,
                     minOrderValue: config.minOrderValue,
                     estimatedPrepMinutes: config.estimatedPrepMinutes,
                     pixKey: config.pixKey,
@@ -1313,23 +1322,45 @@ app.get('/admin', async (req, res) => {
                 body = renderCalendar({
                     totalOrders: inRange.length,
                     totalRevenue: inRange.reduce((a, o) => a + o.total, 0),
+                    // Media por dia usa o mes inteiro, para nao inflar a media
+                    // nos primeiros dias do mes.
+                    daysInPeriod: Math.round((endOfDay(to).getTime() - startOfDay(from).getTime()) / 86400000) + 1,
                 });
                 break;
             }
 
-            case 'stats': {
-                body = renderStats(await computeStats(orders));
-                break;
-            }
+            case 'faturamento': {
+                // Tudo que mexe em dinheiro entra numa aba so. A sub-aba inicial
+                // vem do param ?aba=, que e' para onde os links antigos de
+                // Caixa/Clientes/Relatorios sao reenviados.
+                const sub = typeof req.query.aba === 'string' ? req.query.aba : 'resumo';
+                const subInicial: 'resumo' | 'caixa' | 'clientes' | 'pedidos' = (
+                    ['resumo', 'caixa', 'clientes', 'pedidos'] as const
+                ).includes(sub as never)
+                    ? (sub as 'resumo' | 'caixa' | 'clientes' | 'pedidos')
+                    : 'resumo';
 
-            case 'reports': {
-                const now = new Date();
-                const to = parseDateInput(req.query.to, now);
-                const from = parseDateInput(req.query.from, new Date(now.getTime() - 29 * 86400000));
-                const status = typeof req.query.status === 'string' && VALID_ORDER_STATUS.includes(req.query.status) ? req.query.status : undefined;
+                const [shift, history, customerRows] = await Promise.all([
+                    openShift(),
+                    shiftHistory(30),
+                    customerList(),
+                ]);
 
-                const filtered = orders.filter(
-                    (o) => o.createdAt >= startOfDay(from) && o.createdAt <= endOfDay(to) && (!status || o.status === status)
+                const dayStartF = startOfDay(new Date());
+                const hojeOrders = orders.filter((o) => o.createdAt >= dayStartF);
+                const receitaHoje = Math.round(hojeOrders.reduce((a, o) => a + o.total, 0) * 100) / 100;
+
+                const relDe = parseDateInput(req.query.from, new Date(Date.now() - 29 * 86400000));
+                const relAte = parseDateInput(req.query.to, new Date());
+                const relStatus =
+                    typeof req.query.status === 'string' && VALID_ORDER_STATUS.includes(req.query.status)
+                        ? req.query.status
+                        : undefined;
+                const filtrados = orders.filter(
+                    (o) =>
+                        o.createdAt >= startOfDay(relDe) &&
+                        o.createdAt <= endOfDay(relAte) &&
+                        (!relStatus || o.status === relStatus)
                 );
 
                 const badge: Record<string, string> = {
@@ -1339,7 +1370,7 @@ app.get('/admin', async (req, res) => {
                     concluido: 'badge-slate',
                 };
 
-                const rowsHtml = filtered
+                const rowsHtml = filtrados
                     .map(
                         (o) => `<tr>
                             <td class="text-xs ink-3">${escapeHtml(o.createdAt.toLocaleString('pt-BR'))}</td>
@@ -1354,19 +1385,38 @@ app.get('/admin', async (req, res) => {
                     )
                     .join('');
 
-                body = renderReports({
-                    rowsHtml,
-                    count: filtered.length,
-                    total: filtered.reduce((a, o) => a + o.total, 0),
-                    from: from.toISOString().slice(0, 10),
-                    to: to.toISOString().slice(0, 10),
-                    shifts: await shiftHistory(15),
-                });
-                break;
-            }
-
-            case 'bot': {
-                body = renderBot({ messages });
+                body = renderFaturamento(
+                    {
+                        stats: await computeStats(orders),
+                        report: {
+                            rowsHtml,
+                            count: filtrados.length,
+                            total: filtrados.reduce((a, o) => a + o.total, 0),
+                            from: relDe.toISOString().slice(0, 10),
+                            to: relAte.toISOString().slice(0, 10),
+                            shifts: await shiftHistory(15),
+                        },
+                        cash: {
+                            shift,
+                            history,
+                            // Turno que a agenda encerrou sem contagem: a Home avisava
+                            // que estava pendente sem existir tela para resolver.
+                            pending: history.filter((s) => s.difference === null),
+                            scheduleOn: config.cashAutoOpen !== '' || config.cashAutoClose !== '',
+                            autoOpen: config.cashAutoOpen,
+                            autoClose: config.cashAutoClose,
+                            hasFloat: config.cashDefaultFloat > 0,
+                            todayRevenue: receitaHoje,
+                            todayOrders: hojeOrders.length,
+                        },
+                        customers: { rows: customerRows, summary: summarizeCustomers(customerRows) },
+                        todayRevenue: receitaHoje,
+                        todayOrders: hojeOrders.length,
+                        averageTicket: hojeOrders.length > 0 ? Math.round((receitaHoje / hojeOrders.length) * 100) / 100 : 0,
+                        margin: estimateMargin(hojeOrders, products),
+                    },
+                    subInicial
+                );
                 break;
             }
 
@@ -1424,16 +1474,13 @@ app.get('/admin', async (req, res) => {
                     })),
                     categories: categories.length ? categories : ['Geral'],
                     todaySales: todayCounter.length,
-                    todayRevenue: todayCounter.reduce((a, o) => a + o.total, 0),
                     totals: {
                         total: products.length,
                         available: products.filter((p) => p.isAvailable).length,
                         paused: products.filter((p) => !p.isAvailable).length,
                         soldOut: products.filter((p) => p.trackStock && p.stock <= 0).length,
                     },
-                    cash: await cashSummary(),
                     holds: await parkedSales(),
-                    shift: await openShift(),
                 });
                 break;
             }
@@ -1449,30 +1496,43 @@ app.get('/admin', async (req, res) => {
                     categories: [...new Set(products.map((p) => p.category || 'Geral'))].sort(),
                     reorder: reorderList(rows),
                     waste: await wasteSummary(wasteSince),
+                    // O catalogo (CRUD de produto) foi do PDV para ca: a entidade
+                    // e a mesma, entao tambem o lugar.
+                    catalog: {
+                        products: products.map((p) => ({
+                            id: p.id,
+                            name: p.name,
+                            sku: p.sku,
+                            imageUrl: p.imageUrl,
+                            price: p.price,
+                            costPrice: p.costPrice,
+                            description: p.description,
+                            category: p.category || 'Geral',
+                            isAvailable: p.isAvailable,
+                            trackStock: p.trackStock,
+                            stock: p.stock,
+                            minStock: p.minStock,
+                            isCombo: p.isCombo,
+                        })),
+                        categories: [...new Set(products.map((p) => p.category || 'Geral'))].sort(),
+                        lowStock: rows.filter((r) => {
+                            const s = stockStatus(r);
+                            return s === 'zerado' || s === 'baixo';
+                        }).length,
+                    },
                 });
                 break;
             }
 
             case 'whatsapp': {
-                body = renderPairing({
-                    state: getConnectionState(),
-                    authPath: AUTH_DIR,
-                    hasSavedSession: hasSavedSession(),
-                });
-                break;
-            }
-
-            case 'system': {
-                const counts = await countRows();
-                body = renderSystem({
-                    botOnline: isBotOnline(),
-                    dbPath: 'prisma/dev.db (SQLite)',
-                    nodeVersion: process.version,
-                    platform: `${process.platform} ${process.arch}`,
-                    uptime: formatUptime(process.uptime()),
-                    memoryMb: Math.round(process.memoryUsage().rss / 1048576),
-                    counts,
-                    validStatuses: VALID_ORDER_STATUS,
+                // Conexao + textos do bot na mesma tela (eram dois itens).
+                body = renderWhatsApp({
+                    pair: {
+                        state: getConnectionState(),
+                        authPath: AUTH_DIR,
+                        hasSavedSession: hasSavedSession(),
+                    },
+                    bot: { messages },
                 });
                 break;
             }
@@ -1499,15 +1559,6 @@ app.get('/admin', async (req, res) => {
         res.status(500).send('Erro interno ao carregar o painel.');
     }
 });
-
-function formatUptime(seconds: number): string {
-    const s = Math.floor(seconds % 60);
-    const m = Math.floor((seconds / 60) % 60);
-    const h = Math.floor(seconds / 3600);
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-}
 
 app.listen(PORT, async () => {
     console.log(`Servidor HTTP rodando na porta ${PORT}`);

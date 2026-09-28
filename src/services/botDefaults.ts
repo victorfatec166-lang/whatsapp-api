@@ -6,7 +6,7 @@
  */
 export const DEFAULT_BOT_MESSAGES: Record<string, string> = {
     mainMenu:
-        '\u{1F354} *BEM-VINDO AO NOSSO DELIVERY* \u{1F355}\n' +
+        '\u{1F354} *BEM-VINDO* \u{1F355}\n' +
         '\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n' +
         'Escolha uma opcao:\n\n' +
         '1\uFE0F\u20E3 *Ver Cardapio e Pedir*\n' +

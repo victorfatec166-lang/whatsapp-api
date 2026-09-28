@@ -2,7 +2,7 @@ import { escapeHtml } from './html';
 import type { ConnectionState } from '../services/bot';
 import { QR_TTL_MS } from '../services/bot';
 
-type PairData = {
+export type PairData = {
     state: ConnectionState;
     authPath: string;
     hasSavedSession: boolean;

@@ -7,18 +7,15 @@ const prisma = new PrismaClient();
 async function main() {
     log.info('A inserir dados de teste...');
 
-    // Configuração padrão da morada de origem e taxas
-    await prisma.config.upsert({
-        where: { id: 'default' },
-        update: {},
-        create: {
-            id: 'default',
-            originAddress: 'Rua Principal, 100 - Mogi Mirim, SP',
-            feePerKm: 2.50,
-            baseFee: 3.00,
-            googleApiKey: ''
-        }
-    });
+    /*
+     * A linha de Config ja vem do servidor: getConfig() cria a linha "default"
+     * no primeiro boot se ela nao existir. Este seed nao precisa criar.
+     *
+     * Ele criava com originAddress, feePerKm, baseFee e googleApiKey, que
+     * foram removidos do schema -- ver o comentario do model Config. Um seed que
+     * grava campo de entrega depois da feature de entrega ter sido deletada e'
+     * a forma mais lenta de a coluna parecer viva.
+     */
 
     // Produtos de exemplo individuais
     const products = [

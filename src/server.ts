@@ -5,6 +5,8 @@ import path from 'path';
 import QRCode from 'qrcode';
 import adminRoutes from './routes/adminRoutes';
 import comandaRoutes from './routes/comandaRoutes';
+import chatRoutes from './routes/chatRoutes';
+import marketplaceRoutes from './routes/marketplaceRoutes';
 import { addClient, notifyClients, notifyConnection, getClientCount } from './services/sse';
 // QR_TTL_MS saiu daqui: era usado para expire o QR antigo, e a sessao do
 // Baileys ja resolve isso sozinha. O import nao custava nada, mas deixava
@@ -25,6 +27,10 @@ import { renderHome } from './views/home';
 // sub-abas de Faturamento, que chama as views por conta propria. Continuar
 // importando dava a impressao de que o servidor ainda as desenhava.
 import { renderFaturamento } from './views/faturamento';
+import { renderMarketplace } from './views/marketplace';
+import { renderChat } from './views/chat';
+import { listarContas, listarItensCasados, temChaveDeCifra, type Canal } from './services/marketplace';
+import { listarConversas, totalNaoLidas } from './services/chat';
 import { loadHomeData, estimateMargin } from './services/home';
 import { validar, falhou, vendaPdv, mudancaStatus } from './services/validation';
 import { customerList, summarizeCustomers } from './services/customers';
@@ -76,6 +82,31 @@ const PORT = process.env.PORT || 3000;
 
 const VALID_ORDER_STATUS: string[] = [...ORDER_STATUSES];
 
+/*
+ * Corpo cru do webhook de marketplace, montado a ma'os.
+ *
+ * Precisa vir ANTES do express.json, e a ordem aqui e o que faz isso funcionar:
+ * o body-parser marca o corpo como lido, entao o parser seguinte nao ve mais nada
+ * e a rota receberia um objeto ja desserializado. Com o raw primeiro, a rota
+ * recebe o Buffer com o texto original -- que e' o unico texto que a assinatura
+ * cobre, porque re-serializar o JSON muda a ordem das chaves e o HMAC deixa de
+ * bater.
+ *
+ * O comentario original dizia "precisa vir antes de qualquer parser" e estava
+ * montado DEPOIS do express.json. O resultado era body-parser recusando o corpo
+ * com 400 antes da rota rodar, e a confericao de assinatura nunca acontecia:
+ * nao era o marketplace sendo barrado, era um erro de montagem.
+ *
+ * Sem `verify`: um corpo que nao e JSON nao e barrado aqui, e sim na rota, que
+ * responde 401 pelo caminho de assinatura/json. Barrar no parser daria um 400
+ * generico e, pior, indicaria um problema de transporte onde o problema real e'
+ * assinatura invalida -- que e' a unica coisa que este endpoint precisa dizer.
+ */
+app.use(
+    '/webhook/marketplace',
+    express.raw({ type: ['application/json', 'application/*+json'], limit: '2mb' })
+);
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 // Fotos de produto ficam em public/uploads e sao servidas estaticamente.
@@ -89,6 +120,13 @@ app.use('/api/admin', adminRoutes);
 // Comanda da cozinha: saida para a impressora, com vida propria. Ver o
 // arquivo para por que a impressao em si nao acontece aqui.
 app.use('/api/admin', comandaRoutes);
+// Conversas do WhatsApp. Montado em /api/admin porque quem chama e' o painel, e
+// nao um parceiro -- ver a nota sobre a falta de senha em chatRoutes. As rotas
+// do arquivo sao relativas a este prefixo.
+app.use('/api/admin', chatRoutes);
+// Marketplace (iFood/99Food). O router traz o webhook publico junto; ver o
+// arquivo para por que ele fica separado das rotas do painel.
+app.use('/', marketplaceRoutes);
 
 /* ------------------------------------------------------------------ Utils */
 
@@ -119,8 +157,24 @@ async function getConfig() {
     const existing = await prisma.config.findUnique({ where: { id: 'default' } });
     if (existing) return existing;
     return prisma.config.create({
-        data: { id: 'default', originAddress: 'Rua Principal, 100' },
+        data: { id: 'default' },
     });
+}
+
+/** Ultimos pedidos de um canal de marketplace, para a tela mostrar atividade. */
+async function pedidosDoCanal(channel: Canal) {
+    const pedidos = await prisma.order.findMany({
+        where: { channel, externalId: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+    });
+    return pedidos.map((p) => ({
+        id: p.id,
+        externalId: p.externalId,
+        total: p.total,
+        status: p.status,
+        createdAt: p.createdAt,
+    }));
 }
 
 /** Normaliza um produto do Prisma para a linha usada na aba de estoque. */
@@ -1210,12 +1264,20 @@ app.post('/admin/config/save', async (req, res) => {
             // Sem fallback hardcoded: um nome inventado ("DeliveryAdmin") e o
             // que aparecia no logo antes de o dono preencher a configuracao.
             businessName: String(b.businessName ?? '').trim(),
-            // Colunas de entrega (originAddress/baseFee/feePerKm/googleApiKey)
-            // nao sao mais gravadas: ninguem le mais. Ficam no schema para
-            // sumirem na proxima migration.
-            minOrderValue: toNumber(b.minOrderValue, 0),
-            estimatedPrepMinutes: Math.max(0, Math.round(toNumber(b.estimatedPrepMinutes, 25))),
-            pixKey: String(b.pixKey ?? '').trim(),
+            /*
+             * minOrderValue, estimatedPrepMinutes e pixKey sairam daqui.
+             *
+             * Nenhum dos tres era lido por nada: o bot criava pedido sem checar
+             * valor minimo, o tempo de preparo nao aparecia em mensagem nenhuma,
+             * e a chave PIX so era lida pelo checklist da Home -- que marcava
+             * "configurada" sem nunca ter chegado ao cliente. Continuar
+             * gravando os tres dava a impressao de que a tela os controlava.
+             *
+             * As sete colunas foram removidas do schema na migration
+             * 20260928173000_remove_colunas_config_sem_uso, junto com
+             * originAddress, baseFee, feePerKm e googleApiKey. O motivo de cada
+             * grupo esta no comentario do model Config, em schema.prisma.
+             */
             // Agenda do caixa: horario invalido vira vazio (desativado) em vez
             // de ser gravado e nunca casar no agendador.
             cashAutoOpen: isValidHhMm(b.cashAutoOpen) ? String(b.cashAutoOpen).trim() : '',
@@ -1226,7 +1288,7 @@ app.post('/admin/config/save', async (req, res) => {
         await prisma.config.upsert({
             where: { id: 'default' },
             update: data,
-            create: { id: 'default', ...data, originAddress: '' },
+            create: { id: 'default', ...data },
         });
 
         res.json({ success: true });
@@ -1352,9 +1414,6 @@ app.get('/admin', async (req, res) => {
             case 'config': {
                 body = renderConfig({
                     businessName: config.businessName,
-                    minOrderValue: config.minOrderValue,
-                    estimatedPrepMinutes: config.estimatedPrepMinutes,
-                    pixKey: config.pixKey,
                     cashAutoOpen: config.cashAutoOpen,
                     cashAutoClose: config.cashAutoClose,
                     cashDefaultFloat: config.cashDefaultFloat,
@@ -1571,6 +1630,46 @@ app.get('/admin', async (req, res) => {
                 break;
             }
 
+            case 'chat': {
+                // A lista vem do servidor, mas abrir e enviar vao por fetch: a
+                // tela nunca recarrega, para nao perder o que a pessoa esta
+                // digitando -- que e' justamente o conteudo desta tela.
+                body = renderChat({
+                    conversas: await listarConversas(),
+                    naoLidas: await totalNaoLidas(),
+                    botOnline: isBotOnline(),
+                });
+                break;
+            }
+
+            case 'marketplace': {
+                // iFood e 99Food. O catalogo vem do mesmo `products` do resto da
+                // tela -- casar item e' escolher um produto que ja existe, e uma
+                // lista propria aqui seria uma segunda lista para manter.
+                const [contas, itensIfood, itens99, pedidosIfood, pedidos99] = await Promise.all([
+                    listarContas(),
+                    listarItensCasados('ifood'),
+                    listarItensCasados('99food'),
+                    pedidosDoCanal('ifood'),
+                    pedidosDoCanal('99food'),
+                ]);
+
+                body = renderMarketplace({
+                    contas,
+                    itens: { ifood: itensIfood, '99food': itens99 },
+                    pedidos: { ifood: pedidosIfood, '99food': pedidos99 },
+                    temChaveDeCifra: temChaveDeCifra(),
+                    produtos: products.map((p) => ({ id: p.id, name: p.name, price: p.price })),
+                    // O endereco do webhook e' montado a partir do host da
+                    // requisicao, e nao de um .env: quem cadastra o endereco
+                    // no painel do parceiro e' a pessoa, e ela digita o que o
+                    // navegador mostra. Montar aqui evita a tela pedir para
+                    // configurar algo que ela acaba de ver na barra de endereco.
+                    webhookBase: `${req.protocol}://${req.get('host') ?? 'localhost'}`,
+                });
+                break;
+            }
+
             case 'whatsapp': {
                 // Conexao + textos do bot na mesma tela (eram dois itens).
                 body = renderWhatsApp({
@@ -1596,6 +1695,11 @@ app.get('/admin', async (req, res) => {
                     pdv: products.length,
                     kanban: orders.filter((o) => o.status !== 'concluido').length,
                     estoque: products.filter((p) => p.trackStock && p.stock <= p.minStock).length,
+                    // Conversas nao lidas, no mesmo formato dos outros
+                    // contadores da sidebar. E' o unico contador que muda sozinho
+                    // enquanto a pessoa trabalha em outra aba, entao e' ele que
+                    // faz a aba de chat parecer viva.
+                    chat: active === 'chat' ? undefined : await totalNaoLidas(),
                 },
                 body,
                 scripts: active === 'whatsapp' ? PAIRING_CLIENT_SCRIPT : undefined,

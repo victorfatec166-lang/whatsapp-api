@@ -157,11 +157,17 @@ ${COMANDA_SCRIPT}`;
 
 /* ----------------------------------------------------------- Configuracoes */
 
+/*
+ * Campos que a tela de Configuracoes mostra.
+ *
+ * A lista e' curta porque e' a lista do que funciona. "Pedido minimo", "Tempo
+ * de preparo" e "Chave PIX" gravaram no banco durante muito tempo sem ninguem
+ * ler -- ver o comentario em renderConfig. Nao voltaram aqui porque o tipo e'
+ * o que impede a tela de-growing: um campo novo precisa de leitura, e nao so
+ * de gravacao.
+ */
 type ConfigData = {
     businessName: string;
-    minOrderValue: number;
-    estimatedPrepMinutes: number;
-    pixKey: string;
     /** Agenda automatica do caixa. Horarios em "HH:MM", vazio = desativado. */
     cashAutoOpen: string;
     cashAutoClose: string;
@@ -169,77 +175,116 @@ type ConfigData = {
 };
 
 export function renderConfig(c: ConfigData): string {
+    /*
+     * Tudo que esta nesta tela funciona.
+     *
+     * Ela ja teve "Pedido minimo" e "Tempo de preparo", e os dois gravavam no
+     * banco sem ninguem ler: o bot criava o pedido sem checar valor minimo, e o
+     * tempo de preparo nao aparecia em lugar nenhum. Um controle que nao muda
+     * nada e' pior do que a ausencia dele, porque o dono acredita que esta
+     * protegido. Eles sairam daqui e continuam no schema, sem uso, ate que
+     * exista a regra que os faca valer.
+     *
+     * A chave PIX tambem saiu, pelo mesmo motivo e por um caminho so dela: ela
+     * so era lida pelo checklist da Home, que marcava "configurada" sem nunca
+     * ter chegado ao cliente. O item de setup correspondente saiu junto.
+     */
     return `        <form onsubmit="return saveConfig(event)" class="space-y-5 max-w-4xl">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                <div class="surface p-5 rounded-2xl shadow-sm border line">
-                    <h3 class="font-bold ink mb-4 flex items-center gap-2"><i class="fa-solid fa-store accent-amber"></i> Negocio</h3>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-xs font-semibold ink-2 mb-1">Nome do negocio</label>
-                            <input type="text" name="businessName" value="${escapeHtml(c.businessName)}" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                        </div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Pedido minimo (R$)</label>
-                                <input type="number" step="0.01" min="0" name="minOrderValue" value="${escapeHtml(c.minOrderValue)}" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Tempo de preparo (min)</label>
-                                <input type="number" min="0" name="estimatedPrepMinutes" value="${escapeHtml(c.estimatedPrepMinutes)}" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold ink-2 mb-1">Chave PIX</label>
-                            <input type="text" name="pixKey" value="${escapeHtml(c.pixKey)}" placeholder="Chave para recebimento" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                        </div>
-                    </div>
+            <div class="card">
+                <div class="card-pad pb-3">
+                    <h2 class="text-title flex items-center gap-2">
+                        <i class="fa-solid fa-store text-accent"></i> Negocio
+                    </h2>
+                    <p class="text-caption text-ink-3">Aparece no nome da aba, no topo do painel e no rodape do cardapio do WhatsApp</p>
                 </div>
-
-                <div class="surface p-5 rounded-2xl shadow-sm border line">
-                    <h3 class="font-bold ink mb-1 flex items-center gap-2"><i class="fa-solid fa-clock accent-amber"></i> Agenda do caixa</h3>
-                    <p class="text-xs ink-3 mb-4">
-                        Abre e fecha o turno de caixa sozinho. O fechamento automatico nao conta o dinheiro da gaveta:
-                        ele registra o valor esperado e deixa a conferencia para depois.
-                    </p>
-                    <div class="space-y-3">
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Abre as</label>
-                                <input type="time" name="cashAutoOpen" value="${escapeHtml(c.cashAutoOpen)}" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Fecha as</label>
-                                <input type="time" name="cashAutoClose" value="${escapeHtml(c.cashAutoClose)}" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold ink-2 mb-1">Fundo de troco (R$)</label>
-                            <input type="number" step="0.01" min="0" name="cashDefaultFloat" value="${escapeHtml(c.cashDefaultFloat)}" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
-                        </div>
-                        <p class="text-xs ink-3">
-                            A abertura so fica ativa com o fundo de troco preenchido: um valor estimado contaminaria a
-                            diferenca de caixa de todo fechamento. Para fechar depois da meia-noite, use um horario
-                            menor que o de abertura (ex.: abre 22:00, fecha 00:30).
-                        </p>
+                <div class="px-5 pb-5">
+                    <div class="max-w-md">
+                        <label class="label" for="cfg-businessName">Nome do negocio</label>
+                        <input id="cfg-businessName" type="text" name="businessName" value="${escapeHtml(c.businessName)}"
+                               maxlength="60" class="input" placeholder="Como o cliente ve o nome">
                     </div>
                 </div>
             </div>
 
-            <button type="submit" class="px-5 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition flex items-center gap-2">
-                <i class="fa-solid fa-save"></i> Salvar Configuracoes
-            </button>
+            <div class="card">
+                <div class="card-pad pb-3">
+                    <h2 class="text-title flex items-center gap-2">
+                        <i class="fa-solid fa-clock text-accent"></i> Agenda do caixa
+                    </h2>
+                    <p class="text-caption text-ink-3">
+                        Abre e fecha o turno sozinho. O fechamento automatico nao conta o dinheiro da gaveta:
+                        registra o valor esperado e deixa a conferencia para depois.
+                    </p>
+                </div>
+                <div class="px-5 pb-5 space-y-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
+                        <div>
+                            <label class="label" for="cfg-cashAutoOpen">Abre as</label>
+                            <input id="cfg-cashAutoOpen" type="time" name="cashAutoOpen" value="${escapeHtml(c.cashAutoOpen)}" class="input">
+                            <p class="text-caption text-ink-3 mt-1">Vazio = desativado</p>
+                        </div>
+                        <div>
+                            <label class="label" for="cfg-cashAutoClose">Fecha as</label>
+                            <input id="cfg-cashAutoClose" type="time" name="cashAutoClose" value="${escapeHtml(c.cashAutoClose)}" class="input">
+                            <p class="text-caption text-ink-3 mt-1">Vazio = desativado</p>
+                        </div>
+                    </div>
+
+                    <div class="max-w-md">
+                        <label class="label" for="cfg-cashDefaultFloat">Fundo de troco</label>
+                        <div class="flex items-center gap-2">
+                            <span class="text-body text-ink-3 shrink-0" aria-hidden="true">R$</span>
+                            <input id="cfg-cashDefaultFloat" type="number" name="cashDefaultFloat" step="0.01" min="0"
+                                   inputmode="decimal" value="${escapeHtml(c.cashDefaultFloat)}" class="input">
+                        </div>
+                        <p class="text-caption text-ink-3 mt-1">
+                            A abertura so fica ativa com este valor preenchido: um fundo estimado contaminaria a
+                            diferenca de caixa de todo fechamento.
+                        </p>
+                    </div>
+
+                    <div class="flex items-start gap-2 text-caption text-ink-2 bg-surface-2 border line rounded-card p-3 max-w-2xl">
+                        <i class="fa-solid fa-circle-info text-accent mt-0.5 shrink-0"></i>
+                        <span>
+                            Para fechar depois da meia-noite, use um horario menor que o de abertura
+                            (ex.: abre 22:00, fecha 00:30).
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fa-solid fa-save"></i> Salvar
+                </button>
+                <span class="text-caption text-ink-3">As alteracoes valem para o proximo pedido e para a proxima virada de turno.</span>
+            </div>
         </form>
 
         <script>
             async function saveConfig(event) {
                 event.preventDefault();
-                var fd = new FormData(event.target);
-                var payload = Object.fromEntries(fd.entries());
+                var btn = event.target.querySelector('button[type="submit"]');
+                var original = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...';
                 try {
-                    var r = await postJSON('/admin/config/save', payload);
-                    if (!r.ok) { flash('err', r.data.error || 'Erro ao salvar'); return; }
-                    flash('ok', 'Configuracoes salvas com sucesso!');
-                } catch (e) { flash('err', 'Erro de conexao'); }
+                    var r = await postJSON('/admin/config/save', Object.fromEntries(new FormData(event.target).entries()));
+                    if (!r.ok) {
+                        flash('err', r.data.error || 'Erro ao salvar');
+                        return;
+                    }
+                    // Recarrega para o nome do negocio aparecer no logo e no
+                    // titulo: sao renderizados no servidor, entao valem para a
+                    // proxima pagina, nao para esta.
+                    flash('ok', 'Configuracoes salvas.');
+                    setTimeout(function () { window.location.reload(); }, 700);
+                } catch (e) {
+                    flash('err', 'Erro de conexao');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = original;
+                }
             }
         </script>`;
 }

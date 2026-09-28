@@ -15,6 +15,13 @@ import { loadBotMessages, getBotMessage } from './botMessages';
 import { createOrderWithStock } from './orders';
 import { loadProductFull, priceCart, linesToItemsField, type ProductFull } from './modifiers';
 import { buildBotMenu, renderBotMenuText } from './dailyMenu';
+import {
+    botPodeResponder,
+    guardaFoto,
+    registrarMensagem,
+    vincularPedido,
+} from './chat';
+import { notifyChat } from './sse';
 import { logDoModulo } from './logger';
 const log = logDoModulo('bot');
 
@@ -118,6 +125,15 @@ async function createBotOrder(
             `[estoque] Pedido ${newOrder.id.slice(0, 8)} vendeu sem saldo: ` +
                 shortfalls.map((s) => `${s.nome} (pediu ${s.pediu}, tinha ${s.tinha})`).join(', ')
         );
+    }
+
+    // Liga o pedido a conversa. Sem isso o atendente que abre o chat nao tem
+    // como saber que aquele cliente acabou de pedir, e 'o que ele quer' fica
+    // espalhado entre a conversa e o Kanban.
+    try {
+        await vincularPedido(jid, newOrder.id);
+    } catch (error) {
+        log.error(`Falha ao vincular pedido ${newOrder.id} a conversa ${jid}:`, error);
     }
 
     if (onOrderCreated) onOrderCreated();
@@ -313,11 +329,96 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
             const textLower = messageText.toLowerCase().trim();
             log.info(`📩 Mensagem de ${senderPhone}: ${textLower}`);
 
+            /*
+             * Grava a mensagem ANTES de qualquer decisao do bot.
+             *
+             * A ordem importa e nao e' estetica: se o bot responder e a gravacao
+             * viesse depois, uma falha de escrita deixaria a resposta enviada
+             * sem rastro nenhum -- o cliente recebeu, e o painel nao mostra o
+             * que aconteceu. Gravando primeiro, o historico existe mesmo se o
+             * resto do caminho falhar.
+             *
+             * Quem decide se a loja responde e' quem esta com a conversa aberta
+             * no painel. Ver `botPodeResponder` e o bloco logo abaixo.
+             *
+             * `senderPhone` e' o ENDERECO, e pode ser um "192...@lid": o
+             * WhatsApp passou a entregar mensagens por um identificador de
+             * privacidade, que nao contem telefone. Enviar por ele funciona, e e'
+             * ele que fica guardado. O numero que o dono le vai em `telefone`,
+             * resolvido logo abaixo.
+             */
+            let telefone = '';
+            let nome = '';
+            let chatId = '';
+            try {
+                // `telefoneDoContato` espera o socket, e `nomeDoContato` le a
+                // store de contatos: um depende de rede e o outro nao. Rodam
+                // juntos porque em mensagem de verdade o socket ja esta pronto.
+                const [achado, quem] = await Promise.all([
+                    telefoneDoContato(msg),
+                    Promise.resolve(nomeDoContato(msg)),
+                ]);
+                telefone = achado;
+                nome = quem;
+                chatId = await registrarMensagem({
+                    phone: senderPhone,
+                    from: 'cliente',
+                    text: messageText,
+                    // O instante do WhatsApp, e nao o do servidor: se a fila
+                    // atrasar, o historico mostra a ordem em que aconteceu, e
+                    // nao a ordem em que o app gravou.
+                    sentAt: msg.messageTimestamp
+                        ? new Date(Number(msg.messageTimestamp) * 1000)
+                        : undefined,
+                    nome,
+                    telefone,
+                });
+            } catch (error) {
+                // Falha em gravar o historico nao pode derrubar o atendimento:
+                // o cliente esperando resposta e' pior do que um chat sem
+                // registro. O log deixa o problema visivel.
+                log.error(`Falha ao gravar mensagem de ${senderPhone} no historico:`, error);
+            }
+
+            /*
+             * Foto do perfil, uma vez por semana por cliente.
+             *
+             * Busca depois de gravar, e nao antes: se a busca falhar, a
+             * conversa ja esta salva e o cliente continua sendo atendido. E o
+             * `guardaFoto` respeita a data, entao este bloco nao vira uma
+             * chamada de rede por mensagem.
+             */
+            if (chatId && podeBuscarFoto()) {
+                try {
+                    const mudou = await guardaFoto(chatId, () => fotoDoContato(senderPhone));
+                    if (mudou) notifyChat(chatId);
+                } catch (error) {
+                    log.debug(`Foto de ${senderPhone} nao atualizada: ${String(error)}`);
+                }
+            }
+
+            if (!userSession[senderPhone]) {
+                userSession[senderPhone] = { step: 'MENU' };
+            }
+
             if (!userSession[senderPhone]) {
                 userSession[senderPhone] = { step: 'MENU' };
             }
 
             const currentStep = userSession[senderPhone].step;
+
+            /*
+             * Alguem assumiu a conversa? Entao o bot cala.
+             *
+             * Sem este corte, o cliente que pediu para falar com uma pessoa
+             * receberia o cardapio inteiro do bot e a resposta da pessoa, uma
+             * por cima da outra. A opcao 3 do menu -- "falar com atendente" --
+             * hoje responde "um atendente vai chamar", e nao havia quem chamasse.
+             */
+            if (!(await botPodeResponder(senderPhone))) {
+                log.info(`Conversa com ${senderPhone} esta com humano; bot em silencio.`);
+                continue;
+            }
 
             try {
                 if (['menu', 'oi', 'ola', 'olá', '0', 'inicio', 'início'].includes(textLower)) {
@@ -558,6 +659,10 @@ export async function sendWhatsAppMessage(remoteJid: string, text: string) {
         try {
             await sock.sendMessage(remoteJid, { text });
             log.info(`📤 Mensagem enviada com sucesso para ${remoteJid}`);
+            // Toda saida do bot entra no historico, nao so a do cliente. Sem
+            // isso o atendente le a conversa e ve so o que o cliente falou,
+            // sem o que o sistema ja respondeu.
+            await registrarMensagem({ phone: remoteJid, from: 'atendente', text });
         } catch (error) {
             log.error(`❌ Erro ao enviar mensagem para ${remoteJid}:`, error);
         }
@@ -566,7 +671,232 @@ export async function sendWhatsAppMessage(remoteJid: string, text: string) {
     }
 }
 
+/**
+ * Envia uma mensagem que veio do painel, e devolve se saiu.
+ *
+ * Existe separada de sendWhatsAppMessage por causa do retorno. A outra engole
+ * o erro e so loga, o que e' o certo para notificacao de status -- ali ninguem
+ * esta esperando resposta. Aqui quem envia esta com o cursor no campo, e precisa
+ * saber se pode limpar a caixa de texto ou se a frase ficou por conta propria.
+ *
+ * A gravacao no historico acontece em chat.ts, que marca `falhou` quando o envio
+ * falha. Aqui nao grava: gravar duas vezes deixaria a mensagem duplicada na
+ * conversa.
+ */
+export async function enviarMensagemDoPainel(remoteJid: string, text: string): Promise<boolean> {
+    if (!sock) {
+        log.warn('Socket do WhatsApp indisponivel: mensagem do painel nao saiu.');
+        return false;
+    }
+    try {
+        await sock.sendMessage(remoteJid, { text });
+        log.info(`📤 Mensagem do painel enviada para ${remoteJid}`);
+        return true;
+    } catch (error) {
+        log.error(`Erro ao enviar mensagem do painel para ${remoteJid}:`, error);
+        return false;
+    }
+}
+
 export const initBot = startWhatsAppBot;
+
+/* ------------------------------------------------------- Identidade do cliente */
+
+/**
+ * O WhatsApp nao entrega mais o telefone, e sim um identificador de privacidade.
+ *
+ * A mensagem chega com `remoteJid` no formato "192479311741143@lid". Esse
+ * numero nao e' telefone de ninguem: e' um indice local do aplicativo, e ele
+ * muda de um lado para o outro conforme a conta. Enviar por ele funciona, e por
+ * isso ele continua sendo o endereco guardado. O que ele NAO serve e' para
+ * mostrar na tela: o dono precisa ler o numero do cliente, nao o indice dele.
+ *
+ * A correspondencia real vem de tres lugares, nesta ordem de confianca:
+ *
+ * 1. `remoteJidAlt` / `remoteJidUsername`, que o Baileys preenche na propria
+ *    chave da mensagem quando o servidor mandou junto.
+ * 2. `signalRepository.lidMapping`, o mapa que o WhatsApp sincroniza entre
+ *    dispositivos. E' a fonte que sobrevive a reinicio.
+ * 3. O proprio contato salvo no celular, via `phoneNumber` da store.
+ *
+ * Quando nenhum dos tres entrega o numero, o retorno e' vazio e a tela diz que
+ * o cliente nao esta identificado. Preencher com o lid seria pior que nada: um
+ * telefone falso no meio de um atendimento custa mais caro que um telefone
+ * faltando.
+ */
+export async function telefoneDoContato(msg: {
+    key: { remoteJid?: string | null; remoteJidAlt?: string | null; remoteJidUsername?: string | null };
+}): Promise<string> {
+    const jid = msg.key.remoteJid || '';
+    if (!jid) return '';
+    if (!jid.endsWith('@lid')) return soDigitos(jid);
+
+    const direto = msg.key.remoteJidAlt || msg.key.remoteJidUsername || '';
+    if (direto && !direto.endsWith('@lid')) return soDigitos(direto);
+
+    try {
+        const pn = await sock?.signalRepository?.lidMapping?.getPNForLID(jid);
+        if (pn) return soDigitos(pn);
+    } catch (error) {
+        log.error(`Falha ao consultar o mapa lid->telefone de ${jid}:`, error);
+    }
+
+    return '';
+}
+
+/**
+ * Juros do jid ate o numero.
+ *
+ * O jid do mapa lid->telefone vem como "5519971158843:0@s.whatsapp.net": o que
+ * vem depois dos dois-pontes e' o DEVICE, nao parte do numero. Tirar so o
+ * nao-digito -- que e' o que esta funcao fazia antes -- colava o `0` do device
+ * no fim do telefone e produzia 55199711588430, com um digito a mais.
+ *
+ * Um telefone com um digito sobrando e' pior que nenhum: a pessoa liga, o numero
+ * pertence a outra pessoa, e o erro se apresenta como erro do cliente, nao do
+ * sistema. Por isso a ordem e' cortar o dominio, cortar o device, e so entao
+ * exigir digitos.
+ */
+function soDigitos(jid: string): string {
+    const semDominio = jid.split('@')[0];
+    const semDevice = semDominio.split(':')[0];
+    return semDevice.replace(/\D/g, '');
+}
+
+/**
+ * Nome do cliente, na ordem em que a pessoa reconhece.
+ *
+ * 1. O nome que o dono salvou no contato do WhatsApp. E' o que a tela mostra
+ *    primeiro, porque e' como ele chama essa pessoa -- e o mesmo nome que ele
+ *    usaria se telefonasse. Uma conversa de cliente recorrente vira "Dona
+ *    Maria" em vez de um numero.
+ * 2. O nome que o proprio cliente gravou no WhatsApp (`pushName`), que vem em
+ *    cada mensagem mesmo de quem nunca foi salvo. Serve para cliente novo.
+ * 3. Nada. A tela mostra o telefone, e para contato nao salvo nao ha nome
+ *    nenhum para inventar.
+ *
+ * A ordem importa porque as duas fontes discordam com frequencia: o dono
+ * salva como "Maria da Silva (pão)" e o cliente se chama "Marina". Quem opera
+ * o painel e' o dono, entao o nome dele ganha.
+ */
+export function nomeDoContato(msg: { pushName?: string | null; key: { remoteJid?: string | null } }): string {
+    const contato = lerContato(msg.key.remoteJid || '');
+    const salvo = (contato?.name || '').trim();
+    if (salvo) return salvo.slice(0, 80);
+
+    const doPush = typeof msg.pushName === 'string' ? msg.pushName.trim() : '';
+    if (doPush) return doPush.slice(0, 80);
+
+    const doContato = (contato?.notify || '').trim();
+    return doContato.slice(0, 80);
+}
+
+/**
+ * Nome de um endereco ja guardado, sem a mensagem em mao.
+ *
+ * Serve para conversa que ja estava no banco antes de o nome passar a ser
+ * guardado -- o mesmo caminho de `resolveTelefone`.
+ */
+export function nomeArmazenado(jid: string): string {
+    if (!jid) return '';
+    const contato = lerContato(jid);
+    return ((contato?.name || contato?.notify || '').trim()).slice(0, 80);
+}
+
+/**
+ * `nomeArmazenado` com a gravacao na conversa, para recuperar as que ja estavam
+ * no banco. Ver `resolveTelefone`, que faz o mesmo pelo numero.
+ */
+export async function resolveNome(jid: string): Promise<string> {
+    const nome = nomeArmazenado(jid);
+    if (!nome) return '';
+    try {
+        await prisma.chat.updateMany({
+            where: { phone: jid, OR: [{ name: null }, { name: '' }] },
+            data: { name: nome },
+        });
+    } catch (error) {
+        log.error(`Falha ao gravar nome de ${jid}:`, error);
+    }
+    return nome;
+}
+
+function lerContato(jid: string): { name?: string; notify?: string; phoneNumber?: string } | null {
+    try {
+        const store = (sock as any)?.signalRepository?.contact;
+        return store ? (store.get(jid) ?? store.get(jid.split('@')[0]) ?? null) : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Foto do perfil, ou string vazia para quem nao tem.
+ *
+ * `preview` e' a variante pequena: a lista mostra 36px, e a imagem cheia pesa
+ * alguns hundreds de KB que seriam baixados por elemento para virar um circulo.
+ *
+ * Devolve string vazia em vez de null porque a tela decide o que fazer com a
+ * ausencia, e uma URL vazia nao quebra o atributo `src`.
+ */
+export async function fotoDoContato(jid: string): Promise<string> {
+    if (!sock || !jid) return '';
+    try {
+        const url = await sock.profilePictureUrl(jid, 'preview', 5_000);
+        return typeof url === 'string' ? url : '';
+    } catch (error) {
+        // Cliente sem foto, conta sem permissao ou WhatsApp fora do ar: nenhum
+        // dos tres e' erro do sistema, entao nao sobe.
+        log.debug(`Sem foto para ${jid}: ${String(error)}`);
+        return '';
+    }
+}
+
+/** O socket esta pronto para buscar foto? Usado para nao tentar cedo demais. */
+export function podeBuscarFoto(): boolean {
+    return botOnline && !!sock;
+}
+
+/**
+ * Resolve o telefone de um endereco ja guardado e grava na conversa.
+ *
+ * Mesma logica de `telefoneDoContato`, mas sem a mensagem em mao: quem chama
+ * tem apenas o `phone`. Serve para recuperar conversas que ja estavam no banco
+ * antes de o numero passar a ser guardado, que e' o caso de toda conversa
+ * anterior a esta mudanca.
+ *
+ * Devolve o numero, ou string vazia. Grava sozinho: quem chamou so precisa
+ * saber se veio algo.
+ */
+export async function resolveTelefone(jid: string): Promise<string> {
+    if (!jid) return '';
+    if (!jid.endsWith('@lid')) {
+        const direto = soDigitos(jid);
+        if (direto) await gravaTelefone(jid, direto);
+        return direto;
+    }
+    try {
+        const pn = await sock?.signalRepository?.lidMapping?.getPNForLID(jid);
+        if (!pn) return '';
+        const digits = soDigitos(pn);
+        if (digits) await gravaTelefone(jid, digits);
+        return digits;
+    } catch (error) {
+        log.error(`Falha ao resolver telefone de ${jid}:`, error);
+        return '';
+    }
+}
+
+async function gravaTelefone(jid: string, telefone: string): Promise<void> {
+    try {
+        await prisma.chat.updateMany({
+            where: { phone: jid, OR: [{ telefone: null }, { telefone: '' }] },
+            data: { telefone },
+        });
+    } catch (error) {
+        log.error(`Falha ao gravar telefone de ${jid}:`, error);
+    }
+}
 
 /**
  * Força um novo ciclo de conexão sem apagar a sessão salva: o Baileys volta a

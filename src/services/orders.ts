@@ -37,6 +37,21 @@ export type NewOrder = {
     status?: string;
     channel?: string;
     paymentMethod?: string | null;
+    /**
+     * Id do pedido no marketplace de origem, gravado no MESMO commit do insert.
+     *
+     * Precisa entrar aqui e nao num update depois, porque o indice unico
+     * (channel, externalId) so protege enquanto o valor estiver na linha. Com
+     * o update depois do commit, existe uma janela em que o pedido esta
+     * gravado com externalId nulo: um reenvio do marketplace nesse intervalo
+     * passa pelo indice, cria o mesmo pedido de novo e baixa o estoque duas
+     * vezes. A plataforma reenvia quando nao recebe o retorno, entao a janela
+     * e' real e nao teoria.
+     *
+     * NULL para WhatsApp e PDV, onde o id do banco e' suficiente. Vários NULL
+     * convivem no indice unico do SQLite, entao nao ha colisao.
+     */
+    externalId?: string | null;
 };
 
 export type CreatedOrder = {
@@ -111,6 +126,9 @@ async function criarComRetry(
                             status: data.status ?? 'pendente',
                             channel: data.channel ?? source,
                             paymentMethod: data.paymentMethod ?? null,
+                            // No insert, nunca num update depois: ver o
+                            // comentario de externalId em NewOrder.
+                            externalId: data.externalId ?? null,
                         },
                     });
 

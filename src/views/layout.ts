@@ -6,7 +6,7 @@ const log = logDoModulo('layout');
 // Reports e System saíram da barra, e isTabId() so aceita o que esta em TABS,
 //entao mantê-los aqui dava a impressao de que ainda dava para abrir ?tab=caixa
 // e nao dava: LEGACY_TABS e' que resolve o link antigo, com redirecionamento.
-export type TabId = 'home' | 'kanban' | 'pdv' | 'estoque' | 'calendario' | 'faturamento' | 'whatsapp' | 'config';
+export type TabId = 'home' | 'kanban' | 'pdv' | 'estoque' | 'calendario' | 'chat' | 'faturamento' | 'whatsapp' | 'marketplace' | 'config';
 
 /**
  * Ordem da sidebar: primeiro o que voce usa todo dia (operacao), depois o
@@ -31,7 +31,24 @@ export const TABS: Array<{ id: TabId; group: TabGroupId; label: string; icon: st
     { id: 'estoque', group: 'operacao', label: 'Produtos e Estoque', icon: 'fa-solid fa-boxes-stacked', hint: 'Catalogo, saldos e reposicao' },
     { id: 'calendario', group: 'operacao', label: 'Calendario', icon: 'fa-solid fa-calendar-days', hint: 'Pedidos por dia' },
 
+    /*
+     * Conversas fica em Operacao, e nao em WhatsApp, porque e' onde se trabalha
+     * durante o expediente, e nao onde se configura uma vez. A aba WhatsApp
+     * continua sendo a do pareamento e dos textos do bot; as duas se complementam
+     * e misturar as duas colocaria a conversa do dia junto do QR de ontem.
+     *
+     * A posicao depois de Calendario e' a do fluxo real: a loja atende o
+     * cliente, o calendario mostra o dia, e a conversa e' o meio do dia.
+     */
+    { id: 'chat', group: 'operacao', label: 'Conversas', icon: 'fa-solid fa-comments', hint: 'Atender pelo WhatsApp' },
+
     { id: 'whatsapp', group: 'whatsapp', label: 'WhatsApp', icon: 'fa-brands fa-whatsapp', hint: 'Conexao e textos do bot' },
+
+    // Marketplace fica em Ajustes, e nao em Operacao. Ele nao e' uma tela que se
+    // usa o dia inteiro: e' onde se credencia o canal e se confere se os pedidos
+    // estao entrando. Depois que a conta esta ativa, quem trabalha o pedido e' o
+    // Kanban, que ja recebe o marketplace como mais um channel.
+    { id: 'marketplace', group: 'ajustes', label: 'Marketplace', icon: 'fa-solid fa-store', hint: 'iFood e 99Food' },
 
     { id: 'config', group: 'ajustes', label: 'Configuracoes', icon: 'fa-solid fa-gear', hint: 'Entrega e negocio' },
 

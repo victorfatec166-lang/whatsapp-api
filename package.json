@@ -7,6 +7,7 @@
     "build": "npm run build:ts && npm run build:css",
     "watch:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --watch",
     "check:contrast": "node scripts/check-contrast.js",
+    "check:js": "node scripts/check-js.js",
     "start": "node dist/server.js"
   },
   "dependencies": {

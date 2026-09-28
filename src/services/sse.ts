@@ -37,6 +37,20 @@ export function notifyConnection(payload: string): void {
     write('connection', payload);
 }
 
+/**
+ * Avisa que uma conversa mudou, mandando o id dela.
+ *
+ * Separado do `notifyClients` de proposito: aquele diz "recarrega a pagina" e
+ * serve para pedido e produto. Recarregar a tela de chat a cada mensagem
+ * jogaria o que a pessoa estava digitando no meio da conversa, que e' o
+ * pior lugar possivel para perder o que se estava escrevendo. Aqui o painel
+ * sabe exatamente qual conversa mudar e atualiza so ela.
+ */
+export function notifyChat(chatId: string): void {
+    prune();
+    write('chat', JSON.stringify({ chatId }));
+}
+
 export function getClientCount(): number {
     prune();
     return clients.length;

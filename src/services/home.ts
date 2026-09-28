@@ -136,7 +136,6 @@ export function estimateMargin(
  */
 async function buildSetupChecks(
     products: Array<{ id: string; trackStock: boolean }>,
-    config: { pixKey: string },
     botOnline: boolean
 ): Promise<SetupCheck[]> {
     const tracked = products.filter((p) => p.trackStock).length;
@@ -165,13 +164,17 @@ async function buildSetupChecks(
             href: '/admin?tab=whatsapp',
             done: botOnline,
         },
-        {
-            id: 'pix',
-            label: 'Cadastre a chave PIX',
-            detail: config.pixKey ? 'Chave PIX configurada' : 'O cliente nao tem como pagar',
-            href: '/admin?tab=config',
-            done: config.pixKey.length > 0,
-        },
+        /* O item "Cadastre a chave PIX" saiu daqui.
+         *
+         * Ele prometia algo que nao acontecia: a Home marcava "Chave PIX
+         * configurada" e o cliente ainda assim nao recebia chave nenhuma, porque
+         * o pixKey so era lido por este checklist -- nem o bot, nem o PDV, nem a
+         * comanda da cozinha mandavam a chave para o cliente. Um item de setup
+         * que se marca como feito sem ter efeito e' pior que a falta dele: o
+         * dono para de procurar o que realmente esta quebrando.
+         *
+         * Quando o pixKey voltar a ser entregue ao cliente, o item volta junto.
+         */
         {
             id: 'estoque',
             label: 'Ative o controle de estoque',
@@ -259,7 +262,7 @@ function buildAlerts(
 export async function loadHomeData(opts: {
     orders: OrderWithProductless[];
     products: Array<{ id: string; name: string; price: number; costPrice: number; category: string | null; stock: number; minStock: number; trackStock: boolean; isAvailable: boolean }>;
-    config: { businessName: string; pixKey: string; originAddress: string; cashAutoOpen: string; cashAutoClose: string; cashDefaultFloat: number };
+    config: { businessName: string; cashAutoOpen: string; cashAutoClose: string; cashDefaultFloat: number };
     botOnline: boolean;
 }): Promise<HomeData> {
     const { orders, products, config, botOnline } = opts;
@@ -307,7 +310,7 @@ export async function loadHomeData(opts: {
         pendingCount,
     };
 
-    const setup = await buildSetupChecks(products, config, botOnline);
+    const setup = await buildSetupChecks(products, botOnline);
 
     return {
         businessName: config.businessName,

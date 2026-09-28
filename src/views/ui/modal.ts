@@ -28,8 +28,17 @@ import { escapeHtml } from '../html';
 export type ModalField = {
     name: string;
     label: string;
-    /** 'money' so marca o prefixo visual; o valor nao e mascarado. */
-    type?: 'text' | 'number' | 'textarea' | 'money';
+    /**
+     * 'money' so marca o prefixo visual; o valor nao e mascarado.
+     *
+     * 'select' exige `options`. Existe para o caso em que a pessoa escolhe em
+     * vez de digitar, e digitar o identificador certo e' justamente o que
+     * quebra em silencio: um item casado com o produto errado baixa o estoque
+     * do prato errado, e o erro so aparece no balcao.
+     */
+    type?: 'text' | 'number' | 'textarea' | 'money' | 'select';
+    /** Opcoes do 'select'. A primeira de valor vazio e' o "-- escolha --". */
+    options?: Array<{ value: string; label: string }>;
     placeholder?: string;
     hint?: string;
     step?: string;
@@ -120,6 +129,26 @@ function field(f: ModalField, janelaId: string): string {
         return `                <div>
                     <label class="label" for="${campoId}">${escapeHtml(f.label)}</label>
                     <textarea id="${campoId}" name="${f.name}" rows="3"${f.placeholder ? ` placeholder="${escapeHtml(f.placeholder)}"` : ''}${f.maxlength ? ` maxlength="${f.maxlength}"` : ''} class="input"></textarea>
+                    ${f.hint ? `<p class="text-caption text-ink-3 mt-1">${escapeHtml(f.hint)}</p>` : ''}
+                </div>`;
+    }
+
+    /*
+     * Select primeiro: e' o unico dos tipos que devolve o campo inteiro, porque
+     * o <select> nao aceita placeholder nem inputmode como o <input> aceita.
+     */
+    if (f.type === 'select') {
+        const opcoes = (f.options ?? []).map(
+            (o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`
+        );
+        return `                <div>
+                    <label class="label" for="${campoId}">${escapeHtml(f.label)}${
+            f.required ? ' <span class="text-accent-red">*</span>' : ''
+        }</label>
+                    <select id="${campoId}" name="${f.name}" class="input"${auto}${req}>
+                        <option value="">${escapeHtml(f.placeholder ?? 'Escolha uma opcao...')}</option>
+                        ${opcoes.join('\n                        ')}
+                    </select>
                     ${f.hint ? `<p class="text-caption text-ink-3 mt-1">${escapeHtml(f.hint)}</p>` : ''}
                 </div>`;
     }

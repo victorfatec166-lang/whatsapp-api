@@ -35,6 +35,9 @@ model Product {
   comboComponents  ComboItem[]         @relation("ComboParent")
   comboIn          ComboItem[]         @relation("ComboChild")
   dailyMenuItems   DailyMenuItem[]
+  /// Item correspondente em algum marketplace. Zero ou mais: um produto pode
+  /// estar no iFood e no 99Food ao mesmo tempo.
+  marketplaceItems MarketplaceItem[]
 
   // A lista de reposicao filtra por trackStock e compara stock com minStock.
   // Sem indice, essa varre o catalogo inteiro -- e ela roda a cada abertura do
@@ -169,10 +172,14 @@ model Order {
   /// Observacao do pedido / instrucao para a cozinha ("sem cebola").
   notes         String?
   status        String   @default("pendente")
-  /// Origem do pedido: "whatsapp" (bot) ou "pdv" (frente de caixa).
+  /// Origem do pedido: "whatsapp" (bot), "pdv" (frente de caixa) ou o
+  /// identificador de um marketplace externo, gravado em MarketplaceAccount.
   channel       String   @default("whatsapp")
   /// Forma de pagamento, preenchida no PDV (pix, dinheiro, cartao).
   paymentMethod String?
+  /// Id do pedido no marketplace de origem. NULL para WhatsApp e PDV, onde o
+  /// id do banco e' suficiente. Serve para reconciliar e para reprocessar.
+  externalId    String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -190,6 +197,70 @@ model Order {
   @@index([status])
   @@index([createdAt])
   @@index([status, createdAt])
+  // A plataforma reenvia pedido quando a resposta anterior nao chegou. Sem
+  // este indice unico, a checagem de duplicidade varreria o historico inteiro
+  // a cada webhook -- e webhook chega em rajada.
+  @@unique([channel, externalId])
+}
+
+/// Conta de um marketplace de pedidos (iFood, 99Food).
+///
+/// Existe uma linha por canal desde o momento em que a aba e' aberta, mesmo
+/// sem credencial. Isso e' proposito: a tela precisa mostrar o que falta para
+/// se credenciar, e um estado "nao existe ainda" nao permite mostrar nem o
+/// caminho nem o quanto ja foi feito.
+model MarketplaceAccount {
+  id        String   @id @default(uuid())
+  /// "ifood" ou "99food". Coincide com Order.channel para o pedido entrar no
+  /// Kanban sem tratamento especial.
+  channel   String   @unique
+  /// "sem-credencial" -> "homologacao" -> "ativo" -> "erro".
+  /// Regra do sistema, nao do marketplace: quem decide o estado e' este app,
+  /// porque e' ele quem testa a comunicacao de verdade.
+  status    String   @default("sem-credencial")
+
+  /// Credenciais em claro, cifradas. Vazio enquanto nao houver credencial --
+  /// e o estado normal de quem esta se credenciando.
+  /// A chave fica no ambiente, nunca no banco e nunca no git.
+  secretsEnc String  @default("")
+  /// Token que o marketplace manda no cabecalho para a gente conferir que o
+  /// pedido e' dele. Vazio = webhook RECUSA tudo, e' a configuracao segura.
+  webhookSecretEnc String @default("")
+
+  /// Ultimo pedido recebido e ultima tentativa de comunicacao. Vazios ate a
+  /// conta ficar de pe.
+  lastOrderAt DateTime?
+  lastCheckAt DateTime?
+  /// Ultima mensagem de erro, para a tela mostrar em vez de sumir.
+  lastError    String?
+
+  /// Vinculo entre o produto do marketplace e o produto do catalogo local.
+  /// Sem este mapeamento o pedido chega com nome de texto e nao ha como dar
+  /// baixa de estoque: o sistema teria de adivinhar o produto pelo nome.
+  items MarketplaceItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Item do marketplace casado com um produto do catalogo.
+model MarketplaceItem {
+  id          String   @id @default(uuid())
+  accountId   String
+  /// Id do item no marketplace (o "SKU" deles).
+  externalId  String
+  /// Id do produto no catalogo local.
+  productId   String
+  /// Ultimo preco visto no marketplace. Guardado para aviso de divergencia --
+  /// se o preco mudar la e aqui nao, alguem vai perder dinheiro sem notar.
+  lastPrice   Float?
+  lastSyncedAt DateTime?
+
+  account MarketplaceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  product Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, externalId])
+  @@index([productId])
 }
 
 /// Venda pausada no PDV: o cliente esqueceu algo e a fila nao pode esperar.
@@ -234,16 +305,33 @@ model CashMovement {
   @@index([shiftId])
 }
 
+/// Configuracoes do negocio. Uma linha so, id fixo "default".
+///
+/// Sete colunas sairam daqui na migration 20260928173000_remove_colunas_config_sem_uso.
+/// Todas gravavam e nenhuma era lida, o que e' pior do que nao existir: a tela de
+/// Configuracoes as mostrava como se controlassem algo, e o dono acreditava que
+/// estava protegido. Os campos eram:
+///
+///   originAddress, feePerKm, baseFee, googleApiKey
+///     Esqueleto de uma calculadora de entrega por distancia (src/services/delivery.ts),
+///     removida no commit 9931723 quando o Faturamento virou uma aba so. As colunas
+///     sobreviveram ao arquivo.
+///   minOrderValue, estimatedPrepMinutes
+///     Pedido minimo e previsao de preparo. O bot criava pedido sem olhar o
+///     primeiro e o segundo nao aparecia em mensagem nenhuma.
+///   pixKey
+///     So era lida pelo checklist da Home, que marcava "configurada" sem nunca
+///     ter entregue a chave ao cliente.
+///
+/// Nenhuma delas tem valor gravado: a unica linha do Config e a de fabrica, com
+/// businessName preenchido e o resto no padrao. Nao ha o que recuperar.
+///
+/// Quando alguma voltar, a regra e' a mesma que fez estas irem: o campo so entra
+/// no schema no mesmo commit em que passa a ter leitura. Um campo gravado e nao
+/// lido nao e' configuracao, e' isca.
 model Config {
   id                   String   @id @default("default")
   businessName         String   @default("DeliveryAdmin")
-  originAddress        String
-  feePerKm             Float    @default(2.50)
-  baseFee              Float    @default(3.00)
-  googleApiKey         String   @default("")
-  minOrderValue        Float    @default(0)
-  estimatedPrepMinutes Int      @default(25)
-  pixKey               String   @default("")
   /// Horario de abertura automatica do turno, "HH:MM". Vazio = desativado.
   cashAutoOpen         String   @default("")
   /// Horario de fechamento automatico do turno, "HH:MM". Vazio = desativado.
@@ -261,4 +349,94 @@ model BotMessage {
   id      String @id @default("default")
   key     String @unique
   value   String
+}
+
+/// Conversa entre um cliente e a loja, pelo WhatsApp.
+///
+/// Uma linha por numero de telefone. Nasce na primeira mensagem do cliente, e
+/// nao quando alguém abre a tela: a conversa existe porque ele escreveu, e criar
+/// linha na leitura inflaria a lista com conversas que nunca aconteceram.
+///
+/// O "atendente" e' quem esta respondendo agora. 'bot' enquanto o bot
+/// responde sozinho, 'humano' depois que alguem assume. E' o que impede o bot e
+/// a pessoa de atropelarem o mesmo cliente -- ver bot.ts.
+model Chat {
+  id String @id @default(uuid())
+  /// Telefone no formato do Baileys, "5511999999999@s.whatsapp.net". Como o
+  /// jid inclui o dominio, o mesmo numero em outra conta nao colide.
+  ///
+  /// Este e' o ENDERECO DE ENVIO, e nao o numero que se mostra. O WhatsApp passou
+  /// a entregar mensagens por um identificador de privacidade ("192479311741143@lid")
+  /// que nao contem telefone nenhum. Enviar pelo lid funciona; mostrar o lid na
+  /// tela mostrava uma sequencia de digitos sem significado para o dono. Por isso
+  /// o numero legivel vao em `telefone`, e esta coluna fica como o endereco.
+  phone String @unique
+  /// Numero de verdade, em "5511999999999". NULL enquanto o WhatsApp nao
+  /// entregar a correspondencia entre lid e telefone -- e a tela mostra o
+  /// endereco, marcado como nao identificado, em vez de inventar um numero.
+  telefone String?
+  /// Nome que o proprio cliente gravou no WhatsApp. Chega em `pushName` em cada
+  /// mensagem, entao nao depende de o contato estar salvo no celular do dono.
+  name String?
+  /// URL da foto do perfil, ou NULL para quem nao tem foto. Buscada pela API do
+  /// WhatsApp e guardada aqui, porque a tela lista ate 200 conversas e pedir a
+  /// foto uma a uma a cada abertura seria 200 chamadas de rede por visita.
+  avatarUrl String?
+  /// Quando a foto foi buscada pela ultima vez. A foto do cliente muda, mas nao
+  /// a cada mensagem: sem esta data, todo "Oi" do cliente viraria uma chamada
+  /// ao servidor do WhatsApp so para descobrir que a foto e' a mesma.
+  avatarAt DateTime?
+  /// 'bot' ou 'humano'. Vem do sistema, nao do cliente.
+  atendente String @default("bot")
+  /// Ultima mensagem, para a lista mostrar sem abrir cada conversa.
+  ultimaMensagem String @default("")
+  /// Quantas mensagens nao foram lidas por humano. Zera quando a conversa e'
+  /// aberta na tela.
+  naoLidas Int @default(0)
+  lastMessageAt DateTime @default(now())
+  /// Quando o humano assumiu, e quando devolveu ao bot. Guardar os dois
+  /// permite mostrar a conversa como assumida mesmo depois de um restart, em vez
+  /// de o cliente ficar com o bot calado sem ninguem saber.
+  assumidoAt DateTime?
+  /// Ultimo pedido feito nesta conversa, para a tela linkar o chat ao Kanban.
+  orderId String?
+
+  messages Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// A lista de conversas ordena por recencia, e nao por nome: quem atende
+  /// precisa ver primeiro a que chegou por ultimo.
+  @@index([lastMessageAt])
+}
+
+/// Uma mensagem dentro de uma conversa.
+///
+/// Guarda o texto dos dois lados, inclusive o que o bot respondeu, porque e' o
+/// historico que o atendente le para entender o pedido. Sem isso a tela e' um
+/// cliente de e-mail: da para mandar mensagem, mas nao da para saber o que o
+/// cliente ja contou.
+model Message {
+  id String @id @default(uuid())
+  chatId String
+  /// 'cliente' ou 'atendente'. 'bot' e' 'atendente' com o campo atendente da
+  /// Chat valendo 'bot' -- a origem de verdade e' a Chat, e duplicar aqui
+  /// criaria dois lugares para divergir.
+  from String
+  text String
+  /// Instante da mensagem no WhatsApp, quando veio de la. Uma mensagem
+  /// mandada pelo painel recebe o now() do servidor, que e' o mesmo que ela
+  /// sai de qualquer forma.
+  sentAt DateTime @default(now())
+  /// Verdadeiro quando o envio pelo painel falhou. A mensagem fica na conversa
+  /// para o atendente ver o que tentou dizer, mas marcada como nao entregue.
+  falhou Boolean @default(false)
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  /// O historico se le em ordem cronologica de uma conversa so.
+  @@index([chatId, sentAt])
 }

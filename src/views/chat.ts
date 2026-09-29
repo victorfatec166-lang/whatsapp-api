@@ -380,6 +380,14 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                     (c.semTelefone
                         ? '<p class="text-caption text-ink-3" title="Identificador interno do WhatsApp, nao e um telefone">numero nao identificado &middot; ' + esc(c.rotulo) + '</p>'
                         : '<p class="text-caption text-ink-3">' + esc(c.telefone) + '</p>') +
+                    /*
+                     * A regra de retencao aparece no cabecalho, e nao em uma tela
+                     * de ajuda. Quem abrir uma conversa e nao encontrar a de
+                     * ontem precisa saber em um segundo se aquilo sumiu ou se a
+                     * tela quebrou -- e a resposta esta aqui, sem precisar
+                     * procurar.
+                     */
+                    '<p class="text-[11px] text-ink-3">Conversa guardada so para hoje</p>' +
                     '</div>' +
                     (c.assumido
                         ? '<button type="button" onclick="chatDevolver()" class="btn btn-ghost btn-sm">Devolver ao bot</button>'
@@ -403,7 +411,7 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                           'class="btn btn-ghost btn-sm"><i class="fa-solid fa-chevron-up"></i> Ver mais antigo</button></div>'
                         : '') +
                     (dados.mensagens.length === 0
-                        ? '<p class="text-caption text-ink-3 text-center">Sem mensagens ainda.</p>'
+                        ? chatSemMensagens()
                         : dados.mensagens.map(chatMensagem).join('')) +
                     '</div>';
 
@@ -528,6 +536,26 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                 } catch (e) { log.error('Erro ao carregar mensagens antigas:', e); }
             }
 
+            /**
+             * O que a tela diz quando nao ha mensagem nenhuma.
+             *
+             * "Sem mensagens ainda" seria mentira depois da virada do dia: as
+             * mensagens existem, e a pessoa vai abrir a conversa de um cliente
+             * que escreveu ontem e nao vai encontrar nada. Dizer o que
+             * aconteceu e' o mesmo cuidado que a tela de Faturamento tem com a
+             * receita que some no corte do periodo -- o que a tela esconde, ela
+             * conta.
+             *
+             * O caso "nunca teve mensagem" e o mesmo na pratica: a conversa
+             * nasce na primeira mensagem do cliente, entao uma conversa sem
+             * mensagem nenhuma e' a que foi virada ou a que o cliente mandou
+             * audio e foto, que o bot nao guarda.
+             */
+            function chatSemMensagens() {
+                return '<p class="text-caption text-ink-3 text-center px-4">' +
+                    'As mensagens ficam guardadas so para o dia de hoje. A conversa de ontem ja foi apagada.</p>';
+            }
+
             /** Mensagem chegou. So atualiza a conversa que esta aberta. */
             async function chatEvento(dados) {
                 await chatAtualizaLista();
@@ -540,7 +568,7 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                     var corpo = document.getElementById('chatMensagens');
                     if (corpo && d.mensagens) {
                         corpo.innerHTML = d.mensagens.length === 0
-                            ? '<p class="text-caption text-ink-3 text-center">Sem mensagens ainda.</p>'
+                            ? chatSemMensagens()
                             : d.mensagens.map(chatMensagem).join('');
                         chatRola();
                     }
@@ -600,8 +628,12 @@ ${renderModal({
                     o bot cala naquela conversa e nao nas outras.</p>
                     <p><strong>Devolver ao bot.</strong> O botao na barra da conversa faz o bot voltar a responder.
                     Use quando o cliente nao precisar mais de uma pessoa.</p>
-                    <p><strong>Sem resposta doubles.</strong> A conversa fica assumida mesmo se o servidor reiniciar,
+                    <p><strong>Sem resposta dupla.</strong> A conversa fica assumida mesmo se o servidor reiniciar,
                     porque quem responde esta gravado no banco, e nao em memoria.</p>
+                    <p><strong>Uma noite, e o dia vira.</strong> Na virada da meia-noite as mensagens de ontem
+                    saem do sistema, junto com a conversa na lista -- o painel guarda o dia, nao o historico.
+                    A conversa que <em>voc&ecirc; assumiu</em> continua na lista com o bot calado, para ninguem
+                    receber resposta a noite; abra e use "Devolver ao bot" quando voltar a atender.</p>
                 </div>`,
     submitLabel: 'Entendi',
     submitIcon: 'fa-check',

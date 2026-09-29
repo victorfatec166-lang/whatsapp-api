@@ -21,7 +21,17 @@ import {
     guardaFoto,
     registrarMensagem,
     vincularPedido,
+    assumirConversa,
 } from './chat';
+import { interpreta, type ItemCatalogo } from './entender';
+import {
+    juntaItem,
+    textoDoCarrinho as textoCarrinho,
+    ehComandoFechar,
+    ehComandoLimpar,
+    ehComandoVerCarrinho,
+    type LinhaCarrinho,
+} from './carrinho';
 import { notifyChat } from './sse';
 import { logDoModulo } from './logger';
 const log = logDoModulo('bot');
@@ -49,9 +59,162 @@ type Session = {
      * outra coisa.
      */
     offered?: Array<{ id: string; name: string; price: number }>;
+    /**
+     * O que a pessoa ja pediu, juntando.
+     *
+     * Antes o bot criava o pedido assim que o item era escolhido, e nao havia
+     * como pedir duas coisas -- "2 coxinhas e 1 refrigerante", que e' como
+     * gente pede comida, simplesmente nao existia. O carrinho e' o que faz a
+     * frase inteira virar um pedido so, e o preco continua sendo recalculado no
+     * servidor quando ela fecha (fechaCarrinho).
+     *
+     * Vive na sessao, em memoria, e morre com o servidor -- como todo o resto do
+     * estado do bot. O que o cliente ja pediu e' o que o painel mostra, e nao
+     * precisa sobreviver a reinicio para o bot atender direito.
+     */
+    carrinho?: LinhaCarrinho[];
 };
 
 const userSession: { [key: string]: Session } = {};
+
+/**
+ * Assume a conversa pelo telefone, e devolve a conversa assumida.
+ *
+ * Existe como funcao porque `assumirConversa` do chat.ts trabalha por id de
+ * conversa, e o bot so tem o telefone -- ele esta atendendo antes de a tela
+ * existir. Buscar o id e chamar a funcao de verdade mantem o bot no mesmo
+ * caminho do painel: os dois silenciao o bot do mesmo jeito, porque leem o
+ * mesmo campo.
+ */
+async function assumirConversaPorTelefone(telefone: string): Promise<{ id: string } | null> {
+    const chat = await prisma.chat.findUnique({ where: { phone: telefone }, select: { id: true } });
+    if (!chat) return null;
+    return assumirConversa(chat.id);
+}
+
+/**
+ * Interpreta a frase e soma o que ela pediu ao carrinho.
+ *
+ * Este e' o caminho pelo qual a pessoa pede do jeito natural, sem numero e sem
+ * lista. E' ele que transforma "quero 3 coxinhas" em item, e "xburguer ao ponto
+ * com bacon" em item com dois modificadores.
+ *
+ * Duas coisas que ele faz e que valem o comentario:
+ *
+ * 1. CARTAO QUE PRECISA DE MODIFICADOR VAI PERGUNTAR. Se a pessoa pediu "X-Burguer"
+ *    sem dizer o ponto da carne e o grupo e' obrigatorio, o item nao entra
+ *    errado: o bot pergunta, que e' o que a cozinha precisa. Entrar sem a escolha
+ *    e' a forma de o pedido chegar errado.
+ *
+ * 2. O QUE NAO ENTENDEU VOLTA PARA A PESSOA. Encher o pedido com o que deu
+ *    certo e engolir o resto faz a pessoa acreditar que pediu a coisa toda, e
+ *    descobrir o erro no balcao, na frente do cliente.
+ */
+async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
+    const catalogo = await catalogoParaInterpretar(jid);
+    if (catalogo.length === 0) {
+        await sock?.sendMessage(jid, { text: '⚠️ O cardápio está vazio no momento.' });
+        return;
+    }
+
+    const intencao = interpreta(texto, catalogo);
+
+    if (intencao.itens.length === 0) {
+        const naoEntendidos = intencao.naoEntendidos.length > 0 ? intencao.naoEntendidos.join(', ') : null;
+        await sock?.sendMessage(jid, {
+            text:
+                (naoEntendidos
+                    ? `🤖 Não encontrei ${naoEntendidos} no cardápio.`
+                    : '🤖 Não entendi o que você pediu.') +
+                '\n\nEscreva o **nome do produto** (com ou sem quantidade) ou mande *1* para ver a lista.'
+        });
+        return;
+    }
+
+    const carrinho = carrinhoDe(jid);
+    let precisaEscolher = false;
+
+    for (const item of intencao.itens) {
+        const full = await loadProductFull(item.id);
+        if (!full) continue;
+
+        /*
+         * Modificador obrigatorio que a frase nao cobriu: pergunta, e nao inventa.
+         *
+         * `priceCart` recusaria o pedido na hora de fechar, e o cliente receberia
+         * "faltou escolher" DEPOIS de ter escrito o pedido inteiro. Perguntar
+         * agora e' o momento em que a pessoa ainda lembra o que queria.
+         */
+        const faltando = full.modifierGroups.find(
+            (g) => g.required && (item.modificadores[g.id] ?? []).length < Math.max(1, g.minSelect)
+        );
+
+        if (faltando) {
+            userSession[jid].step = 'ESCOLHENDO_MOD';
+            userSession[jid].productId = item.id;
+            userSession[jid].groupIndex = 0;
+            userSession[jid].picked = { ...item.modificadores };
+            precisaEscolher = true;
+            await sendModifierQuestion(jid, full, 0);
+            break;
+        }
+
+        juntaItem(carrinho, {
+            id: item.id,
+            nome: full.name,
+            qtd: item.qtd,
+            modificadores: item.modificadores,
+        });
+    }
+
+    if (precisaEscolher) return;
+
+    // Avisa o que entrou com confianca baixa: nome aproximado merece revisao da
+    // propria pessoa, e ela e' a unica que sabe se quis dizer aquele prato.
+    const aproximados = intencao.itens.filter((i) => i.origem === 'nome-aproximado');
+    if (aproximados.length > 0) {
+        const lista = aproximados.map((i) => `${i.qtd}x ${i.nome}`).join(', ');
+        await sock?.sendMessage(jid, { text: `🤔 Entendi como: ${lista}. Serve? Se não, mande *limpar* e tente de novo.` });
+        return;
+    }
+
+    const extras = intencao.naoEntendidos;
+    await sock?.sendMessage(jid, {
+        text: textoCarrinho(carrinho) + (extras.length > 0 ? `\n\n_Não entendi: ${extras.join(', ')}._` : '')
+    });
+}
+
+/**
+ * O catalogo no formato que o interpretador entende.
+ *
+ * Montado do MESMO retrato que o cliente recebeu, e nao do banco. Se o dono
+ * editar o cardapio no meio da conversa, o que vale para o cliente continua
+ * sendo a lista que ele viu -- casar a frase contra um produto recem-criado
+ * faria ele pedir algo que nem estava na lista mostrada.
+ *
+ * Os grupos de modificador entram junto, porque sem eles o "ao ponto" e o
+ * "bacon" nao teriam onde casar.
+ */
+async function catalogoParaInterpretar(jid: string): Promise<ItemCatalogo[]> {
+    const offered = userSession[jid]?.offered;
+    const base = offered ?? (await buildBotMenu()).map((p) => ({ id: p.id, name: p.name, price: p.price }));
+
+    const catalogo: ItemCatalogo[] = [];
+    for (const p of base) {
+        const full = await loadProductFull(p.id);
+        catalogo.push({
+            id: p.id,
+            nome: p.name,
+            grupos: (full?.modifierGroups ?? []).map((g) => ({
+                id: g.id,
+                nome: g.name,
+                maxSelect: g.maxSelect,
+                opcoes: g.options.map((o) => ({ id: o.id, nome: o.name, prefixo: o.prefix })),
+            })),
+        });
+    }
+    return catalogo;
+}
 
 /** Envia a pergunta de um grupo de modificadores. */
 async function sendModifierQuestion(
@@ -74,21 +237,55 @@ async function sendModifierQuestion(
     if (sock) await sock.sendMessage(jid, { text });
 }
 
-/** Cria o pedido com os modificadoresJa escolhidos, aplicando preco do banco. */
-async function createBotOrder(
-    jid: string,
-    product: { id: string; name: string; price: number; isCombo: boolean },
-    picked: Record<string, string[]>,
-    onOrderCreated?: () => void
-): Promise<void> {
-    const priced = await priceCart([{ id: product.id, qty: 1, groups: picked }]);
-    if (priced.ok === false) {
-        await sock?.sendMessage(jid, { text: `⚠️ ${priced.error}` });
-        userSession[jid].step = 'MENU';
+/**
+ * Pega o carrinho da sessao, criando se ainda nao existe.
+ *
+ * Existe uma funcao e nao um campo opcional acessado solto, porque o erro desse
+ * campo e' silencioso: `carrinho.length` em um carrinho indefinido derruba a
+ * conversa inteira no meio de um pedido. Aqui o padrao e' a regra.
+ *
+ * A regra em si -- juncao, agrupamento, texto -- esta em `services/carrinho.ts`,
+ * sem WhatsApp e sem banco, para poder ser provada por teste.
+ */
+function carrinhoDe(jid: string): LinhaCarrinho[] {
+    if (!userSession[jid]) userSession[jid] = { step: 'MENU' };
+    if (!userSession[jid].carrinho) userSession[jid].carrinho = [];
+    return userSession[jid].carrinho;
+}
+
+/**
+ * Fecha o carrinho em UM pedido, com preco recalculado pelo banco.
+ *
+ * Todo o preco vem de `priceCart`, que le os valores do banco e valida os
+ * modificadores. O cliente nao manda preco -- ele manda ids e quantidades, e o
+ * servidor descobre quanto custa. A frase livre que ele escreveu serve para
+ * descobrir QUAL produto; nunca para dizer QUANTO custa.
+ *
+ * O total e' a soma das LINHAS, e nao o `subtotal` devolvido: com modificador
+ * de acrescimo, o subtotal e' a soma dos precos base e o total e' esse acrescimo
+ * junto. Pagar o valor base seria cobrar menos do que a cozinha vai produzir.
+ */
+async function fechaCarrinho(jid: string, onOrderCreated?: () => void): Promise<void> {
+    const carrinho = carrinhoDe(jid);
+
+    if (carrinho.length === 0) {
+        await sock?.sendMessage(jid, { text: '🧾 Nao ha nada no pedido ainda. Manda *1* para ver o cardapio.' });
         return;
     }
 
-    const line = priced.result.lines[0];
+    const pedido = carrinho.map((l) => ({ id: l.id, qty: l.qtd, groups: l.modificadores ?? {} }));
+    const priced = await priceCart(pedido);
+
+    if (priced.ok === false) {
+        // Recusa e volta para o pedido em aberto: e' a unica saida honesta quando
+        // falta um modificador obrigatorio. Dizer "pedido criado" e' pior do que
+        // dizer "faltou algo" -- e e' o que a cozinha receberia errado.
+        await sock?.sendMessage(jid, { text: `⚠️ ${priced.error}` });
+        userSession[jid].step = 'PEDINDO';
+        return;
+    }
+
+    const total = priced.result.lines.reduce((s, l) => s + l.total, 0);
     const itemsField = linesToItemsField(priced.result.lines);
 
     /*
@@ -106,7 +303,7 @@ async function createBotOrder(
             clientName: 'Cliente WhatsApp',
             items: itemsField,
             subtotal: priced.result.subtotal,
-            total: line.total,
+            total,
             status: 'pendente',
         },
         // Em combo, o abate e' nos componentes, nunca no combo.
@@ -139,13 +336,15 @@ async function createBotOrder(
 
     if (onOrderCreated) onOrderCreated();
 
+    // Esvazia o carrinho ANTES de responder. Se a resposta falhar e a pessoa
+    // mandar "finalizar" de novo, ela nao receberia dois pedidos iguais.
+    userSession[jid].carrinho = [];
     userSession[jid].step = 'MENU';
     userSession[jid].productId = undefined;
     userSession[jid].picked = undefined;
     userSession[jid].groupIndex = 0;
     userSession[jid].offered = undefined;
 
-    const label = line.modLabels.length ? `${line.name} (${line.modLabels.join(', ')})` : line.name;
     /*
      * `replaceAll`, e nao `replace`.
      *
@@ -160,12 +359,12 @@ async function createBotOrder(
      */
     const orderReceivedMsg = getBotMessage('orderReceived',
         '🎉 *Pedido Recebido com Sucesso!* \n\n' +
-        '📦 *Item:* {items}\n' +
+        '📦 *Itens:* {items}\n' +
         '💵 *Total:* R$ {total}\n\n' +
         'O seu pedido já foi registado na cozinha! Digite *2* para consultar os seus pedidos.'
     )
-        .replaceAll('{items}', label)
-        .replaceAll('{total}', line.total.toFixed(2));
+        .replaceAll('{items}', itemsField.replace(/\n/g, ' | '))
+        .replaceAll('{total}', total.toFixed(2));
 
     await sock?.sendMessage(jid, { text: orderReceivedMsg });
 }
@@ -478,10 +677,6 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                 userSession[senderPhone] = { step: 'MENU' };
             }
 
-            if (!userSession[senderPhone]) {
-                userSession[senderPhone] = { step: 'MENU' };
-            }
-
             const currentStep = userSession[senderPhone].step;
 
             /*
@@ -501,7 +696,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                 if (['menu', 'oi', 'ola', 'olá', '0', 'inicio', 'início'].includes(textLower)) {
                     userSession[senderPhone].step = 'MENU';
                     userSession[senderPhone].offered = undefined;
-                    
+
                     const mainMenu = getBotMessage('mainMenu',
                         '🍔 *BEM-VINDO* 🍕\n' +
                         '━━━━━━━━━━━━━━━━━━━━━\n' +
@@ -512,6 +707,38 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                         '👉 *Responda com o número* da opção desejada:');
 
                     await sock.sendMessage(senderPhone, { text: mainMenu });
+                    continue;
+                }
+
+                /*
+                 * Comandos do pedido, que valem em qualquer etapa.
+                 *
+                 * Nao estao dentro de "se o passo for X" porque a pessoa nao
+                 * sabe em que passo o bot esta -- e nao tem por que saber. Ela
+                 * escreveu "3 coxinhas" e quer finalizar; se o bot exigir que ela
+                 * descubra que existe um passo intermediario, ela fica presa
+                 * num estado que nao consegue ver.
+                 */
+                if (ehComandoFechar(textLower)) {
+                    await fechaCarrinho(senderPhone, onOrderCreated);
+                    continue;
+                }
+
+                if (ehComandoLimpar(textLower)) {
+                    carrinhoDe(senderPhone).length = 0;
+                    userSession[senderPhone].step = 'MENU';
+                    userSession[senderPhone].offered = undefined;
+                    userSession[senderPhone].productId = undefined;
+                    userSession[senderPhone].picked = undefined;
+                    userSession[senderPhone].groupIndex = 0;
+                    await sock.sendMessage(senderPhone, {
+                        text: '🧾 Pedido apagado. Comece de novo quando quiser.'
+                    });
+                    continue;
+                }
+
+                if (ehComandoVerCarrinho(textLower)) {
+                    await sock.sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
                     continue;
                 }
 
@@ -526,7 +753,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                             continue;
                         }
 
-                        userSession[senderPhone].step = 'AGUARDANDO_PRODUTO';
+                        userSession[senderPhone].step = 'PEDINDO';
                         // Guarda o retrato da lista: e contra ela que o numero
                         // digitado vai ser lido, mesmo que o dono edite o menu
                         // antes da resposta.
@@ -556,14 +783,48 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                         }
                     } 
                     else if (textLower === '3') {
-                        await sock.sendMessage(senderPhone, { text: getBotMessage('attendantMessage', '👨‍💻 A sua solicitação foi registada. Um atendente humano irá chamá-lo em breve! Digite *menu* a qualquer momento para voltar.') });
-                    } 
-                    else {
-                        await sock.sendMessage(senderPhone, { text: getBotMessage('invalidOption', '🤖 Opção inválida. Digite *1* para ver o cardápio ou *menu* para ver as opções.') });
+                        /*
+                         * A promessa, cumprida.
+                         *
+                         * Este botao dizia "um atendente humano irá chamá-lo em
+                         * breve" e nao chamava ninguem: o bot continuava
+                         * respondendo, a conversa seguia sem o selo de "Você" no
+                         * painel, e ninguem era avisado. E' o mesmo defeito que
+                         * a tela de Configuracoes tinha -- o sistema anunciando
+                         * uma protecao que nao existe.
+                         *
+                         * `assumirConversa` e' o que silencia o bot de verdade:
+                         * `botPodeResponder` le o mesmo campo, entao assume aqui
+                         * e a proxima mensagem do cliente nao e' respondida. E
+                         * `notifyChat` empurra o evento, o que faz a conversa
+                         * aparecer na lista de quem atende.
+                         */
+                        const conversa = await assumirConversaPorTelefone(senderPhone);
+                        if (conversa) {
+                            await sock.sendMessage(senderPhone, {
+                                text: getBotMessage('attendantMessage',
+                                    '👨‍💻 Chamei um atendente para si. Ele vai responder aqui mesmo a partir de agora — o automático fica em silêncio nesta conversa.')
+                            });
+                        } else {
+                            await sock.sendMessage(senderPhone, {
+                                text: '⚠️ Não consegui abrir seu atendimento agora. Tente *3* de novo em um instante.'
+                            });
+                        }
                     }
-                } 
-                else if (currentStep === 'AGUARDANDO_PRODUTO') {
-                    if (!isNaN(Number(textLower))) {
+                    else {
+                        /*
+                         * Nem número, nem comando: tenta entender a frase.
+                         *
+                         * Antes, qualquer coisa fora do menu recebia "Opção
+                         * inválida". Era a diferença entre o bot aceitar somente
+                         * os doze comandos que ele conhecia e aceitar a forma
+                         * como a pessoa fala.
+                         */
+                        await interpretaEAdiciona(senderPhone, textLower);
+                    }
+                }
+                else if (currentStep === 'PEDINDO') {
+                    if (!isNaN(Number(textLower)) && textLower !== '') {
                         // Resolve pelo retrato da lista que o cliente recebeu,
                         // nunca pelo menu atual: assim uma edicao no meio da
                         // escolha nao troca o prato debaixo do numero.
@@ -585,7 +846,7 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                             session.offered = fresh.map((p) => ({ id: p.id, name: p.name, price: p.price }));
                             await sock.sendMessage(senderPhone, { text: renderBotMenuText(fresh) });
                             await sock.sendMessage(senderPhone, {
-                                text: 'ℹ️ O cardápio mudou. Escolha novamente pelo número.',
+                                text: 'ℹ️ O cardápio mudou. Escolha novamente pelo número — ou escreva o nome do produto.',
                             });
                             continue;
                         }
@@ -605,12 +866,22 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                                 userSession[senderPhone].picked = {};
                                 await sendModifierQuestion(senderPhone, full, 0);
                             } else {
-                                await createBotOrder(
-                                    senderPhone,
-                                    { id: selected.id, name: selected.name, price: selected.price, isCombo: false },
-                                    {},
-                                    onOrderCreated
-                                );
+                                /*
+                                 * Entra no carrinho, e NAO vira pedido.
+                                 *
+                                 * Este era o limite antigo: escolher o item ja
+                                 * criava o pedido, entao nao havia como pedir
+                                 * duas coisas nem corrigir a primeira sem pedir de
+                                 * novo. Agora a pessoa junta o que quer e finaliza
+                                 * quando terminar.
+                                 */
+                                juntaItem(carrinhoDe(senderPhone), {
+                                    id: selected.id,
+                                    nome: selected.name,
+                                    qtd: 1,
+                                    modificadores: {},
+                                });
+                                await sock.sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
                             }
                         } else {
                             await sock.sendMessage(senderPhone, {
@@ -619,7 +890,10 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
                             userSession[senderPhone].step = 'MENU';
                         }
                     } else {
-                        await sock.sendMessage(senderPhone, { text: getBotMessage('invalidProduct', '❌ Por favor, digite apenas o *número* correspondente ao produto desejado ou digite *menu*.') });
+                        // Nao e' numero: e' frase. E o caminho que a pessoa
+                        // realmente usa -- "quero 3 coxinhas", "coxinha e
+                        // refrigerante", "xburguer ao ponto com bacon".
+                        await interpretaEAdiciona(senderPhone, textLower);
                     }
                 }
                 else if (currentStep === 'ESCOLHANDO_MOD') {
@@ -676,7 +950,24 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
 
                     const product = await prisma.product.findUnique({ where: { id: session.productId } });
                     if (product) {
-                        await createBotOrder(senderPhone, product, session.picked ?? {}, onOrderCreated);
+                        /*
+                         * O item escolhido com modificadores entra no carrinho e
+                         * a pessoa continua escolhendo o proximo. Antes disto
+                         * criava o pedido e voltava ao menu: com o carrinho, ela
+                         * pode ter marcado o X-Burguer e ainda pedir o
+                         * refrigerante.
+                         */
+                        juntaItem(carrinhoDe(senderPhone), {
+                            id: product.id,
+                            nome: product.name,
+                            qtd: 1,
+                            modificadores: session.picked ?? {},
+                        });
+                        userSession[senderPhone].step = 'PEDINDO';
+                        userSession[senderPhone].productId = undefined;
+                        userSession[senderPhone].picked = undefined;
+                        userSession[senderPhone].groupIndex = 0;
+                        await sock.sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
                     }
                 }
             } catch (err) {

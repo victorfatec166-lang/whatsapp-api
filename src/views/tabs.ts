@@ -1,4 +1,4 @@
-import { escapeHtml } from './html';
+import { escapeHtml, tamanhoLegivel } from './html';
 import { currency, statusLabel, type OrderWithProductless } from '../services/stats';
 import type { DashboardStats } from '../services/stats';
 import { renderComandaModal, COMANDA_SCRIPT } from './comandaModal';
@@ -172,6 +172,10 @@ type ConfigData = {
     cashAutoOpen: string;
     cashAutoClose: string;
     cashDefaultFloat: number;
+    /** O que a agenda vai fazer com esses valores, derivado no servico. */
+    agenda: import('../services/config').EstadoAgenda;
+    /** N├║meros medidos do disco e do banco. Ver services/armazenamento. */
+    dados: import('../services/armazenamento').ResumoArmazenamento;
 };
 
 export function renderConfig(c: ConfigData): string {
@@ -188,8 +192,20 @@ export function renderConfig(c: ConfigData): string {
      * A chave PIX tambem saiu, pelo mesmo motivo e por um caminho so dela: ela
      * so era lida pelo checklist da Home, que marcava "configurada" sem nunca
      * ter chegado ao cliente. O item de setup correspondente saiu junto.
+     *
+     * O que entrou depois foi o outro lado do mesmo raciocinio. O campo "Nome
+     * do negocio" e' obrigatorio na pratica -- sai no logo, no titulo da aba e
+     * no cabecalho da comanda da impressora -- e aceitou ficar vazio em silencio.
+     * Salvar o que quebrava era a versao desse defeito com os sinais trocados,
+     * e a agenda do caixa aceitava horario sem fundo de troco, estado que o
+     * agendador ignora. Agora os dois sao recusados com a frase que diz o que
+     * fazer, e o estado da agenda aparece ANTES de salvar.
      */
-    return `        <form onsubmit="return saveConfig(event)" class="space-y-5 max-w-4xl">
+    const agendaAtiva = c.agenda.ativa;
+    const dados = c.dados;
+    const ultimo = dados.ultimoBackup;
+
+    return `        <form onsubmit="return saveConfig(event)" class="space-y-5 max-w-4xl" id="cfgForm">
             <div class="card">
                 <div class="card-pad pb-3">
                     <h2 class="text-title flex items-center gap-2">
@@ -199,9 +215,12 @@ export function renderConfig(c: ConfigData): string {
                 </div>
                 <div class="px-5 pb-5">
                     <div class="max-w-md">
-                        <label class="label" for="cfg-businessName">Nome do negocio</label>
+                        <label class="label" for="cfg-businessName">Nome do negocio <span class="text-accent" title="Obrigatorio">*</span></label>
                         <input id="cfg-businessName" type="text" name="businessName" value="${escapeHtml(c.businessName)}"
-                               maxlength="60" class="input" placeholder="Como o cliente ve o nome">
+                               maxlength="60" required class="input" placeholder="Como o cliente ve o nome">
+                        <p class="text-caption text-ink-3 mt-1">
+                            Vai impresso no cabecalho da comanda da impressora. Nao pode ficar vazio.
+                        </p>
                     </div>
                 </div>
             </div>
@@ -243,12 +262,124 @@ export function renderConfig(c: ConfigData): string {
                         </p>
                     </div>
 
+                    <!--
+                        O estado da agenda, derivado dos tres campos acima.
+
+                        Este bloco repete a regra que o agendador usa, e repete de
+                        proposito: a tela mostra o que vai acontecer ANTES de
+                        salvar, e nao depois de tentar. Antes ele era um
+                        paragrafo fixo, que continuava verdade depois de o campo
+                        virar outra coisa -- o pior tipo de texto de tela.
+
+                        A versao inicial vem do servidor (que chamou a mesma
+                        funcao); o script abaixo recalcula a cada tecla.
+                    -->
+                    <div id="cfgAgenda" class="flex items-start gap-2 text-caption border rounded-card p-3 max-w-2xl ${agendaAtiva ? 'bg-surface-2 line text-ink-2' : 'bg-surface-2 line text-ink-2'}">
+                        <i class="fa-solid ${agendaAtiva ? 'fa-circle-check' : 'fa-circle-info'} ${agendaAtiva ? 'text-green-600' : 'text-accent'} mt-0.5 shrink-0"></i>
+                        <span id="cfgAgendaTexto">${escapeHtml(c.agenda.resumo)}</span>
+                    </div>
+
                     <div class="flex items-start gap-2 text-caption text-ink-2 bg-surface-2 border line rounded-card p-3 max-w-2xl">
                         <i class="fa-solid fa-circle-info text-accent mt-0.5 shrink-0"></i>
                         <span>
                             Para fechar depois da meia-noite, use um horario menor que o de abertura
                             (ex.: abre 22:00, fecha 00:30).
                         </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-pad pb-3">
+                    <h2 class="text-title flex items-center gap-2">
+                        <i class="fa-solid fa-hard-drive text-accent"></i> Dados e armazenamento
+                    </h2>
+                    <p class="text-caption text-ink-3">
+                        Onde o sistema guarda o que ele guarda. Os numeros sao medidos agora, a cada visita a esta tela.
+                    </p>
+                </div>
+                <div class="px-5 pb-5 space-y-4">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="surface border line rounded-xl px-4 py-3">
+                            <p class="text-caption text-ink-3">Banco de dados</p>
+                            <p class="text-xl font-bold ink mt-0.5">${tamanhoLegivel(dados.bancoBytes)}</p>
+                            <p class="text-[11px] text-ink-3 mt-0.5">${dados.bancoArquivos.length > 0 ? escapeHtml(dados.bancoArquivos.map((f) => f.nome).join(', ')) : 'arquivo nao encontrado'}</p>
+                        </div>
+                        <div class="surface border line rounded-xl px-4 py-3">
+                            <p class="text-caption text-ink-3">Backups</p>
+                            <p class="text-xl font-bold ink mt-0.5">${tamanhoLegivel(dados.backupBytes)}</p>
+                            <p class="text-[11px] text-ink-3 mt-0.5">${dados.backupQuantidade} ${dados.backupQuantidade === 1 ? 'copia' : 'copias'}</p>
+                        </div>
+                        <div class="surface border line rounded-xl px-4 py-3">
+                            <p class="text-caption text-ink-3">Sessao do WhatsApp</p>
+                            <p class="text-xl font-bold ink mt-0.5">${tamanhoLegivel(dados.sessaoBytes)}</p>
+                            <p class="text-[11px] text-ink-3 mt-0.5">${dados.sessaoArquivos} arquivos</p>
+                        </div>
+                        <div class="surface border line rounded-xl px-4 py-3">
+                            <p class="text-caption text-ink-3">Logs</p>
+                            <p class="text-xl font-bold ink mt-0.5">${tamanhoLegivel(dados.logBytes)}</p>
+                            <p class="text-[11px] text-ink-3 mt-0.5">${dados.logQuantidade} ${dados.logQuantidade === 1 ? 'dia' : 'dias'}</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
+                        <div class="surface border line rounded-xl px-4 py-3">
+                            <p class="text-caption text-ink-3">Mensagens hoje</p>
+                            <p class="text-xl font-bold ink mt-0.5">${dados.mensagensHoje}</p>
+                        </div>
+                        <div class="surface border line rounded-xl px-4 py-3">
+                            <p class="text-caption text-ink-3">Pedidos hoje</p>
+                            <p class="text-xl font-bold ink mt-0.5">${dados.pedidosHoje}</p>
+                        </div>
+                        <div class="surface border line rounded-xl px-4 py-3">
+                            <p class="text-caption text-ink-3">Conversas na lista</p>
+                            <p class="text-xl font-bold ink mt-0.5">${dados.conversasAtivas}</p>
+                        </div>
+                    </div>
+
+                    <div class="max-w-2xl space-y-2 text-caption text-ink-2">
+                        <div class="flex items-start gap-2 bg-surface-2 border line rounded-card p-3">
+                            <i class="fa-solid fa-broom text-accent mt-0.5 shrink-0"></i>
+                            <div>
+                                <p class="font-medium ink">O que o sistema esquece</p>
+                                <p class="mt-0.5">${escapeHtml(dados.retencao)}</p>
+                                <p class="text-ink-3 mt-1">Proxima virada: ${escapeHtml(dados.proximaVirada.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-2 bg-surface-2 border line rounded-card p-3">
+                            <i class="fa-solid fa-clock-rotate-left text-accent mt-0.5 shrink-0"></i>
+                            <div>
+                                <p class="font-medium ink">Ultimo backup</p>
+                                ${
+                                    ultimo
+                                        ? `<p class="mt-0.5">${escapeHtml(ultimo.arquivo)} &middot; ${escapeHtml(ultimo.quando.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}</p>`
+                                        : '<p class="mt-0.5">Nenhuma copia ainda. A primeira e' + ' feita quando o servidor sobe.</p>'
+                                }
+                                <p class="text-ink-3 mt-1 break-all">Pasta: ${escapeHtml(dados.pastaBackup)}</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-2 rounded-card p-3 ${dados.exposicao.aberta ? 'bg-amber-50 border border-amber-200 text-ink-2' : 'bg-surface-2 border line text-ink-2'}">
+                            <i class="fa-solid ${dados.exposicao.aberta ? 'fa-triangle-exclamation text-amber-600' : 'fa-lock text-green-600'} mt-0.5 shrink-0"></i>
+                            <div>
+                                <p class="font-medium ink">
+                                    ${dados.exposicao.aberta ? 'O painel esta aberto para a rede local' : 'O painel so responde nesta maquina'}
+                                </p>
+                                <p class="mt-0.5">
+                                    Escuta em <span class="font-mono text-[11px]">${escapeHtml(dados.exposicao.host)}</span>${
+                                        dados.exposicao.aberta
+                                            ? ', entao qualquer computador da mesma rede que saiba a porta chega no faturamento, no caixa e nas conversas -- e o painel ainda nao tem senha.'
+                                            : '. Quem so usa nesta maquina nao alcanca o painel de fora.'
+                                    }
+                                </p>
+                                ${
+                                    dados.exposicao.aberta
+                                        ? '<p class="text-ink-3 mt-1">Para fechar: defina <span class="font-mono text-[11px]">HOST=127.0.0.1</span> no arquivo .env e reinicie o servidor.</p>'
+                                        : ''
+                                }
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -262,6 +393,58 @@ export function renderConfig(c: ConfigData): string {
         </form>
 
         <script>
+            /*
+             * O estado da agenda, calculado enquanto a pessoa digita.
+             *
+             * A mesma regra que o servidor roda antes de gravar, escrita em
+             * JavaScript. E' duplicacao, e e' de proposito: o servidor precisa
+             * dela para recusar a gravacao, e o navegador precisa dela para
+             * mostrar o efeito antes de salvar. Se as duas divergirem, o
+             * servidor manda -- a tela so deixa de ser silenciosamente
+             * enganosa.
+             *
+             * Nao ha replicar a validacao de inteiro e de horario aqui: o
+             * input type="time" ja so entrega HH:MM ou vazio, e o valor
+             * invalido chega no servidor como erro. Aqui so o estado, que e'
+             * leitura.
+             */
+            function cfgEstadoAgenda() {
+                var abre = document.getElementById('cfg-cashAutoOpen').value;
+                var fecha = document.getElementById('cfg-cashAutoClose').value;
+                var fundo = parseFloat(document.getElementById('cfg-cashDefaultFloat').value) || 0;
+
+                if (abre === '' && fecha === '') {
+                    return { ativa: false, texto: 'Desativada. O turno e' + ' aberto e fechado a mao.' };
+                }
+                if (!(fundo > 0)) {
+                    return { ativa: false, texto: 'Nao vai funcionar ainda: falta o fundo de troco. Sem ele o turno nao abre sozinho.' };
+                }
+                // Mesmo formato do servidor: toFixed(2) daria "50.00" ao lado
+                // de "R$ 50,00" nos cartoes da tela de cima.
+                var dinheiro = 'R$ ' + fundo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                if (abre !== '' && fecha === '') {
+                    return { ativa: true, texto: 'Abre sozinho as ' + abre + ' com ' + dinheiro + ' de fundo. O fechamento continua sendo manual.' };
+                }
+                if (fecha !== '' && abre === '') {
+                    return { ativa: true, texto: 'Fecha sozinho as ' + fecha + ', conferindo o dinheiro da gaveta. A abertura continua sendo manual.' };
+                }
+                return { ativa: true, texto: 'Abre as ' + abre + ' com ' + dinheiro + ' de fundo e fecha as ' + fecha + '.' };
+            }
+
+            function cfgAtualizaAgenda() {
+                var e = cfgEstadoAgenda();
+                document.getElementById('cfgAgendaTexto').textContent = e.texto;
+                var icone = document.querySelector('#cfgAgenda i');
+                icone.className = 'fa-solid ' + (e.ativa ? 'fa-circle-check text-green-600' : 'fa-circle-info text-accent') + ' mt-0.5 shrink-0';
+            }
+
+            ['cfg-cashAutoOpen', 'cfg-cashAutoClose', 'cfg-cashDefaultFloat'].forEach(function (id) {
+                var el = document.getElementById(id);
+                // 'input' e nao 'change': quem digita "22" no meio do caminho
+                // precisa ver o que acontece antes de terminar de digitar.
+                el.addEventListener('input', cfgAtualizaAgenda);
+            });
+
             async function saveConfig(event) {
                 event.preventDefault();
                 var btn = event.target.querySelector('button[type="submit"]');
@@ -276,7 +459,8 @@ export function renderConfig(c: ConfigData): string {
                     }
                     // Recarrega para o nome do negocio aparecer no logo e no
                     // titulo: sao renderizados no servidor, entao valem para a
-                    // proxima pagina, nao para esta.
+                    // proxima pagina, nao para esta. E' o que traz de volta os
+                    // numeros de "Dados e armazenamento", medidos no servidor.
                     flash('ok', 'Configuracoes salvas.');
                     setTimeout(function () { window.location.reload(); }, 700);
                 } catch (e) {

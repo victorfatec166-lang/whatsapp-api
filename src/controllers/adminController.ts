@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../database/prisma';
 import { logDoModulo } from '../services/logger';
+import { carregarConfig, salvarConfig, falhouSalvar } from '../services/config';
 const log = logDoModulo('adminController');
 
 export const adminController = {
@@ -206,11 +207,32 @@ export const adminController = {
   },
 
   // --- GESTÃO DE CONFIGURAÇÕES ---
+  /*
+   * A regra das configurações mora em `services/config.ts`, e as duas rotas que
+   * gravam isso -- esta e a tela do painel -- passam por lá.
+   *
+   * Antes eram dois lugares: a tela gravava direto no banco e a API devolvia
+   * 501 dizendo que o modelo Config não existia, sendo que ele existe e a tela
+   * usa. Duas rotas para a mesma gravação divergem, e divergiram: só a da tela
+   * validava alguma coisa, e mesmo assim aceitou nome de negócio vazio e
+   * agenda do caixa pela metade.
+   */
   async getConfig(req: Request, res: Response) {
-    return res.status(501).json({ error: 'Configurações desativadas (modelo Config não existe)' });
+    try {
+      return res.json(await carregarConfig());
+    } catch (error) {
+      log.error('Erro ao buscar configuracoes:', error);
+      return res.status(500).json({ error: 'Erro ao buscar configuracoes' });
+    }
   },
 
   async saveConfig(req: Request, res: Response) {
-    return res.status(501).json({ error: 'Configurações desativadas (modelo Config não existe)' });
+    const r = await salvarConfig(req.body);
+    if (falhouSalvar(r)) {
+      // 400 e não 500: a requisição está errada, não o servidor. A tela e a API
+      // recebem a mesma frase, porque é a mesma regra.
+      return res.status(400).json({ error: r.error });
+    }
+    return res.json({ success: true, config: r.dados, avisos: r.avisos });
   }
 };

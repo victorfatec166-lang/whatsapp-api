@@ -32,6 +32,8 @@ import { validar, falhou, vendaPdv, mudancaStatus } from '../src/services/valida
 import { computeTotals } from '../src/services/cash';
 import { conferirAssinatura, normalizar } from '../src/services/webhook';
 import { stockStatus, summarize, needsMinStock } from '../src/services/stock';
+import { validarConfig, estadoAgendaCaixa, falhouValidacao } from '../src/services/config';
+import { tamanhoLegivel } from '../src/views/html';
 import type { StockRow } from '../src/services/stock';
 
 /* ------------------------------------------------------------------ itens */
@@ -449,4 +451,163 @@ test('summarize: soma de dinheiro nao acumula erro de ponto flutuante', () => {
         linha({ id: '2', stock: 2, price: 0.2, costPrice: 0 }),
     ]);
     assert.equal(s.value, 0.7);
+});
+
+/* ------------------------------------------------------- configuracoes do negocio */
+
+/*
+ * Por que configuracao entra aqui, e nao em um arquivo novo
+ *
+ * A funcao e' pura: entrada do formulario, saida de validacao. Nao toca banco,
+ * nao tem relogio, nao faz requisicao. E' a mesma categoria de `stockStatus` e
+ * de `closeMomentAfter`, que ja estao neste arquivo.
+ *
+ * E o que precisa de prova aqui e' a REGRA, nao o codigo: o teste nao verifica
+ * se a tela tem um campo, verifica se o sistema recusa o estado que ele aceitou
+ * em silencio e que nao fazia nada. Esse e' o defeito, e ele nao aparece em
+ * revisao de codigo -- aparece quando alguem salva e descobre no dia seguinte
+ * que o turno nao abriu.
+ */
+
+const CONFIG_OK = {
+    businessName: 'Marmitaria da Ana',
+    cashAutoOpen: '08:00',
+    cashAutoClose: '22:00',
+    cashDefaultFloat: 50,
+};
+
+test('config: um formulario completo passa', () => {
+    const r = validarConfig(CONFIG_OK);
+    assert.equal(falhouValidacao(r), false, 'configuracao completa nao pode ser recusada');
+    assert.equal(r.ok, true);
+});
+
+test('config: nome do negocio vazio e' + ' recusado, e a frase diz onde ele aparece', () => {
+    /*
+     * O nome vai para o logo da lateral, o titulo da aba e o cabecalho da comanda
+     * da impressora (`comanda.ts` faz `.toUpperCase()`). Nome vazio nao e' "sem
+     * nome": e' uma comanda impressa sem cabecalho.
+     */
+    const r = validarConfig({ ...CONFIG_OK, businessName: '   ' });
+    assert.equal(falhouValidacao(r), true);
+    if (falhouValidacao(r)) {
+        assert.match(r.error, /logo/i);
+        assert.match(r.error, /impressora/i);
+    }
+});
+
+test('config: horario invalido volta como erro, e nao como "desativado"', () => {
+    /*
+     * A regra antiga convertia horario invalido em vazio, e vazio significa
+     * desativado. Traduzir erro de digitacao em "desligado" e' o pior dos dois
+     * mundos: o dono preencheu, viu "salvo", e o turno nunca mais abriu sozinho.
+     */
+    const r = validarConfig({ ...CONFIG_OK, cashAutoOpen: '8h' });
+    assert.equal(falhouValidacao(r), true);
+    if (falhouValidacao(r)) assert.match(r.error, /HH:MM/);
+});
+
+test('config: horario sem fundo de troco e' + ' recusado, e nao salvo em silencio', () => {
+    /*
+     * O estado que o agendador ignora. `runScheduleTick` so abre turno com
+     * `cashDefaultFloat > 0`, entao gravar "08:00" com fundo vazio produz uma
+     * tela que parece configurada e um turno que nunca abre sozinho.
+     */
+    const semFundo = validarConfig({ ...CONFIG_OK, cashDefaultFloat: 0 });
+    assert.equal(falhouValidacao(semFundo), true);
+    if (falhouValidacao(semFundo)) {
+        assert.match(semFundo.error, /fundo/i);
+        // A mensagem precisa oferecer os dois caminhos: preencher ou apagar.
+        assert.match(semFundo.error, /horarios/i);
+    }
+
+    // Campo vazio e zero sao a mesma coisa, e nenhum dos dois abre turno.
+    const vazio = validarConfig({ ...CONFIG_OK, cashDefaultFloat: '' });
+    assert.equal(falhouValidacao(vazio), true);
+});
+
+test('config: fundo de troco negativo e' + ' recusado', () => {
+    const r = validarConfig({ ...CONFIG_OK, cashDefaultFloat: -10 });
+    assert.equal(falhouValidacao(r), true);
+});
+
+test('config: o dinheiro do fundo e' + ' arredondado na entrada', () => {
+    // 0.1 + 0.2 na gaveta e' problema de quem fecha o turno, nao de quem salvou.
+    const r = validarConfig({ ...CONFIG_OK, cashDefaultFloat: '50.005' });
+    assert.equal(falhouValidacao(r), false);
+    if (!falhouValidacao(r)) assert.equal(r.dados.cashDefaultFloat, 50.01);
+});
+
+test('agenda: sem horario, ela esta desligada e isso e' + ' dito', () => {
+    const e = estadoAgendaCaixa({ cashAutoOpen: '', cashAutoClose: '', cashDefaultFloat: 50 });
+    assert.equal(e.ativa, false);
+    assert.match(e.resumo, /Desativada/);
+});
+
+test('agenda: so abrir, ou so fechar, e' + ' valido -- e a tela avisa qual metade', () => {
+    const soAbre = estadoAgendaCaixa({ cashAutoOpen: '08:00', cashAutoClose: '', cashDefaultFloat: 50 });
+    assert.equal(soAbre.ativa, true);
+    assert.match(soAbre.resumo, /08:00/);
+    assert.match(soAbre.resumo, /fechamento.*manual/i);
+
+    const soFecha = estadoAgendaCaixa({ cashAutoOpen: '', cashAutoClose: '22:00', cashDefaultFloat: 50 });
+    assert.equal(soFecha.ativa, true);
+    assert.match(soFecha.resumo, /22:00/);
+    assert.match(soFecha.resumo, /abertura.*manual/i);
+});
+
+test('agenda: os dois horarios com fundo viram um resumo com os numeros', () => {
+    const e = estadoAgendaCaixa({ cashAutoOpen: '08:00', cashAutoClose: '22:00', cashDefaultFloat: 50 });
+    assert.equal(e.ativa, true);
+    assert.match(e.resumo, /08:00/);
+    assert.match(e.resumo, /22:00/);
+    assert.match(e.resumo, /50,00/);
+});
+
+test('agenda: fechar depois da meia-noite e' + ' horario menor, e funciona', () => {
+    // Loja que fecha 00:30 e abre 22:00. `closeMomentAfter` no cashSchedule
+    // trata o veso; aqui so interessa que a agenda nao se recuse.
+    const e = estadoAgendaCaixa({ cashAutoOpen: '22:00', cashAutoClose: '00:30', cashDefaultFloat: 50 });
+    assert.equal(e.ativa, true);
+
+    const r = validarConfig({ ...CONFIG_OK, cashAutoOpen: '22:00', cashAutoClose: '00:30' });
+    assert.equal(falhouValidacao(r), false);
+});
+
+test('config: meia agenda gera aviso, e nao recusa', () => {
+    // Nao e' erro: uma loja que so abre automaticamente e' legitima. O que nao
+    // pode e' o dono descobrir qual metade ficou automatica so no dia seguinte.
+    const r = validarConfig({ ...CONFIG_OK, cashAutoClose: '' });
+    assert.equal(falhouValidacao(r), false);
+    if (!falhouValidacao(r)) assert.equal(r.avisos.length, 1);
+
+    // Agenda completa nao avisa: e' o que o dono configurou.
+    const completa = validarConfig(CONFIG_OK);
+    if (!falhouValidacao(completa)) assert.equal(completa.avisos.length, 0);
+});
+
+test('config: campos ausentes nao viram undefined na tela', () => {
+    // O `Object.fromEntries(new FormData(...))` pode nao trazer um campo se ele
+    // nao estava na tela -- e um corpo vazio nao pode virar tela quebrada.
+    const r = validarConfig({});
+    assert.equal(falhouValidacao(r), true, 'sem nome, ja e' + ' erro com frase util');
+
+    const semHorario = validarConfig({ businessName: 'Marmitaria da Ana' });
+    assert.equal(falhouValidacao(semHorario), false);
+    if (!falhouValidacao(semHorario)) {
+        assert.equal(semHorario.dados.cashAutoOpen, '');
+        assert.equal(semHorario.dados.cashDefaultFloat, 0);
+    }
+});
+
+test('tamanhoLegivel: o numero de disco que o dono le', () => {
+    assert.equal(tamanhoLegivel(0), '0 B');
+    assert.equal(tamanhoLegivel(512), '512 B');
+    assert.equal(tamanhoLegivel(1024), '1,0 KB');
+    assert.equal(tamanhoLegivel(264 * 1024), '264,0 KB');
+    assert.equal(tamanhoLegivel(3 * 1024 * 1024), '3,0 MB');
+    // Valor que nao veio de lugar nenhum (a pasta sumiu) mostra zero, e nao
+    // "NaN KB" nem um tracinho que levanta outra pergunta.
+    assert.equal(tamanhoLegivel(NaN), '0 B');
+    assert.equal(tamanhoLegivel(-1), '0 B');
 });

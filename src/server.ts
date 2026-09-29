@@ -58,7 +58,9 @@ import {
     reconcileShift,
     shiftHistory,
 } from './services/cash';
-import { startCashScheduler, isValidHhMm } from './services/cashSchedule';
+import { startCashScheduler } from './services/cashSchedule';
+import { carregarConfig, salvarConfig, estadoAgendaCaixa, falhouSalvar } from './services/config';
+import { resumoArmazenamento } from './services/armazenamento';
 import { startBackupScheduler, backupDir } from './services/backup';
 import { startPodador } from './services/retencao';
 import { ensureSku, exportProductsCsv, importProductsFromCsv } from './services/products';
@@ -202,12 +204,15 @@ function endOfDay(d: Date): Date {
     return x;
 }
 
+/*
+ * A configuracao corrente.
+ *
+ * Delegada ao serviço, e nao lida aqui, porque a gravacao dela ja foi para o
+ * mesmo lugar: duas leituras em um lugar e uma escrita em outro e' como os dois
+ * lados divergem. A linha de fabrica e' criada pelo servico na primeira visita.
+ */
 async function getConfig() {
-    const existing = await prisma.config.findUnique({ where: { id: 'default' } });
-    if (existing) return existing;
-    return prisma.config.create({
-        data: { id: 'default' },
-    });
+    return carregarConfig();
 }
 
 /** Ultimos pedidos de um canal de marketplace, para a tela mostrar atividade. */
@@ -1315,45 +1320,29 @@ app.post('/admin/bot/logout', async (_req, res) => {
     }
 });
 
+/*
+ * Salvar as configuracoes.
+ *
+ * A regra esta em `services/config.ts`, compartilhada com a API REST. Aqui nao
+ * ha validacao nenhuma, de proposito: quando as duas rotas validavam por conta
+ * propria, elas divergiram, e o dono pode ter salvo um estado que a API aceitaria
+ * e a tela nao -- ou o contrario.
+ *
+ * minOrderValue, estimatedPrepMinutes e pixKey sairam do meio disso. Nenhum dos
+ * tres era lido por nada: o bot criava pedido sem checar valor minimo, o tempo
+ * de preparo nao aparecia em mensagem nenhuma, e a chave PIX so era lida pelo
+ * checklist da Home -- que marcava "configurada" sem nunca ter chegado ao
+ * cliente. As sete colunas foram removidas do schema na migration
+ * 20260928173000_remove_colunas_config_sem_uso, junto com originAddress,
+ * baseFee, feePerKm e googleApiKey. O motivo de cada grupo esta no comentario
+ * do model Config, em schema.prisma.
+ */
 app.post('/admin/config/save', async (req, res) => {
-    try {
-        const b = req.body ?? {};
-        const data = {
-            // Sem fallback hardcoded: um nome inventado ("DeliveryAdmin") e o
-            // que aparecia no logo antes de o dono preencher a configuracao.
-            businessName: String(b.businessName ?? '').trim(),
-            /*
-             * minOrderValue, estimatedPrepMinutes e pixKey sairam daqui.
-             *
-             * Nenhum dos tres era lido por nada: o bot criava pedido sem checar
-             * valor minimo, o tempo de preparo nao aparecia em mensagem nenhuma,
-             * e a chave PIX so era lida pelo checklist da Home -- que marcava
-             * "configurada" sem nunca ter chegado ao cliente. Continuar
-             * gravando os tres dava a impressao de que a tela os controlava.
-             *
-             * As sete colunas foram removidas do schema na migration
-             * 20260928173000_remove_colunas_config_sem_uso, junto com
-             * originAddress, baseFee, feePerKm e googleApiKey. O motivo de cada
-             * grupo esta no comentario do model Config, em schema.prisma.
-             */
-            // Agenda do caixa: horario invalido vira vazio (desativado) em vez
-            // de ser gravado e nunca casar no agendador.
-            cashAutoOpen: isValidHhMm(b.cashAutoOpen) ? String(b.cashAutoOpen).trim() : '',
-            cashAutoClose: isValidHhMm(b.cashAutoClose) ? String(b.cashAutoClose).trim() : '',
-            cashDefaultFloat: Math.max(0, toNumber(b.cashDefaultFloat, 0)),
-        };
-
-        await prisma.config.upsert({
-            where: { id: 'default' },
-            update: data,
-            create: { id: 'default', ...data },
-        });
-
-        res.json({ success: true });
-    } catch (error) {
-        log.error('Erro ao salvar configuracoes:', error);
-        res.status(500).json({ error: 'Erro ao salvar configuracoes' });
+    const r = await salvarConfig(req.body);
+    if (falhouSalvar(r)) {
+        return res.status(400).json({ error: r.error });
     }
+    res.json({ success: true, avisos: r.avisos });
 });
 
 const ALLOWED_MESSAGE_KEYS = Object.keys(DEFAULT_BOT_MESSAGES);
@@ -1584,10 +1573,12 @@ app.get('/admin', async (req, res) => {
 
             case 'config': {
                 body = renderConfig({
-                    businessName: config.businessName,
-                    cashAutoOpen: config.cashAutoOpen,
-                    cashAutoClose: config.cashAutoClose,
-                    cashDefaultFloat: config.cashDefaultFloat,
+                    ...config,
+                    agenda: estadoAgendaCaixa(config),
+                    // Medido agora, nao estimado. Esta secao responde "onde estao
+                    // meus dados", e um numero inventado nesse lugar seria pior
+                    // do que a secao nao existir.
+                    dados: await resumoArmazenamento(),
                 });
                 break;
             }

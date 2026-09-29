@@ -7,6 +7,7 @@ import { parkedSales } from './cash';
 import { parseHhMm } from './cashSchedule';
 import { parseItems } from './items';
 import { getDailyMenu, previousDailyMenu, type DailyMenuView } from './dailyMenu';
+import { listarContas, type Canal, type StatusConta } from './marketplace';
 
 /**
  * Todas as queries da home ficam aqui, num modulo so.
@@ -62,6 +63,20 @@ export type HomeData = {
     previousMenu: DailyMenuView | null;
     /** Produtos disponiveis para montar o menu do dia, em ordem alfabetica. */
     menuProducts: Array<{ id: string; name: string; price: number; category: string }>;
+    /**
+     * Canais de fora: onde este painel conversa com outro sistema.
+     *
+     * A Home mostra so o estado, nunca credencial. Serve para a pessoa ver que
+     * o iFood esta ativo sem precisar abrir a tela do marketplace -- e para
+     * saber que um canal esta em homologacao enquanto ela acha que esta
+     * vendendo por ele.
+     */
+    conexoes: Array<{
+        channel: Canal;
+        status: StatusConta;
+        temCredencial: boolean;
+        pedidosRecebidos: number;
+    }>;
 };
 
 /**
@@ -312,6 +327,24 @@ export async function loadHomeData(opts: {
 
     const setup = await buildSetupChecks(products, botOnline);
 
+    /*
+     * Estado dos canais, e so o estado.
+     *
+     * A tela do marketplace mostra tudo -- credencial, webhook, erro da ultima
+     * checagem, quantos itens do catalogo ja casaram. Aqui nao cabe nada disso:
+     * a Home responde "esta conectado?", e o resto mora na tela do canal.
+     *
+     * `listarContas` cria a conta na primeira leitura, entao o canal nunca
+     * configurado aparece como "sem credencial" em vez de sumir da lista. Sem
+     * essa linha, a ausencia do canal seria indistinguivel de um defeito.
+     */
+    const conexoes = (await listarContas()).map((c) => ({
+        channel: c.channel,
+        status: c.status,
+        temCredencial: c.temCredencial,
+        pedidosRecebidos: c.pedidosRecebidos,
+    }));
+
     return {
         businessName: config.businessName,
         today: { orders: todayOrders.length },
@@ -337,6 +370,7 @@ export async function loadHomeData(opts: {
             .filter((p) => p.isAvailable)
             .map((p) => ({ id: p.id, name: p.name, price: p.price, category: p.category || 'Geral' }))
             .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+        conexoes,
     };
 }
 

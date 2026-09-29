@@ -86,6 +86,65 @@ ${atencaoLista}
             </div>
         </div>`;
 
+    /* --------------------------------------------------------- conexoes */
+    /*
+     * Os canais de fora em um card so, com o WhatsApp no topo.
+     *
+     * Antes o WhatsApp era uma linha dentro de "Ir para", junto com tres
+     * atalhos de aba que a barra lateral ja resolve. Ou seja: a unica informacao
+     * desta tela que o resto do painel nao mostra -- se o canal esta vivo --
+     * estava misturada com navegacao, e o iFood/99Food nao aparecia aqui
+     * nenhum. Quem vendia por marketplace e achava que nao estava vendendo,
+     * porque a Home dizia "nada pendente" com um canal em homologacao.
+     *
+     * O card diz o estado e leva ate a tela do canal. Nao ha nada para fazer
+     * aqui: configurar credencial e teste de webhook sao do outro lado.
+     */
+    const CANAL_NOME: Record<string, string> = {
+        ifood: 'iFood',
+        '99food': '99Food',
+    };
+
+    const statusCanal: Record<string, { rotulo: string; classe: string; icone: string }> = {
+        ativo: { rotulo: 'ativo', classe: 'badge-success', icone: 'fa-circle-check' },
+        homologacao: { rotulo: 'em teste', classe: 'badge-warn', icone: 'fa-flask' },
+        erro: { rotulo: 'com erro', classe: 'badge-danger', icone: 'fa-triangle-exclamation' },
+        'sem-credencial': { rotulo: 'nao configurado', classe: 'badge-slate', icone: 'fa-plug-circle-xmark' },
+    };
+
+    const linhasCanal = [
+        `                    <li class="border-b border-line">
+                        <a href="/admin?tab=whatsapp" class="flex items-center gap-3 py-2.5 row-hover">
+                            <i class="fa-brands fa-whatsapp text-accent-emerald shrink-0"></i>
+                            <span class="text-body text-ink flex-1 truncate">WhatsApp</span>
+                            <span class="badge ${d.botOnline ? 'badge-success' : 'badge-danger'} shrink-0">${
+                                d.botOnline ? 'conectado' : 'desconectado'
+                            }</span>
+                        </a>
+                    </li>`,
+        ...d.conexoes.map(
+            (c) => `                    <li class="border-b border-line last:border-0">
+                        <a href="/admin?tab=marketplace" class="flex items-center gap-3 py-2.5 row-hover">
+                            <i class="fa-solid fa-store text-ink-3 shrink-0"></i>
+                            <span class="text-body text-ink flex-1 truncate">${escapeHtml(CANAL_NOME[c.channel] ?? c.channel)}</span>
+                            <span class="badge ${statusCanal[c.status]?.classe ?? 'badge-slate'} shrink-0">${escapeHtml(
+                                statusCanal[c.status]?.rotulo ?? c.status
+                            )}</span>
+                        </a>
+                    </li>`
+        ),
+    ].join('\n');
+
+    const conexoes = `        <div class="card">
+            <div class="card-pad pb-1">
+                <h3 class="text-title">Conexoes</h3>
+                <p class="text-caption text-ink-3">Onde o pedido chega de fora</p>
+            </div>
+            <ul class="px-5 pb-2">
+${linhasCanal}
+            </ul>
+        </div>`;
+
     /* ------------------------------------------------------------- caixa */
     const c = d.cash;
     const agendaTexto = c.scheduleOn
@@ -152,37 +211,18 @@ ${atencaoLista}
         </div>`;
 
     /* ------------------------------------------------------------- acoes */
-    // Subiram para o topo da coluna lateral: sao as quatro telas que o dono
-    // abre o dia inteiro. Antes eram tres cards no fim da pagina, embaixo de
-    // todo o resto, o que obrigava a rolar para chegar neles.
-    const acoes = `        <div class="card">
-            <div class="card-pad pb-2">
-                <h3 class="text-title">Ir para</h3>
-            </div>
-            <div class="px-2 pb-2">
-                <a href="/admin?tab=pdv" class="flex items-center gap-3 px-3 py-2.5 rounded-card row-hover">
-                    <i class="fa-solid fa-cash-register text-accent"></i>
-                    <span class="text-body font-medium text-ink flex-1">Vender no balcao</span>
-                    <i class="fa-solid fa-chevron-right text-ink-3 text-xs"></i>
-                </a>
-                <a href="/admin?tab=kanban" class="flex items-center gap-3 px-3 py-2.5 rounded-card row-hover">
-                    <i class="fa-solid fa-chart-pie text-accent"></i>
-                    <span class="text-body font-medium text-ink flex-1">Ver pedidos</span>
-                    <i class="fa-solid fa-chevron-right text-ink-3 text-xs"></i>
-                </a>
-                <a href="/admin?tab=estoque" class="flex items-center gap-3 px-3 py-2.5 rounded-card row-hover">
-                    <i class="fa-solid fa-boxes-stacked text-accent"></i>
-                    <span class="text-body font-medium text-ink flex-1">Produtos e estoque</span>
-                    <i class="fa-solid fa-chevron-right text-ink-3 text-xs"></i>
-                </a>
-                <a href="/admin?tab=whatsapp" class="flex items-center gap-3 px-3 py-2.5 rounded-card row-hover">
-                    <i class="fa-solid ${d.botOnline ? 'fa-whatsapp text-accent-emerald' : 'fa-plug-circle-xmark text-accent-red'}"></i>
-                    <span class="text-body font-medium text-ink flex-1">WhatsApp</span>
-                    <span class="text-micro text-ink-3 shrink-0">${d.botOnline ? 'conectado' : 'desconectado'}</span>
-                </a>
-            </div>
-        </div>`;
-
+    /*
+     * O card "Ir para" saiu.
+     *
+     * Ele listava quatro abas -- Vender no balcao, Ver pedidos, Produtos e
+     * estoque, WhatsApp -- e as quatro ja estavam na barra lateral, a uma
+     * coluna de distancia. Em uma tela que tem que caber sem rolar, quatro
+     * linhas de atalho sao quatro linhas de altura gastas repetindo o que ja
+     * esta na tela.
+     *
+     * O que era unico dele -- o WhatsApp -- virou o card de Conexoes, onde
+     * informa algo que a barra lateral nao informa.
+     */
     /* ------------------------------------------------------------- fila */
     // A fila vira uma faixa de contadores lado a lado: da para ler os quatro
     // numeros de relance, sem varrer quatro linhas com o olho.
@@ -219,6 +259,24 @@ const cashModalsHtml = renderModal(cashOpenSpec());
 
     /* -------------------------------------------------------- menu do dia */
     const dm = d.dailyMenu;    const temMenu = !!dm && dm.items.length > 0;
+
+    /*
+     * Quatro pratos, e o resto fica no WhatsApp.
+     *
+     * O menu do dia e' a unica lista desta tela que nao tem teto: um cardapio de
+     * almoco com oito itens colocava oito linhas na Home e empurrava tudo para
+     * baixo da dobra. A tela precisa caber sem rolar, e um prato que nao aparece
+     * na Home nao deixa de estar publicado -- ele continua no topo do cardapio
+     * do WhatsApp, que e onde o cliente ve.
+     *
+     * Cortar em quatro e avisar quantos faltam nao esconde informacao: quem
+     * precisa da lista completa abre o cardapio.
+     */
+    const LIMITE_MENU = 4;
+    const itensMenu = dm ? dm.items : [];
+    const menuVisiveis = itensMenu.slice(0, LIMITE_MENU);
+    const menuRestantes = itensMenu.length - menuVisiveis.length;
+
     const menuSection = `        <div class="card">
             <div class="flex flex-wrap items-center justify-between gap-3 card-pad pb-3">
                 <div>
@@ -234,15 +292,22 @@ const cashModalsHtml = renderModal(cashOpenSpec());
                     ? `<div class="px-5 pb-4">
                 ${dm.note ? `<p class="text-body text-ink-2 mb-3 italic">${escapeHtml(dm.note)}</p>` : ''}
                 <ul>
-                    ${dm.items
+                    ${menuVisiveis
                         .map(
-                            (i, idx) => `                    <li class="flex items-center justify-between gap-3 py-2 ${idx < dm.items.length - 1 ? 'border-b border-line' : ''}">
+                            (i, idx) => `                    <li class="flex items-center justify-between gap-3 py-2 ${idx < menuVisiveis.length - 1 ? 'border-b border-line' : ''}">
                         <span class="text-body text-ink truncate">${escapeHtml(i.name)}</span>
                         <span class="text-body font-semibold text-accent-strong shrink-0">${money(i.price)}</span>
                     </li>`
                         )
                         .join('\n')}
                 </ul>
+                ${
+                    menuRestantes > 0
+                        ? `<p class="text-caption text-ink-3 mt-3 pt-3 border-t border-line">
+                            <i class="fa-solid fa-ellipsis"></i> Mais ${menuRestantes} prato(s) no cardapio do WhatsApp
+                        </p>`
+                        : ''
+                }
             </div>`
                     : `<div class="px-5 pb-4">
                 <p class="text-body text-ink-3">Nenhum prato definido para hoje. O cardapio normal continua valendo.</p>
@@ -250,7 +315,19 @@ const cashModalsHtml = renderModal(cashOpenSpec());
             }
         </div>`;
 
-    return `        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+    /*
+     * Tres colunas, e nao duas.
+     *
+     * Com duas, a coluna da esquerda recebia fila e menu, e a da direita recebia
+     * conexoes, caixa e mais vendidos: as colunas desiguais, e a esquerda
+     * esticava a pagina ate aparecer a barra de rolagem. Tres colunas deixa a
+     * mais alta com dois cards e as outras com dois e um, o que cabe na altura
+     * de um monitor de balcao.
+     *
+     * A ordem dentro de cada coluna e' do urgente para o consultivo: quem
+     * chegou na Home quer saber o que precisa ser feito agora.
+     */
+    return `        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             ${kpi('Pedidos hoje', String(d.today.orders), deltaBadge(d.delta.orders), 'text-accent')}
             ${kpi('Em aberto', String(d.queue.pendente + d.queue.preparando + d.queue.entrega), 'aguardando ou em preparo', 'text-accent-orange')}
             ${kpi('Concluidos', String(d.queue.concluidoHoje), 'finalizados hoje', 'text-accent-emerald')}
@@ -259,15 +336,18 @@ const cashModalsHtml = renderModal(cashOpenSpec());
 
         ${atencao}
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
-            <div class="lg:col-span-2 space-y-5">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
+            <div class="lg:col-span-2 space-y-4">
                 ${filaSection}
                 ${menuSection}
             </div>
 
-            <div class="space-y-5">
-                ${acoes}
+            <div class="space-y-4">
+                ${conexoes}
                 ${caixa}
+            </div>
+
+            <div class="space-y-4">
                 ${topSection}
             </div>
         </div>

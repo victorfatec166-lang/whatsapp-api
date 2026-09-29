@@ -127,9 +127,28 @@ export function renderPairing(d: PairData): string {
         '                    <p class="text-xs ink-3 text-center">O codigo renova sozinho e expira em ~' + Math.round(QR_TTL_MS / 1000) + 's.</p>',
         '                </div>',
 
-        '                <div id="waitingBox" class="' + (showQr ? 'hidden' : '') + ' py-8 text-center">',
+        /*
+         * Tres estados, nao dois: tem QR, esta esperando, ou ja esta pronto.
+         *
+         * A caixa de espera aparecia sempre que nao havia QR -- o que inclui o
+         * caso em que o celular JA ESTA CONECTADO. Aí nenhum QR ia chegar
+         * nunca, e a pessoa ficava olhando "Aguardando o WhatsApp emitir um
+         * codigo de pareamento" girando para sempre, num sistema que ja estava
+         * funcionando. E' a tela dizendo que espera algo que ela mesma sabe
+         * que nao vem.
+         *
+         * Conectado e' o estado terminal, e tem frase propria: o numero
+         * pareado, e nada para esperar.
+         */
+        '                <div id="waitingBox" class="' + (showQr || connected ? 'hidden' : '') + ' py-8 text-center">',
         '                    <i class="fa-solid fa-circle-notch fa-spin text-3xl ink-3"></i>',
         '                    <p class="text-sm ink-3 mt-3">Aguardando o WhatsApp emitir um codigo de pareamento...</p>',
+        '                </div>',
+
+        '                <div id="conectadoBox" class="' + (connected ? '' : 'hidden') + ' py-6 text-center">',
+        '                    <i class="fa-brands fa-whatsapp text-4xl accent-emerald"></i>',
+        '                    <p class="font-bold ink mt-3">WhatsApp conectado</p>',
+        '                    <p class="text-sm ink-3 mt-1">Este numero ja esta pareado com este painel. Nao ha nada para esperar.</p>',
         '                </div>',
 
         '                <p id="phaseHint" class="text-sm ink-2 mt-3">' + phase.hint + '</p>',
@@ -207,10 +226,18 @@ export const PAIRING_CLIENT_SCRIPT = [
     '                estranha.classList.remove("hidden");',
     '            }',
     '            var wantsQr = state.phase === "aguardando-qr" || state.phase === "escaneado";',
+    '            var isConectado = state.phase === "conectado";',
     '            var qrBox = document.getElementById("qrBox");',
     '            var waitBox = document.getElementById("waitingBox");',
+    '            var feitoBox = document.getElementById("conectadoBox");',
     '            if (qrBox) qrBox.classList.toggle("hidden", !wantsQr);',
-    '            if (waitBox) waitBox.classList.toggle("hidden", wantsQr);',
+    /*
+     * A caixa de espera so fica visivel quando ha algo para esperar. Com o
+     * celular ja conectado, o girador ficava parado na tela a toa: o sistema
+     * ja estava pronto e a unica coisa que faltava era a tela dizer isso.
+     */
+    '            if (waitBox) waitBox.classList.toggle("hidden", wantsQr || isConectado);',
+    '            if (feitoBox) feitoBox.classList.toggle("hidden", !isConectado);',
     '            if (state.qr && state.qr !== lastQr) {',
     '                lastQr = state.qr;',
     '                fetch("/api/bot/qr.svg?v=" + encodeURIComponent(state.qrIssuedAt || 0))',

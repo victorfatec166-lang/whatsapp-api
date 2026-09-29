@@ -1,0 +1,18 @@
+{
+    // O Tailwind escreve tres diretivas que nao existem em CSS: @tailwind, @apply
+    // e @layer. O linter de CSS do proprio VS Code nao conhece nenhuma delas e
+    // marca as tres como "Unknown at-rule" -- em vermelho, na Problems, com o
+    // nome de arquivo ao lado, como se o build fosse falhar. Nao e' erro: o
+    // `npm run build` compila esse arquivo sem reclamar, e o
+    // `check:contrast` le os tokens do CSS de verdade.
+    //
+    // Desligar so essa regra: as outras checagens de CSS continuam valendo, e
+    // estreitar a excecao para @tailwind/@apply/@layer seria possivel se algum
+    // dia aparecer um erro de verdade dentro do arquivo.
+    "css.lint.unknownAtRules": "ignore",
+
+    // O projeto compila com `module: CommonJS` e nao tem `type: module` no
+    // package.json, entao o VS Code precisa enxergar o mesmo desenho para o
+    // autocompletar e o "Ir para a definicao" acertarem em require/import.
+    "typescript.tsdk": "node_modules/typescript/lib"
+}

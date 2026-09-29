@@ -9,51 +9,81 @@ const log = logDoModulo('layout');
 export type TabId = 'home' | 'kanban' | 'pdv' | 'estoque' | 'calendario' | 'chat' | 'faturamento' | 'whatsapp' | 'marketplace' | 'config';
 
 /**
- * Ordem da sidebar: primeiro o que voce usa todo dia (operacao), depois o
- * setup do WhatsApp, depois ajustes, e por ultimo o dinheiro.
+ * Ordem da sidebar: o dia primeiro, o catalogo, os canais de terceiro, os
+ * ajustes, e o dinheiro por ultimo.
  *
- * Faturamento fica no fim de proposito: e' a unica aba que mostra quanto o
- * negocio fatura, e ela esta pronta para receber um portao de senha.
+ * A mudanca maior aqui e' o grupo "Apps e conexoes". Marketplace vivia dentro de
+ * Ajustes, ao lado de Configuracoes: sao coisas de naturezas diferentes. Uma e'
+ * onde se credencia iFood e 99Food e se confere se os pedidos estao entrando; a
+ * outra e' entrega, taxa e nome do negocio. Quem procurava o iFood passava por
+ * "Configuracoes" e concluia que o canal nao existia.
+ *
+ * WhatsApp e Marketplace juntos fazem sentido por uma razao pratica: sao os
+ * dois lugares onde este painel conversa com um sistema de fora. Vem depois do
+ * catalogo e antes dos ajustes porque e' o que se configura uma vez e depois
+ * esquece -- e e' tambem onde a pessoa precisa ir quando o pedido de fora nao
+ * aparece, entao tem de ser facil de achar.
+ *
+ * Faturamento continua no fim: e' a unica aba que mostra dinheiro, e a ultima
+ * por decisao, nao por ordem alfabetica.
+ *
+ * Os rotulos sao o que a pessoa le na tela, entao valem uma palavra a mais que
+ * o nome interno do grupo: "Dia a dia" diz o que tem la dentro, "Operacao" so
+ * nomeia a categoria.
  */
 export const TAB_GROUPS = [
-    { id: 'operacao', label: 'Operacao' },
-    { id: 'whatsapp', label: 'WhatsApp' },
+    { id: 'dia', label: 'Dia a dia' },
+    { id: 'catalogo', label: 'Catalogo' },
+    { id: 'apps', label: 'Apps e conexoes' },
     { id: 'ajustes', label: 'Ajustes' },
-    { id: 'faturamento', label: 'Faturamento' },
+    { id: 'dinheiro', label: 'Dinheiro' },
 ] as const;
 
 export type TabGroupId = (typeof TAB_GROUPS)[number]['id'];
 
 export const TABS: Array<{ id: TabId; group: TabGroupId; label: string; icon: string; hint: string }> = [
-    { id: 'home', group: 'operacao', label: 'Inicio', icon: 'fa-solid fa-house', hint: 'Resumo do dia e atalhos' },
-    { id: 'kanban', group: 'operacao', label: 'Pedidos', icon: 'fa-solid fa-chart-pie', hint: 'Gestao de pedidos em tempo real' },
-    { id: 'pdv', group: 'operacao', label: 'PDV', icon: 'fa-solid fa-cash-register', hint: 'Vender no balcao' },
-    { id: 'estoque', group: 'operacao', label: 'Produtos e Estoque', icon: 'fa-solid fa-boxes-stacked', hint: 'Catalogo, saldos e reposicao' },
-    { id: 'calendario', group: 'operacao', label: 'Calendario', icon: 'fa-solid fa-calendar-days', hint: 'Pedidos por dia' },
+    /*
+     * A ordem dentro de "Dia a dia" e' o caminho do expediente, nao o alphabetico.
+     *
+     * Acorda no Inicio, cai nos Pedidos que chegaram, atende no WhatsApp, vende
+     * no balcao, e so entao olha o Calendario para o dia seguinte. Quem procura
+     * "Conversas" na posicao em que ela estava, depois de Calendario, passava
+     * pelo Calendario inteiro sem ver -- e a tela que se usa o dia inteiro ficava
+     * embaixo da que se abre uma vez por semana.
+     */
+    { id: 'home', group: 'dia', label: 'Inicio', icon: 'fa-solid fa-house', hint: 'Resumo do dia e atalhos' },
+    { id: 'kanban', group: 'dia', label: 'Pedidos', icon: 'fa-solid fa-chart-pie', hint: 'Gestao de pedidos em tempo real' },
+    { id: 'chat', group: 'dia', label: 'Conversas', icon: 'fa-solid fa-comments', hint: 'Atender pelo WhatsApp' },
+    { id: 'pdv', group: 'dia', label: 'PDV', icon: 'fa-solid fa-cash-register', hint: 'Vender no balcao' },
+    { id: 'calendario', group: 'dia', label: 'Calendario', icon: 'fa-solid fa-calendar-days', hint: 'Pedidos por dia' },
 
     /*
-     * Conversas fica em Operacao, e nao em WhatsApp, porque e' onde se trabalha
-     * durante o expediente, e nao onde se configura uma vez. A aba WhatsApp
-     * continua sendo a do pareamento e dos textos do bot; as duas se complementam
-     * e misturar as duas colocaria a conversa do dia junto do QR de ontem.
+     * Catalogo tem grupo proprio porque e' um trabalho diferente do dia a dia:
+     * quem monta o cardapio nao esta vendendo, e misturar as duas coisas faz a
+     * lista do dia ter nove itens em vez de cinco.
      *
-     * A posicao depois de Calendario e' a do fluxo real: a loja atende o
-     * cliente, o calendario mostra o dia, e a conversa e' o meio do dia.
+     * O rotulo e' "Estoque" e nao "Produtos e Estoque" porque o grupo acima ja
+     * diz Catalogo. E' o mesmo nome que a aba ja usava na tela, entao nao cria
+     * duas palavras para a mesma coisa.
      */
-    { id: 'chat', group: 'operacao', label: 'Conversas', icon: 'fa-solid fa-comments', hint: 'Atender pelo WhatsApp' },
+    { id: 'estoque', group: 'catalogo', label: 'Estoque', icon: 'fa-solid fa-boxes-stacked', hint: 'Catalogo, saldos e reposicao' },
 
-    { id: 'whatsapp', group: 'whatsapp', label: 'WhatsApp', icon: 'fa-brands fa-whatsapp', hint: 'Conexao e textos do bot' },
-
-    // Marketplace fica em Ajustes, e nao em Operacao. Ele nao e' uma tela que se
-    // usa o dia inteiro: e' onde se credencia o canal e se confere se os pedidos
-    // estao entrando. Depois que a conta esta ativa, quem trabalha o pedido e' o
-    // Kanban, que ja recebe o marketplace como mais um channel.
-    { id: 'marketplace', group: 'ajustes', label: 'Marketplace', icon: 'fa-solid fa-store', hint: 'iFood e 99Food' },
+    /*
+     * Os dois canais de fora, juntos e no mesmo grupo.
+     *
+     * Marketplace saiu de Ajustes: e' onde se credencia iFood e 99Food e se
+     * confere se os pedidos estao entrando, nao um ajuste do negocio. Fica
+     * depois do catalogo porque o canal vende exatamente o que esta no catalogo
+     * -- quem vai la costuma estar resolvendo "esse item sumiu do iFood", e as
+     * duas abas precisam estar perto uma da outra.
+     */
+    { id: 'whatsapp', group: 'apps', label: 'WhatsApp', icon: 'fa-brands fa-whatsapp', hint: 'Conexao e textos do bot' },
+    { id: 'marketplace', group: 'apps', label: 'iFood e 99Food', icon: 'fa-solid fa-store', hint: 'Marketplace: credenciar e conferir pedidos' },
 
     { id: 'config', group: 'ajustes', label: 'Configuracoes', icon: 'fa-solid fa-gear', hint: 'Entrega e negocio' },
 
     // Um item so: resumo, caixa, clientes e pedidos vivem em sub-abas aqui.
-    { id: 'faturamento', group: 'faturamento', label: 'Faturamento', icon: 'fa-solid fa-chart-column', hint: 'Receita, caixa, clientes e pedidos' },
+    { id: 'faturamento', group: 'dinheiro', label: 'Faturamento', icon: 'fa-solid fa-chart-column', hint: 'Receita, caixa, clientes e pedidos' },
 ];
 
 /**

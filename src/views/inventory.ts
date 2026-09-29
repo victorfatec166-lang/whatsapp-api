@@ -56,13 +56,25 @@ export function renderInventory(d: InventoryData): string {
             const label = STOCK_STATUS_LABEL[status];
             const semMinimo = needsMinStock(r);
 
+            /*
+             * Celula de saldo: menos, campo, mais.
+             *
+             * Os tres controles recebem nome proprio com o nome do produto. O
+             * campo de numero sozinho anunciava "campo de texto, 12" para quem
+             * usa leitor de tela -- o suficiente para o campo existir e nada
+             * para dizer QUAL saldo. Os botoes de menos e mais tinham `title`,
+             * que ajuda o mouse e nao o leitor de tela, e o "menos" ainda e'
+             * ambiguo: em uma tela com 40 produtos, "remover 1" de qual?
+             */
+            const estoqueDe = 'estoque de ' + r.name;
             const stockCell = r.trackStock
                 ? `<div class="flex items-center gap-1">
-                        <button type="button" onclick="stockAdjust('${escapeHtml(r.id)}', -1)" class="w-7 h-7 rounded badge-slate text-xs font-bold transition" title="Remover 1">&minus;</button>
-                        <input type="number" value="${r.stock}" min="0" data-stock-input="${escapeHtml(r.id)}"
+                        <button type="button" onclick="stockAdjust('${escapeHtml(r.id)}', -1)" class="w-7 h-7 rounded badge-slate text-xs font-bold transition" title="Remover 1" aria-label="Remover 1 de ${escapeHtml(estoqueDe)}">&minus;</button>
+                        <input id="stock-${escapeHtml(r.id)}" type="number" value="${r.stock}" min="0" data-stock-input="${escapeHtml(r.id)}"
                             onchange="stockSet('${escapeHtml(r.id)}', this.value)"
+                            aria-label="${escapeHtml(estoqueDe)}"
                             class="w-16 px-2 py-1 text-center text-sm border line-in rounded">
-                        <button type="button" onclick="stockAdjust('${escapeHtml(r.id)}', 1)" class="w-7 h-7 rounded badge-emerald text-xs font-bold transition" title="Adicionar 1">+</button>
+                        <button type="button" onclick="stockAdjust('${escapeHtml(r.id)}', 1)" class="w-7 h-7 rounded badge-emerald text-xs font-bold transition" title="Adicionar 1" aria-label="Adicionar 1 a ${escapeHtml(estoqueDe)}">+</button>
                     </div>`
                 : '<span class="text-xs ink-3">sem controle</span>';
 
@@ -271,21 +283,21 @@ ${movementRows}
             </p>
             <form onsubmit="return stockToggleTracking(event)" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                 <div class="sm:col-span-2">
-                    <label class="block text-xs font-semibold ink-2 mb-1">Produto</label>
-                    <select name="productId" required class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                    <label class="label" for="trk-produto">Produto</label>
+                    <select id="trk-produto" name="productId" required class="input">
                         ${d.rows.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold ink-2 mb-1">Saldo inicial</label>
-                    <input type="number" name="stock" min="0" value="0" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                    <label class="label" for="trk-saldo">Saldo inicial</label>
+                    <input id="trk-saldo" type="number" name="stock" min="0" value="0" inputmode="numeric" class="input">
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold ink-2 mb-1">Estoque minimo</label>
-                    <input type="number" name="minStock" min="1" value="1" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                    <label class="label" for="trk-minimo">Estoque minimo</label>
+                    <input id="trk-minimo" type="number" name="minStock" min="1" value="1" inputmode="numeric" class="input">
                 </div>
-                <button type="submit" class="bg-amber-600 hover:bg-amber-700 text-white text-sm py-2 rounded-lg font-medium transition sm:col-span-4 sm:w-auto">
-                    Salvar controle
+                <button type="submit" class="btn btn-primary sm:col-span-4 sm:w-auto">
+                    <i class="fa-solid fa-save"></i> Salvar controle
                 </button>
             </form>
         </details>
@@ -387,15 +399,22 @@ ${movementRows}
                 } catch (e) { flash('err', 'Erro de conexao'); }
             }
 
+            /*
+             * Os ids smQty e smNote aparecem em duas funcoes, e isso e' seguro:
+             * o innerHTML do corpo da janela e' substituido inteiro a cada
+             * abertura, entao so uma versao existe no DOM por vez. O que
+             * faltava era o for no rotulo -- o campo existia, o texto nao
+             * apontava para ele, e clicar no texto nao focava nada.
+             */
             function stockEntry(id) {
                 stockModal = { mode: 'entrada', id: id };
                 var meta = STOCK_ROWS.filter(function (r) { return r.id === id; })[0];
                 document.getElementById('stockModalTitle').textContent = 'Entrada - ' + meta.name;
                 document.getElementById('stockModalBody').innerHTML =
-                    '<div><label class="block text-xs font-semibold ink-2 mb-1">Quantidade</label>'
-                    + '<input id="smQty" type="number" min="1" value="1" class="w-full px-3 py-2 text-sm border line-in rounded-lg"></div>'
-                    + '<div><label class="block text-xs font-semibold ink-2 mb-1">Observacao</label>'
-                    + '<input id="smNote" placeholder="Compra, producao, reposicao..." class="w-full px-3 py-2 text-sm border line-in rounded-lg"></div>';
+                    '<div><label class="label" for="smQty">Quantidade</label>'
+                    + '<input id="smQty" type="number" min="1" value="1" inputmode="numeric" class="input"></div>'
+                    + '<div><label class="label" for="smNote">Observacao</label>'
+                    + '<input id="smNote" placeholder="Compra, producao, reposicao..." class="input"></div>';
                 document.getElementById('stockModalConfirm').textContent = 'Registrar entrada';
                 document.getElementById('stockModal').classList.remove('hidden');
                 document.getElementById('stockModal').classList.add('flex');
@@ -408,10 +427,10 @@ ${movementRows}
                 document.getElementById('stockModalTitle').textContent = 'Perda - ' + meta.name;
                 document.getElementById('stockModalBody').innerHTML =
                     '<p class="text-xs ink-3">Saldo atual: ' + meta.stock + ' un.</p>'
-                    + '<div><label class="block text-xs font-semibold ink-2 mb-1">Quantidade perdida</label>'
-                    + '<input id="smQty" type="number" min="1" value="1" class="w-full px-3 py-2 text-sm border line-in rounded-lg"></div>'
-                    + '<div><label class="block text-xs font-semibold ink-2 mb-1">Motivo</label>'
-                    + '<select id="smNote" class="w-full px-3 py-2 text-sm border line-in rounded-lg">'
+                    + '<div><label class="label" for="smQty">Quantidade perdida</label>'
+                    + '<input id="smQty" type="number" min="1" value="1" inputmode="numeric" class="input"></div>'
+                    + '<div><label class="label" for="smNote">Motivo</label>'
+                    + '<select id="smNote" class="input">'
                     + '<option>Validade</option><option>Descarte</option><option>Quebra</option>'
                     + '<option>Roubo</option><option>Emprestado</option><option>Outro</option></select></div>'
                     + '<p class="text-xs accent-orange">Perdas reduzem o estoque e entram no indicador de desperdicio.</p>';
@@ -426,10 +445,10 @@ ${movementRows}
                 var meta = STOCK_ROWS.filter(function (r) { return r.id === id; })[0];
                 document.getElementById('stockModalTitle').textContent = 'Ajustes - ' + meta.name;
                 document.getElementById('stockModalBody').innerHTML =
-                    '<div><label class="block text-xs font-semibold ink-2 mb-1">Estoque minimo (0 = sem alerta)</label>'
-                    + '<input id="smMin" type="number" min="0" value="' + meta.minStock + '" class="w-full px-3 py-2 text-sm border line-in rounded-lg"></div>'
-                    + '<div><label class="block text-xs font-semibold ink-2 mb-1">Preco de custo (R$)</label>'
-                    + '<input id="smCost" type="number" step="0.01" min="0" value="' + meta.costPrice + '" class="w-full px-3 py-2 text-sm border line-in rounded-lg"></div>'
+                    '<div><label class="label" for="smMin">Estoque minimo (0 = sem alerta)</label>'
+                    + '<input id="smMin" type="number" min="0" value="' + meta.minStock + '" inputmode="numeric" class="input"></div>'
+                    + '<div><label class="label" for="smCost">Preco de custo (R$)</label>'
+                    + '<input id="smCost" type="number" step="0.01" min="0" inputmode="decimal" value="' + meta.costPrice + '" class="input"></div>'
                     + '<p class="text-xs ink-3">O custo alimenta a margem e o valor real do estoque.</p>';
                 document.getElementById('stockModalConfirm').textContent = 'Salvar ajustes';
                 document.getElementById('stockModal').classList.remove('hidden');

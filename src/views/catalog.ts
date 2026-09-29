@@ -90,30 +90,30 @@ export function renderCatalog(d: CatalogData): string {
                     <h3 class="font-bold ink mb-4 flex items-center gap-2"><i class="fa-solid fa-plus-circle accent-amber"></i> Novo Item</h3>
                     <form id="catForm" onsubmit="return createProduct(event)" class="space-y-3">
                         <div>
-                            <label class="block text-xs font-semibold ink-2 mb-1">Nome</label>
-                            <input type="text" name="name" required placeholder="Ex: X-Burguer Especial" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                            <label class="label" for="catName">Nome</label>
+                            <input id="catName" type="text" name="name" required maxlength="80" placeholder="Ex: X-Burguer Especial" class="input">
                         </div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Preco (R$)</label>
-                                <input type="number" step="0.01" min="0" name="price" required placeholder="29.90" oninput="catMarginHint()" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                                <label class="label" for="catPrice">Preco (R$)</label>
+                                <input id="catPrice" type="number" step="0.01" min="0" name="price" required inputmode="decimal" placeholder="29.90" oninput="catMarginHint()" class="input">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Custo (R$)</label>
-                                <input type="number" step="0.01" min="0" name="costPrice" placeholder="0.00" oninput="catMarginHint()" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                                <label class="label" for="catCost">Custo (R$)</label>
+                                <input id="catCost" type="number" step="0.01" min="0" name="costPrice" inputmode="decimal" placeholder="0.00" oninput="catMarginHint()" class="input">
                             </div>
                         </div>
                         <p id="catMarginHint" class="text-[11px] ink-3">Informe o preco de compra para calcular a margem.</p>
                         <div>
-                            <label class="block text-xs font-semibold ink-2 mb-1">Categoria</label>
-                            <input type="text" name="category" list="categoryList" placeholder="Geral" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                            <label class="label" for="catCategory">Categoria</label>
+                            <input id="catCategory" type="text" name="category" list="categoryList" maxlength="40" placeholder="Geral" class="input">
                             <datalist id="categoryList">
                                 ${d.categories.map((c) => `<option value="${escapeHtml(c)}"></option>`).join('')}
                             </datalist>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold ink-2 mb-1">Descricao (opcional)</label>
-                            <textarea name="description" rows="2" placeholder="Ingredientes, detalhes..." class="w-full px-3 py-2 text-sm border line-in rounded-lg"></textarea>
+                            <label class="label" for="catDescription">Descricao (opcional)</label>
+                            <textarea id="catDescription" name="description" rows="2" maxlength="200" placeholder="Ingredientes, detalhes..." class="input"></textarea>
                         </div>
                         <label class="flex items-center gap-2 text-sm ink-2">
                             <input type="checkbox" name="isAvailable" checked class="accent-amber-600 w-4 h-4"> Disponivel no cardapio
@@ -123,16 +123,16 @@ export function renderCatalog(d: CatalogData): string {
                         </label>
                         <div class="grid grid-cols-2 gap-3 hidden" id="newStockFields">
                             <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Saldo inicial</label>
-                                <input type="number" name="stock" min="0" value="0" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                                <label class="label" for="catStock">Saldo inicial</label>
+                                <input id="catStock" type="number" name="stock" min="0" value="0" inputmode="numeric" class="input">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Estoque minimo</label>
-                                <input type="number" name="minStock" min="0" value="0" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                                <label class="label" for="catMinStock">Estoque minimo</label>
+                                <input id="catMinStock" type="number" name="minStock" min="0" value="0" inputmode="numeric" class="input">
                             </div>
                         </div>
-                        <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white text-sm py-2.5 rounded-lg font-medium transition shadow-sm">
-                            Salvar no Cardapio
+                        <button type="submit" class="btn btn-primary w-full">
+                            <i class="fa-solid fa-save"></i> Salvar no Cardapio
                         </button>
                     </form>
                 </div>
@@ -347,10 +347,20 @@ export function renderCatalog(d: CatalogData): string {
                     + 'Este produto e um combo (baixa estoque nos componentes)</label>'
                     + '<div class="space-y-1" id="cfgComboList">'
                     + full.comboComponents.map(function (c) {
-                        return '<div class="flex items-center gap-2 p-2 rounded-lg sunken">'
+                        /*
+                         * A quantidade de cada componente.
+                         *
+                         * O campo fica DENTRO de um rotulo, e nao apontado por
+                         * "for". O id teria de ser unico por componente e a
+                         * lista e' montada aqui a cada abertura da janela --
+                         * um id gerado resolveria, mas o texto do rotulo e' o
+                         * nome do proprio componente, entao o rotulo involve o
+                         * campo e o nome acessivel sai de graça.
+                         */
+                        return '<label class="flex items-center gap-2 p-2 rounded-lg sunken">'
                             + '<span class="text-sm ink flex-1 truncate">' + esc(c.name) + '</span>'
                             + '<input type="number" min="1" value="' + c.quantity + '" data-cid="' + esc(c.componentId) + '" class="cfg-qty w-16 px-2 py-1 text-sm border line-in rounded-lg">'
-                            + '<button onclick="cfgRemoveComponent(\\'' + esc(c.componentId) + '\\')" class="badge-red w-7 h-7 rounded text-xs">x</button></div>';
+                            + '<button type="button" onclick="cfgRemoveComponent(\\'' + esc(c.componentId) + '\\')" class="badge-red w-7 h-7 rounded text-xs" aria-label="Remover ' + esc(c.name) + ' do combo">x</button></div>';
                     }).join('')
                     + '</div>'
                     + '<div class="flex gap-2 mt-2">'

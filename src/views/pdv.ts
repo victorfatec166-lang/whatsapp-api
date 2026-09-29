@@ -197,52 +197,52 @@ ${sellCards}
 
                         <div class="mt-3 space-y-2">
                             <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Desconto</label>
-                                <div class="flex gap-1.5">
+                                <label class="label" for="pdvDiscount">Desconto</label>
+                                <div class="flex gap-1.5" role="group" aria-label="Atalhos de desconto">
                                     ${['0', '5', '10', '15']
                                         .map(
                                             (p) =>
-                                                `<button type="button" onclick="pdvSetPercent('discount', ${p})" class="pdv-pct flex-1 px-2 py-1.5 rounded-lg badge-slate text-xs font-semibold transition">${p === '0' ? 'Sem' : p + '%'}</button>`
+                                                `<button type="button" onclick="pdvSetPercent('discount', ${p})" class="pdv-pct flex-1 px-2 py-1.5 rounded-lg badge-slate text-xs font-semibold transition" aria-label="Desconto de ${p === '0' ? 'zero por cento' : p + ' por cento'}">${p === '0' ? 'Sem' : p + '%'}</button>`
                                         )
                                         .join('')}
                                 </div>
                                 <input id="pdvDiscount" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00"
-                                    oninput="pdvRender()" class="mt-1.5 w-full px-3 py-2 text-sm border line-in rounded-lg">
+                                    oninput="pdvRender()" class="mt-1.5 input">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Gorjeta</label>
-                                <div class="flex gap-1.5">
+                                <label class="label" for="pdvTip">Gorjeta</label>
+                                <div class="flex gap-1.5" role="group" aria-label="Atalhos de gorjeta">
                                     ${['0', '5', '10']
                                         .map(
                                             (p) =>
-                                                `<button type="button" onclick="pdvSetPercent('tip', ${p})" class="pdv-pct flex-1 px-2 py-1.5 rounded-lg badge-slate text-xs font-semibold transition">${p === '0' ? 'Sem' : p + '%'}</button>`
+                                                `<button type="button" onclick="pdvSetPercent('tip', ${p})" class="pdv-pct flex-1 px-2 py-1.5 rounded-lg badge-slate text-xs font-semibold transition" aria-label="Gorjeta de ${p === '0' ? 'zero por cento' : p + ' por cento'}">${p === '0' ? 'Sem' : p + '%'}</button>`
                                         )
                                         .join('')}
                                 </div>
                                 <input id="pdvTip" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00"
-                                    oninput="pdvRender()" class="mt-1.5 w-full px-3 py-2 text-sm border line-in rounded-lg">
+                                    oninput="pdvRender()" class="mt-1.5 input">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Observacao</label>
+                                <label class="label" for="pdvNotes">Observacao</label>
                                 <textarea id="pdvNotes" rows="2" placeholder="Sem cebola, bem passado, entregar depois das 19h..."
-                                    class="w-full px-3 py-2 text-sm border line-in rounded-lg"></textarea>
+                                    class="input"></textarea>
                             </div>
                         </div>
 
                         <div class="mt-4 space-y-3">
                             <div>
-                                <label class="block text-xs font-semibold ink-2 mb-1">Cliente (opcional)</label>
-                                <input id="pdvCustomer" type="text" placeholder="Nome de quem levou" class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                                <label class="label" for="pdvCustomer">Cliente (opcional)</label>
+                                <input id="pdvCustomer" type="text" placeholder="Nome de quem levou" class="input">
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-xs font-semibold ink-2 mb-1">Pagamento</label>
-                                    <select id="pdvPayment" class="w-full px-3 py-2 text-sm border line-in rounded-lg">${paymentOptions}</select>
+                                    <label class="label" for="pdvPayment">Pagamento</label>
+                                    <select id="pdvPayment" class="input">${paymentOptions}</select>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-semibold ink-2 mb-1">Recebido (R$)</label>
+                                    <label class="label" for="pdvPaid">Recebido (R$)</label>
                                     <input id="pdvPaid" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00"
-                                        class="w-full px-3 py-2 text-sm border line-in rounded-lg">
+                                        class="input">
                                 </div>
                             </div>
                             <p id="pdvChange" class="text-sm ink-3">Informe o valor recebido para calcular o troco.</p>
@@ -331,6 +331,14 @@ ${sellCards}
                         + '<div class="space-y-1">';
                     g.options.forEach(function (o) {
                         var price = o.price > 0 ? ' + ' + pdvMoney(o.price) : '';
+                        /*
+                         * O campo do modificador fica DENTRO do rotulo, e nao
+                         * apontado por "for". Envolver a caixa de marcacao e o
+                         * texto do item e o que faz clicar no "+ bacon" marcar a
+                         * caixa -- e o "for" nao chega a isso, porque a lista de
+                         * modificadores e' montada aqui e o id teria de ser
+                         * unico por item e por janela.
+                         */
                         html += '<label class="flex items-center gap-2 p-2 rounded-lg sunken cursor-pointer hover:brightness-95">'
                             + '<input type="' + (g.maxSelect <= 1 ? 'radio' : 'checkbox') + '" name="mod-' + esc(g.id) + '" value="' + esc(o.id) + '" data-group="' + esc(g.id) + '" onchange="pdvModPick(this)" class="accent-amber-600">'
                             + '<span class="text-sm ink">' + esc((o.prefix ? o.prefix + ' ' : '') + o.name) + '</span>'

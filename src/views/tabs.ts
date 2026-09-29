@@ -484,52 +484,100 @@ export function renderConfig(c: ConfigData): string {
 type CalendarData = { totalOrders: number; totalRevenue: number; daysInPeriod: number };
 
 export function renderCalendar(d: CalendarData): string {
-    return `        <div class="flex flex-wrap items-center gap-3 mb-5">
-            <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Pedidos no periodo:</span> <span class="font-bold ink ml-1">${d.totalOrders}</span></div>
-            <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Media por dia:</span> <span class="font-bold ink ml-1">${(d.totalOrders / Math.max(1, d.daysInPeriod)).toFixed(1).replace('.', ',')}</span></div>
-        </div>
-
-        <div class="flex items-center gap-4 mb-5">
-            <button type="button" onclick="changeMonth(-1)" class="bg-amber-600 hover:bg-amber-700 text-white w-9 h-9 rounded-lg transition" aria-label="Mes anterior">
-                <i class="fa-solid fa-chevron-left"></i>
-            </button>
-            <div class="flex items-center gap-2">
-                <span class="text-[11px] uppercase tracking-wide ink-3">Mes em vista</span>
-                <!--
-                    O mes em vista e' uma pílula, e nao um titulo solto.
-
-                    Sem o contorno, a unica pista de qual mes a grade mostra e' o
-                    proprio texto grande, e texto grande nao sobrevive a quem
-                    acabou de clicar numa seta: o olho ja esta no calendario, nao
-                    no cabecalho. Com a pílula, o mes que voce esta vendo e' a
-                    mesma coisa que voce acabou de escolher.
-                -->
-                <h3 class="text-lg font-bold ink bg-surface border line rounded-lg px-3 py-1" id="monthYear" aria-live="polite"></h3>
+    /*
+     * A pagina precisa de largura propria, e nao do container geral.
+     *
+     * O `main` do layout aceita 88rem, e uma grade de 7 colunas esticada nisso
+     * da uma celula de 200px por dia: o numero fica perdido no meio de um bloco
+     * vazio, e a tela parece solta. Calendario e' uma tabela, e tabela fica
+     * melhor apertada -- com a data perto do vizinho dela, do jeito que se le
+     * de um calendario de parede.
+     *
+     * E os blocos vao em card, como o resto do painel. Solto no main, cada
+     * grupo vira uma ilha: os resumo, a navegacao do mes, a grade e a lista de
+     * pedidos pareciam quatro telas diferentes em vez de uma.
+     */
+    return `        <div class="space-y-5 max-w-3xl">
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Pedidos no periodo:</span> <span class="font-bold ink ml-1">${d.totalOrders}</span></div>
+                <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Media por dia:</span> <span class="font-bold ink ml-1">${(d.totalOrders / Math.max(1, d.daysInPeriod)).toFixed(1).replace('.', ',')}</span></div>
             </div>
-            <button type="button" onclick="changeMonth(1)" class="bg-amber-600 hover:bg-amber-700 text-white w-9 h-9 rounded-lg transition" aria-label="Proximo mes">
-                <i class="fa-solid fa-chevron-right"></i>
-            </button>
-        </div>
 
-        <div class="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-bold ink-3 uppercase">
-            <div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
-        </div>
-        <div class="grid grid-cols-7 gap-1" id="calendarGrid"></div>
+            <div class="card">
+                <div class="card-pad flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[11px] uppercase tracking-wide ink-3">Em vista</span>
+                        <!--
+                            Mes e ano sao seletores, e nao so setas.
 
-        <div class="mt-6 surface-2 p-4 rounded-xl border line">
-            <!--
-                O titulo do painel NOMEIA o dia.
+                            As setas resolvem "ir para o mes seguinte", que e' a
+                            pergunta de quem olha o mes de hoje e o de ontem. Nao
+                            resolvem "ver marco", que e' a pergunta de quem abre o
+                            calendario para conferir um pedido de dois meses atras
+                            -- e essa pessoa vai clicar na seta 27 vezes ou abrir
+                            a URL na mao. A seta continua ao lado, porque e' o
+                            caminho de um clique quando a pessoa ja sabe onde vai.
 
-                Esse era o furo do pedido: a grade mostrava o mes, o painel mostrava
-                "Pedidos do dia selecionado", e nada em lugar algum dizia qual dia
-                era esse. Se voce clica no dia 25, vai para o outro mes e volta, o
-                painel continua com os pedidos do dia 25 sem que em nenhum ponto
-                da tela esteja escrito "25". A pessoa sabe do dia so porque
-                lembrou -- e a selecao some assim que a grade e' redesenhada.
-            -->
-            <h3 class="font-bold ink mb-3" id="dayOrdersTitle">Pedidos do dia selecionado</h3>
-            <div id="diaForaDaVista" class="hidden mb-3 text-caption accent-orange"></div>
-            <div id="dayOrders"><p class="ink-3 text-sm">Clique em um dia no calendario para ver os pedidos.</p></div>
+                            O valor do seletor e' a resposta da pergunta "qual mes
+                            eu estou vendo", que e' a mesma do anel no dia. Nao
+                            precisa de pílula separada: o seletor ja mostra o que
+                            esta escolhido.
+                        -->
+                        <select id="calMonth" onchange="irPara(parseInt(this.value,10), currentYear)" class="input w-auto py-1.5" aria-label="Mes em vista"></select>
+                        <select id="calYear" onchange="irPara(currentMonth, parseInt(this.value,10))" class="input w-auto py-1.5" aria-label="Ano em vista"></select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="mudaMes(-1)" class="btn btn-ghost w-9 h-9 p-0" aria-label="Mes anterior">
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </button>
+                        <button type="button" onclick="mudaMes(1)" class="btn btn-ghost w-9 h-9 p-0" aria-label="Proximo mes">
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="px-5 pb-5">
+                    <div class="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-bold ink-3 uppercase">
+                        <div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
+                    </div>
+                    <div class="grid grid-cols-7 gap-1" id="calendarGrid"></div>
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-[11px] ink-3">
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"></span>
+                            Dia com pedido
+                        </span>
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded border-2 border-accent"></span>
+                            Dia selecionado
+                        </span>
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded border border-amber-500"></span>
+                            Hoje
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-pad pb-2">
+                    <!--
+                        O titulo do painel NOMEIA o dia.
+
+                        Esse era o furo do pedido: a grade mostrava o mes, o painel
+                        mostrava "Pedidos do dia selecionado", e nada em lugar
+                        algum dizia qual dia era esse. Se voce clica no dia 25, vai
+                        para o outro mes e volta, o painel continua com os pedidos
+                        do dia 25 sem que em nenhum ponto da tela esteja escrito
+                        "25". A pessoa sabe do dia so porque lembrou -- e a
+                        selecao some assim que a grade e' redesenhada.
+                    -->
+                    <h3 class="font-bold ink" id="dayOrdersTitle">Pedidos do dia selecionado</h3>
+                    <div id="diaForaDaVista" class="hidden mt-1 text-caption accent-orange"></div>
+                </div>
+                <div class="px-5 pb-5">
+                    <div id="dayOrders"><p class="ink-3 text-sm">Clique em um dia no calendario para ver os pedidos.</p></div>
+                </div>
+            </div>
         </div>
 
         <script src="/api/calendar.js"></script>`;

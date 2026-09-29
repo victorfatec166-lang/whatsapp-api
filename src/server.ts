@@ -381,9 +381,42 @@ function dataBr(iso) {
     return iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4);
 }
 
-/** "2026-09" -> "Setembro de 2026", por extenso. */
-function mesPorExtenso(year, month) {
-    return MONTHS[month] + ' de ' + year;
+/**
+ * Anos que o seletor oferece.
+ *
+ * O ano corrente mais dois para tras e um para a frente e' o minimo, mas a lista
+ * cresce para incluir todo ano que tem pedido -- e o motivo e' concreto: quem
+ * abre o calendario para conferir marco do ano passado nao consegue achar marco
+ * num seletor que so vai ate dois anos atras.
+ *
+ * Ordena e deduplica porque a mesma fonte alimenta o filtro e o valor corrente:
+ * se o ano em vista estiver fora da faixa (por exemplo, quem abriu em marco de
+ * 2027 e parou no servidor), ele e' incluido em vez de o seletor discordar do
+ * que a grade esta mostrando.
+ */
+function anosDisponiveis() {
+    const anoAtual = new Date().getFullYear();
+    const anos = new Set([anoAtual, anoAtual - 1, anoAtual - 2, anoAtual + 1]);
+    for (const iso of Object.keys(ordersByDate)) {
+        const ano = parseInt(iso.slice(0, 4), 10);
+        if (Number.isFinite(ano)) anos.add(ano);
+    }
+    anos.add(currentYear);
+    return [...anos].sort((a, b) => a - b);
+}
+
+function pintaSeletores() {
+    const selMes = document.getElementById('calMonth');
+    const selAno = document.getElementById('calYear');
+    if (!selMes || !selAno) return;
+
+    selMes.innerHTML = MONTHS.map((nome, i) =>
+        '<option value="' + i + '">' + esc(nome) + '</option>').join('');
+    selAno.innerHTML = anosDisponiveis().map((ano) =>
+        '<option value="' + ano + '">' + ano + '</option>').join('');
+
+    selMes.value = String(currentMonth);
+    selAno.value = String(currentYear);
 }
 
 async function fetchOrdersForCalendar() {
@@ -398,14 +431,13 @@ async function fetchOrdersForCalendar() {
 
 function renderCalendar() {
     const grid = document.getElementById('calendarGrid');
-    const label = document.getElementById('monthYear');
-    if (!grid || !label) return;
+    if (!grid) return;
 
     const totalDays = new Date(currentYear, currentMonth + 1, 0).getDate();
     const startDay = new Date(currentYear, currentMonth, 1).getDay();
     const today = new Date();
 
-    label.textContent = mesPorExtenso(currentYear, currentMonth);
+    pintaSeletores();
 
     let html = '';
     for (let i = 0; i < startDay; i++) html += '<div class="p-1"></div>';
@@ -466,15 +498,38 @@ function renderCalendar() {
     grid.innerHTML = html;
 }
 
-window.changeMonth = function (delta) {
-    currentMonth += delta;
-    if (currentMonth < 0) { currentMonth = 11; currentYear--; }
-    if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+/*
+ * Ir para um mes e um ano quaisquer.
+ *
+ * Os dois seletores e as duas setas chamam ISTA funcao, e nao cada uma a sua.
+ * Um destino tem tres lugares de entrada -- seletor de mes, seletor de ano e
+ * seta -- e o que eles fazem depois de chegar no mes precisa ser identico:
+ * marcar o novo mes, redesenhar a grade e conferir se o dia escolhido ainda
+ * esta na vista. Com tres funcoes, um desses passos esquotece em um caminho e o
+ * sintoma e' "as setas funciona, o seletor nao marca o dia".
+ *
+ * Mes e ano sao argumentos separados, e nao um "periodo" so: trocar de mes
+ * dentro do ano e trocar de ano mantendo o mes sao as duas operacoes que a pessoa
+ * faz, e o seletor de mes continua util depois de mudar de ano (ver novembro de
+ * 2025 depois de estar em dezembro de 2026).
+ */
+window.irPara = function (mes, ano) {
+    if (Number.isFinite(mes)) currentMonth = Math.max(0, Math.min(11, mes));
+    if (Number.isFinite(ano)) currentYear = ano;
     renderCalendar();
     avisaDiaForaDaVista();
 };
 
 window.showDayOrders = function (iso) {
+/** Um mes a frente ou atras, atravessando a virada de ano. */
+window.mudaMes = function (delta) {
+    let m = currentMonth + delta;
+    let a = currentYear;
+    if (m < 0) { m = 11; a--; }
+    if (m > 11) { m = 0; a++; }
+    window.irPara(m, a);
+};
+
     const box = document.getElementById('dayOrders');
     if (!box) return;
 
@@ -531,7 +586,7 @@ function avisaDiaForaDaVista() {
     if (mesDoDia === mesEmVista) { aviso.classList.add('hidden'); return; }
 
     aviso.classList.remove('hidden');
-    aviso.textContent = 'Voce mudou para ' + mesPorExtenso(currentYear, currentMonth)
+    aviso.textContent = 'Voce mudou para ' + MONTHS[currentMonth] + ' de ' + currentYear
         + '. Os pedidos abaixo sao de ' + dataBr(selectedDate) + '.';
 }
 

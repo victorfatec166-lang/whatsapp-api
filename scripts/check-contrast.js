@@ -126,10 +126,63 @@ for (const [tema, regras] of Object.entries(REGRAS)) {
     }
 }
 
-console.log(`\n${total - falhas}/${total} combinacoes conformes`);
+/*
+ * Segunda parte: cor de botao escrita a mao no HTML.
+ *
+ * O bloco acima mede os tokens do CSS, e nao acha cor nenhuma no TypeScript.
+ * Era ai que o defeito vivia: seis botoes com `bg-amber-600 hover:bg-amber-700
+ * text-white`, que no tema claro ficava bom e no escuro dava 3,7:1 -- lido por
+ * ninguem, porque o script nao olhava para la.
+ *
+ * Por que nao basta "medir de novo em cima": a cor esta escrita no HTML, nao em
+ * variavel, e medir exigiria compilar o CSS e resolver herdanca. A pergunta
+ * util nao e' "qual e' o contraste desta classe", e' "esta classe existe em
+ * algum botao". Classe que nao vem de token nao tem dupla cor por tema, e por
+ * isso nao tem como estar certa nos dois.
+ *
+ * A lista e' curta e nomeada. `bg-amber-600` sozinho nao e' falha: checkbox de
+ * selecao usa `accent-amber-600`, que e' outra coisa. E o que se procura e' a
+ * cor de FUNDO de botao escrita direto, com o texto branco junto.
+ */
 
-if (falhas > 0) {
-    console.error(`\n${falhas} falha(s) de contraste. Corrija os tokens em src/styles/app.css.`);
+const VIEWS_DIR = path.join(__dirname, '..', 'src', 'views');
+const CORES_FIXAS = /(?<!accent-)\b(?:bg|text|border)-(?:amber|red|green|emerald|blue|indigo|purple|pink|slate|zinc|stone|gray)-[0-9]{2,3}\b/;
+
+function arquivosView(dir) {
+    const saida = [];
+    for (const entrada of fs.readdirSync(dir, { withFileTypes: true })) {
+        const completo = path.join(dir, entrada.name);
+        if (entrada.isDirectory()) saida.push(...arquivosView(completo));
+        else if (entrada.name.endsWith('.ts')) saida.push(completo);
+    }
+    return saida;
+}
+
+console.log(`\n=== COR FIXA EM BOTAO (src/views) ===\n`);
+
+let corFixa = 0;
+for (const arquivo of arquivosView(VIEWS_DIR)) {
+    const linhas = fs.readFileSync(arquivo, 'utf8').split('\n');
+    linhas.forEach((linha, i) => {
+        // Botao e' o que a pessoa clica. Link, chip e badge tem seus proprios
+        // pares medidos, e mexer neles aqui seria alarme falso.
+        if (!/<button\b/.test(linha) && !/btn-primary/.test(linha)) return;
+        if (!CORES_FIXAS.test(linha)) return;
+
+        const achados = linha.match(new RegExp(CORES_FIXAS, 'g')) || [];
+        const nome = path.basename(arquivo);
+        console.log(`  FALHA  ${nome}:${i + 1}  ${[...new Set(achados)].join(', ')}`);
+        console.log(`         use btn btn-primary: o par dos dois temas ja' e' medido acima.`);
+        corFixa++;
+    });
+}
+
+const falhasTotais = falhas + corFixa;
+
+console.log(`\n${total - falhas}/${total} combinacoes conformes; ${corFixa} cor(es) fixa(s) em botao`);
+
+if (falhasTotais > 0) {
+    console.error(`\n${falhasTotais} falha(s). Tokens em src/styles/app.css; botoes em src/views/*.ts.`);
     process.exit(1);
 }
-console.log('Todos os tokens atendem a WCAG AA.');
+console.log('Todos os tokens atendem a WCAG AA, e nenhum botao escapa do token.');

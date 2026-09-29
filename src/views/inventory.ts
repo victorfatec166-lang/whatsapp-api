@@ -365,7 +365,7 @@ ${movementRows}
                 <div class="flex gap-2 mt-5">
                     <button type="button" onclick="stockCloseModal()" class="flex-1 badge-slate text-sm py-2 rounded-lg font-medium">Cancelar</button>
                     <button type="button" onclick="stockSaveModal()" id="stockModalConfirm"
-                        class="flex-1 bg-amber-600 hover:bg-amber-700 text-white text-sm py-2 rounded-lg font-semibold">
+                        class="btn btn-primary flex-1 text-sm py-2 font-semibold">
                         Salvar
                     </button>
                 </div>

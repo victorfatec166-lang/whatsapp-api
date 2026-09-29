@@ -321,7 +321,7 @@ ${sellCards}
                         </div>
 
                         <button type="button" onclick="pdvCheckout()" id="pdvFinish"
-                            class="mt-4 w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white text-sm py-2.5 rounded-lg font-semibold transition flex items-center justify-center gap-2">
+                            class="btn btn-primary mt-4 w-full disabled:opacity-40 text-sm py-2.5 font-semibold transition flex items-center justify-center gap-2">
                             <i class="fa-solid fa-check"></i> Finalizar venda
                         </button>
                         <div class="mt-4 flex gap-2">
@@ -354,7 +354,7 @@ ${sellCards}
                         <div class="flex gap-2 mt-5">
                             <button type="button" onclick="pdvModClose()" class="flex-1 badge-slate text-sm py-2 rounded-lg font-medium">Cancelar</button>
                             <button type="button" onclick="pdvModConfirm()" id="modConfirm"
-                                class="flex-1 bg-amber-600 hover:bg-amber-700 text-white text-sm py-2 rounded-lg font-semibold">
+                                class="btn btn-primary flex-1 text-sm py-2 font-semibold">
                                 Adicionar
                             </button>
                         </div>
@@ -601,7 +601,7 @@ ${sellCards}
                 var input = document.getElementById(field === 'discount' ? 'pdvDiscount' : 'pdvTip');
                 input.value = percent === 0 ? '' : value.toFixed(2);
                 document.querySelectorAll('.pdv-pct').forEach(function (b) {
-                    b.classList.remove('bg-amber-600', 'text-white');
+                    b.classList.remove('btn-primary');
                 });
                 pdvRender();
             }
@@ -679,7 +679,7 @@ ${sellCards}
                     if (el) el.value = '';
                 });
                 document.querySelectorAll('.pdv-pct').forEach(function (b) {
-                    b.classList.remove('bg-amber-600', 'text-white');
+                    b.classList.remove('btn-primary');
                 });
                 var done = document.getElementById('pdvDone');
                 if (done) done.classList.add('hidden');

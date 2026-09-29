@@ -187,7 +187,7 @@ export function renderCatalog(d: CatalogData): string {
                     <p class="text-xs ink-3 mb-2">Cole o CSV com o cabecalho: <code class="badge-slate px-1 rounded">sku;nome;preco;custo;categoria;estoque;minimo;controlar_estoque;disponivel;descricao</code></p>
                     <textarea id="importCsv" rows="4" placeholder="nome;preco;custo&#10;Marmita de Frango;22,00;12,00" class="w-full px-3 py-2 text-sm border line-in rounded-lg font-mono text-xs"></textarea>
                     <div class="flex gap-2 mt-2">
-                        <button type="button" onclick="importCsv()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs px-3 py-1.5 rounded-lg font-medium">Importar</button>
+                        <button type="button" onclick="importCsv()" class="btn btn-primary text-xs px-3 py-1.5 font-medium">Importar</button>
                         <button type="button" onclick="fetchProductsCsv()" class="chip px-3 py-1.5 rounded-lg text-xs font-medium">Colar exemplo do cardapio atual</button>
                     </div>
                 </div>
@@ -371,7 +371,7 @@ export function renderCatalog(d: CatalogData): string {
                     + '<div><input id="cfgGroupMin" type="number" min="0" max="20" value="0" placeholder="Min" class="w-full px-3 py-2 text-sm border line-in rounded-lg"></div>'
                     + '<div class="col-span-2 flex items-center gap-2"><input type="checkbox" id="cfgGroupReq" class="accent-amber-600 w-4 h-4"><span class="text-sm ink-2">Obrigatorio</span></div>'
                     + '<div class="col-span-2"><textarea id="cfgGroupOptions" rows="3" placeholder="Uma opcao por linha: Nome | acrescimo | prefixo&#10;Mal passado | 0 | P&#10;Bacon | 6 | Extra" class="w-full px-3 py-2 text-sm border line-in rounded-lg font-mono text-xs"></textarea></div>'
-                    + '<button type="button" onclick="cfgCreateGroup()" class="col-span-2 bg-amber-600 hover:bg-amber-700 text-white text-sm py-2 rounded-lg font-medium">Criar grupo</button>'
+                    + '<button type="button" onclick="cfgCreateGroup()" class="btn btn-primary col-span-2 text-sm py-2 font-medium">Criar grupo</button>'
                     + '</div></details>';
 
                 // ---- combo ----
@@ -403,7 +403,7 @@ export function renderCatalog(d: CatalogData): string {
                         return '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>';
                     }).join('') + '</select>'
                     + '<button type="button" onclick="cfgAddComponent()" class="chip px-3 py-1.5 rounded-lg text-sm font-medium">+</button></div>'
-                    + '<button type="button" onclick="cfgSaveCombo()" class="mt-2 w-full bg-amber-600 hover:bg-amber-700 text-white text-sm py-2 rounded-lg font-medium">Salvar combo</button></div>';
+                    + '<button type="button" onclick="cfgSaveCombo()" class="btn btn-primary mt-2 w-full text-sm py-2 font-medium">Salvar combo</button></div>';
 
                 document.getElementById('cfgBody').innerHTML = html;
             }

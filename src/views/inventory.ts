@@ -48,6 +48,27 @@ function movementDelta(m: MovementView): number {
     return 0;
 }
 
+    /*
+     * Indicador do topo da aba Estoque.
+     *
+     * A borda esquerda e' o que separa "precisa de acao" de "so informacao".
+     * Sem ela, os cinco cards sao cinco caixas iguais e a pessoa precisa ler o
+     * numero de cada um para descobrir se tem coisa para comprar. Com ela, o
+     * cartao que tem problema se ve antes do texto -- que e' a leitura que
+     * importa quando o destino e' a lista de reposicao logo abaixo.
+     *
+     * A cor da borda vem do token, e nao de uma classe solta, para acompanhar o
+     * tema escuro sem uma segunda regra.
+     */
+    function kpi(label: string, value: string, sub: string, tone: string, alerta?: string): string {
+    const borda = alerta ? `border-l-4 style="border-left-color: var(--${alerta})"` : 'border';
+    return `                    <div class="surface border line rounded-xl p-4 shadow-sm ${borda}">
+                        <p class="text-xs font-semibold ink-3 uppercase tracking-wide">${escapeHtml(label)}</p>
+                        <p class="text-2xl font-extrabold ${tone} mt-1 leading-tight">${value}</p>
+                        <p class="text-xs ink-3 mt-1">${escapeHtml(sub)}</p>
+                    </div>`;
+}
+
 export function renderInventory(d: InventoryData): string {
     const body = d.rows
         .map((r) => {
@@ -144,12 +165,28 @@ export function renderInventory(d: InventoryData): string {
 
     const semAbertura = d.summary.missingMin;
 
+    /*
+     * "Saldos" virou "Estoque".
+     *
+     * A pergunta faz sentido -- saldo e' estoque? Aqui, sim: a aba mostra quanto
+     * de cada produto tem em maos, e a coluna da tabela tambem se chamava
+     * "Saldo". O problema e' que a aba tambem mostra dinheiro ("Capital em
+     * estoque"), e "saldo" em portugues e' a palavra do dinheiro que sobrou.
+     * "Saldos" numa tela que mostra R$ 12.000 e' ambíguo, e a ambiguidade e' do
+     * tipo que faz a pessoa clicar no lugar errado achando que achou o caixa --
+     * que e' outra aba, em outro lugar da tela, e que exige senha.
+     *
+     * "Estoque" responde a pergunta sem ambiguidade, e e' o nome que a coluna da
+     * tabela e a barra lateral ja usavam. Agora as tres coisas dizem a mesma
+     * palavra, que era o incoerente de verdade: a aba dizia Saldos, a coluna
+     * dizia Estoque, e o card dizia "Saldo por produto".
+     */
     return `        <div class="inline-flex rounded-card border border-line overflow-hidden mb-5" role="tablist" aria-label="Produtos e estoque">
-                <button type="button" id="tabCatalogo" onclick="stockSetTab('catalogo')" class="px-4 py-2 text-body font-medium transition bg-accent text-white" aria-selected="true">
+                <button type="button" id="tabCatalogo" onclick="stockSetTab('catalogo')" class="stock-tab flex items-center gap-2" aria-selected="true">
                     <i class="fa-solid fa-utensils"></i> Catalogo
                 </button>
-                <button type="button" id="tabSaldos" onclick="stockSetTab('saldos')" class="px-4 py-2 text-body font-medium transition" aria-selected="false">
-                    <i class="fa-solid fa-boxes-stacked"></i> Saldos
+                <button type="button" id="tabEstoque" onclick="stockSetTab('estoque')" class="stock-tab flex items-center gap-2" aria-selected="false">
+                    <i class="fa-solid fa-boxes-stacked"></i> Estoque
                 </button>
             </div>
 
@@ -157,14 +194,23 @@ export function renderInventory(d: InventoryData): string {
 ${renderCatalog(d.catalog)}
             </div>
 
-            <div id="painelSaldos">
+            <div id="painelEstoque">
+                <!--
+                    Os cinco indicadores em grade, e nao empilhados.
 
-            ${card('Itens controlados', String(d.summary.tracked), d.summary.untracked + ' sem controle', 'ink')}
-            ${card('Unidades em estoque', String(d.summary.units), 'soma de todos os itens', 'accent-amber-strong')}
-            ${card('Estoque baixo', String(d.summary.low), 'no ou abaixo do minimo', 'accent-orange')}
-            ${card('Zerados', String(d.summary.empty), 'sem unidades para venda', 'accent-red')}
-            ${card('Capital em estoque', money(d.summary.costValue), 'valor de venda: ' + money(d.summary.value), 'accent-emerald')}
-        </div>
+                    Eles estavam soltos, um embaixo do outro,occupando cinco
+                    faixas de tela inteira antes da lista de reposicao -- que e'
+                    justamente a parte da aba que a pessoa abriu para ver. A ordem
+                    tambem mudou: quem abre Estoque quer saber o que falta, entao
+                    o que precisa de acao vem primeiro e o dinheiro por ultimo.
+                -->
+                <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+                    ${kpi('Estoque baixo', String(d.summary.low), 'no ou abaixo do minimo', 'accent-orange', 'warning')}
+                    ${kpi('Zerados', String(d.summary.empty), 'sem unidades para venda', 'accent-red', 'danger')}
+                    ${kpi('Unidades em estoque', String(d.summary.units), 'soma de todos os itens', 'ink')}
+                    ${kpi('Itens controlados', String(d.summary.tracked), d.summary.untracked + ' sem controle', 'ink')}
+                    ${kpi('Capital em estoque', money(d.summary.costValue), 'valor de venda: ' + money(d.summary.value), 'accent-emerald')}
+                </div>
 
         ${
             d.reorder.length > 0 || semAbertura > 0
@@ -182,7 +228,7 @@ ${renderCatalog(d.catalog)}
                         : `<div class="table-wrap">
                     <table id="reorderTable">
                         <thead class="surface-2 ink-3">
-                            <tr><th>Produto</th><th>Status</th><th>Saldo</th><th>Minimo</th><th>Comprar</th></tr>
+                            <tr><th>Produto</th><th>Status</th><th>Estoque</th><th>Minimo</th><th>Comprar</th></tr>
                         </thead>
                         <tbody class="ink">
 ${reorderRows}
@@ -205,7 +251,7 @@ ${reorderRows}
         <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
             <div class="xl:col-span-2 surface border line rounded-2xl shadow-sm overflow-hidden">
                 <div class="p-4 flex flex-wrap items-center justify-between gap-3 border-b line">
-                    <h3 class="font-bold ink flex items-center gap-2"><i class="fa-solid fa-boxes-stacked accent-amber"></i> Saldo por produto</h3>
+                    <h3 class="font-bold ink flex items-center gap-2"><i class="fa-solid fa-boxes-stacked accent-amber"></i> Estoque por produto</h3>
                     <div class="flex flex-wrap items-center gap-2">
                         <!--
                             Mesma regra das outras telas: largura declarada e
@@ -522,7 +568,7 @@ ${movementRows}
                 w.document.write('<h2 style="font-family:sans-serif">Lista de reposicao</h2>'
                     + '<p style="font-family:sans-serif;font-size:12px">' + new Date().toLocaleDateString('pt-BR') + '</p>'
                     + '<table style="font-family:sans-serif;width:100%;border-collapse:collapse" border="1">'
-                    + '<tr><th>Produto</th><th>Status</th><th>Saldo</th><th>Minimo</th><th>Comprar</th></tr>'
+                    + '<tr><th>Produto</th><th>Status</th><th>Estoque</th><th>Minimo</th><th>Comprar</th></tr>'
                     + linhas + '</table>');
                 w.document.close();
                 w.print();
@@ -548,14 +594,18 @@ ${movementRows}
             function stockSetTab(qual) {
                 var catalogo = qual === 'catalogo';
                 var pc = document.getElementById('painelCatalogo');
-                var ps = document.getElementById('painelSaldos');
+                var ps = document.getElementById('painelEstoque');
                 var tc = document.getElementById('tabCatalogo');
-                var ts = document.getElementById('tabSaldos');
+                var ts = document.getElementById('tabEstoque');
                 if (!pc || !ps || !tc || !ts) return;
                 pc.classList.toggle('hidden', !catalogo);
                 ps.classList.toggle('hidden', catalogo);
-                tc.className = 'px-4 py-2 text-body font-medium transition ' + (catalogo ? 'bg-accent text-white' : '');
-                ts.className = 'px-4 py-2 text-body font-medium transition ' + (catalogo ? '' : 'bg-accent text-white');
+                /*
+                 * Só o atributo muda aqui. A cor da aba vem do CSS, em
+                 * .stock-tab[aria-selected='true'] -- e nao de trocar a classe do
+                 * botao, que era o que segurava o text-white no tema escuro.
+                 * Uma representacao do estado, e o CSS cuida do resto.
+                 */
                 tc.setAttribute('aria-selected', catalogo ? 'true' : 'false');
                 ts.setAttribute('aria-selected', catalogo ? 'false' : 'true');
                 try { localStorage.setItem('estoqueAba', qual); } catch (e) {}

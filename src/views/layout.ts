@@ -228,7 +228,6 @@ const APP_SCRIPTS = `
                     }
                     try { localStorage.setItem('sidebarAberta', aberta ? '1' : '0'); } catch (e) {}
                 }
-
                 function alternaSidebar() {
                     var barra = document.getElementById('sidebar');
                     if (!barra) return;
@@ -237,6 +236,110 @@ const APP_SCRIPTS = `
 
                 function abreSidebar() {
                     aplicaSidebar(true);
+                }
+
+                // ---- Sino de avisos ----
+                /*
+                 * Carrega, mostra e esconde. Sem framework, sem estado global:
+                 * o painel inteiro cabe em tres funcoes, e o que importa aqui e'
+                 * que uma delas NAO exista -- ver o comentario do SSE.
+                 */
+                var TOM_COR = { vermelho: 'badge-danger', ambar: 'badge-warn', verde: 'badge-success', info: 'badge-slate' };
+                var TOM_LINHA = { vermelho: 'border-accent-red', ambar: 'border-accent-orange', verde: 'border-accent-emerald', info: 'border-line' };
+
+                /*
+                 * O texto do aviso vem do servidor e pode ser o nome de qualquer
+                 * cliente, produto ou lembrete -- ou seja, texto que o usuario
+                 * digitado. Por isso entra por textContent e nunca por
+                 * innerHTML: um lembrete com "<img onerror=...>" no meio
+                 * executaria no painel de quem clicasse no sino.
+                 */
+                function desenhaAviso(item) {
+                    var li = document.createElement('a');
+                    li.href = item.href;
+                    li.className = 'flex items-start gap-3 px-5 py-3 border-b border-line border-l-2 ' + (TOM_LINHA[item.tom] || TOM_LINHA.info) + ' row-hover';
+
+                    var corpo = document.createElement('div');
+                    corpo.className = 'min-w-0 flex-1';
+
+                    var titulo = document.createElement('p');
+                    titulo.className = 'text-body font-medium text-ink';
+                    titulo.textContent = item.titulo;
+                    corpo.appendChild(titulo);
+
+                    var detalhe = document.createElement('p');
+                    detalhe.className = 'text-caption text-ink-3';
+                    detalhe.textContent = item.detalhe;
+                    corpo.appendChild(detalhe);
+
+                    li.appendChild(corpo);
+
+                    var cta = document.createElement('span');
+                    cta.className = 'badge shrink-0 ' + (TOM_COR[item.tom] || TOM_COR.info);
+                    cta.textContent = item.cta;
+                    li.appendChild(cta);
+
+                    return li;
+                }
+
+                function aplicaPainel(dados) {
+                    var lista = document.getElementById('painelLista');
+                    var contador = document.getElementById('sinoContador');
+                    if (!lista) return;
+
+                    lista.textContent = '';
+                    if (!dados.itens || dados.itens.length === 0) {
+                        var vazio = document.createElement('p');
+                        vazio.className = 'text-body text-ink-3 card-pad flex items-center gap-2';
+                        vazio.textContent = 'Nada precisando de atencao.';
+                        lista.appendChild(vazio);
+                    } else {
+                        // DocumentFragment: 20 anexos seguidos, em vez de 20
+                        // repinturas da lista inteira.
+                        var frag = document.createDocumentFragment();
+                        for (var i = 0; i < dados.itens.length; i++) frag.appendChild(desenhaAviso(dados.itens[i]));
+                        lista.appendChild(frag);
+                    }
+
+                    if (contador) {
+                        if (dados.total > 0) {
+                            contador.textContent = dados.total > 9 ? '9+' : String(dados.total);
+                            contador.classList.remove('hidden');
+                        } else {
+                            contador.classList.add('hidden');
+                        }
+                    }
+                }
+
+                function carregaPainel() {
+                    fetch('/api/notificacoes')
+                        .then(function (r) { return r.ok ? r.json() : null; })
+                        .then(aplicaPainel)
+                        .catch(function () {});
+                }
+
+                function alternaPainel() {
+                    var p = document.getElementById('painelAvisos');
+                    var b = document.getElementById('sinoBtn');
+                    if (!p) return;
+                    var abrindo = p.classList.contains('hidden');
+                    p.classList.toggle('hidden', !abrindo);
+                    if (b) b.setAttribute('aria-expanded', String(abrindo));
+                    if (abrindo) carregaPainel();
+                }
+
+                function fechaPainel(event) {
+                    var p = document.getElementById('painelAvisos');
+                    if (!p || p.classList.contains('hidden')) return;
+                    // So fecha no clique fora. O evento chega em todos os
+                    // cliques, e um "closest" no sino deixaria o painel sem
+                    // de fechar por ele mesmo.
+                    var dentro = p.contains(event.target) || (event.target.closest && event.target.closest('#sinoBtn'));
+                    if (!dentro) {
+                        p.classList.add('hidden');
+                        var b = document.getElementById('sinoBtn');
+                        if (b) b.setAttribute('aria-expanded', 'false');
+                    }
                 }
 
                 // Aplica assim que o corpo existe. Este script fica no <head>, e
@@ -440,10 +543,57 @@ const APP_SCRIPTS = `
                 // Esc fecha a janela do topo.
                 document.addEventListener('keydown', function (ev) {
                     if (ev.key !== 'Escape') return;
+
+                    // O sino antes das janelas: ele e' um menu, nao uma janela, e
+                    // Esc num menu fecha o menu -- nao a janela que estava aberta
+                    // atras dele.
+                    var avisos = document.getElementById('painelAvisos');
+                    if (avisos && !avisos.classList.contains('hidden')) {
+                        avisos.classList.add('hidden');
+                        var sino = document.getElementById('sinoBtn');
+                        if (sino) sino.setAttribute('aria-expanded', 'false');
+                        return;
+                    }
+
                     var abertas = [].slice.call(document.querySelectorAll('.modal-backdrop.flex'));
                     var topo = abertas[abertas.length - 1];
                     if (topo) modalHide(topo.id);
                 });
+
+                /*
+                 * O sino recarrega sozinho.
+                 *
+                 * O painel ja tem SSE, e a tentacao e' empurrar cada evento pelo
+                 * mesmo canal. Nao fiz: os eventos nao dizem o QUE mudou, entao o
+                 * painel teria que remontar as cinco fontes a cada pedido, tres
+                 * vezes por hora, para dar o mesmo numero. E o custo e' invisivel
+                 * ate virar o motivo de o servidor ficar lento.
+                 *
+                 * A solucao e' simples: consultar na abertura e de tempos em
+                 * tempos, e nao a cada evento. O numero do sino passa a estar
+                 * certo em um minuto -- tempo humano irrelevante para "chegou
+                 * pedido novo" -- e o painel fica com o custo de uma consulta a
+                 * cada sessenta segundos.
+                 *
+                 * O intervalo nao roda com a aba escondida: quem deixa a aba
+                 * aberta no fundo nao precisa de numero atualizado, e o
+                 * visibilitychange devolve o sino em dia quando a pessoa volta.
+                 */
+                (function sinoPeriodico() {
+                    var Minutos = 60000;
+                    carregaPainel();
+                    setInterval(function () {
+                        if (!document.hidden) carregaPainel();
+                    }, Minutos);
+
+                    document.addEventListener('visibilitychange', function () {
+                        if (!document.hidden) carregaPainel();
+                    });
+                })();
+
+                // Clique fora fecha o sino. Delegado no documento, e nao no sino,
+                // porque o clique fora do botao e' justamente o que fecha.
+                document.addEventListener('click', fechaPainel);
 
                 /**
                  * Liga uma janela gerada por renderModal() ao comportamento
@@ -526,53 +676,61 @@ ${items}`;
     }).join('');
 
     /*
-     * A barra lateral recolhivel, e o botao que a guarda.
+     * A barra lateral recolhivel, e o botao circular na borda dela.
      *
-     * A largura (15rem) sai da tela quando ela recolhe, e o conteudo acompanha
-     * por causa do `md:flex` do proprio `aside`: quem recolhe fica com a
-     * coluna de conteudo inteira, o que e' o motivo de recolher em tela grande
-     * -- no balcao, a area util e' o catalogo e o carrinho, nao a lista de abas.
+     * A barra vive dentro de um container de largura ZERO, com o painel
+     * absoluto dentro dele. Quando ela recolhe, o container continua medindo
+     * zero e a coluna de conteudo ocupa a tela inteira -- que e' o motivo de
+     * recolher em tela grande: no balcao, a area util e' o catalogo e o
+     * carrinho, nao a lista de abas.
      *
-     * O estado fica em `localStorage`, como o resto das preferencias da tela
-     * (tema, aba de estoque). Perder a preferencia a cada F5 faria a pessoa
-     * recolher de novo toda vez, e o botao pararia de servir para o que foi
-     * criado.
+     * O botao e' circular e fica na VERTICAL, na borda da barra. Circular
+     * porque ele precisa parecer um controle flutuante e nao uma coluna: a
+     * versao anterior era uma faixa de altura inteira com o rotulo escrito
+     * dentro, e o resultado era uma segunda coluna estreita disputando espaco
+     * com a primeira -- mais uma coisa para olhar, do lado esquerdo, onde
+     * comeca o conteudo.
      *
-     * O botao e' uma `button` de verdade, com `aria-expanded` -- e nao um
-     * `div` com icone. Quem navega pelo teclado precisa achar o botao, e o
-     * leitor de tela precisa dizer se a barra esta aberta ou fechada.
+     * Sao dois botoes, e nao um que muda de estado. O que fecha fica sobre a
+     * borda da barra aberta; o que abre fica na borda esquerda do conteudo,
+     * no lugar onde a barra estava. Um botao so esconderia o rotulo e o icone
+     * no espaco vazio, e um espaco vazio nao sugere que a barra pode voltar.
+     *
+     * As classes `rail*` sao do CSS, e nao do Tailwind: ver o comentario de
+     * `.rail-btn` em `styles/app.css` para o porque de o `hidden` precisar
+     * ser uma regra nossa.
      */
-    return `                    <aside id="sidebar" class="w-60 shrink-0 bg-surface border-r line flex-col hidden md:flex">
-                        <a href="/admin" title="Ir para o inicio" class="h-16 px-4 flex items-center gap-2.5 border-b line text-body font-bold tracking-tight hover:bg-surface-2 transition">
-                            <i class="fa-solid fa-burger text-accent"></i>
-                            <span class="truncate">${escapeHtml(businessName)}</span>
-                        </a>
-                        <nav class="flex-1 px-3 pb-3 overflow-y-auto">
+    return `                    <div class="rail hidden md:block">
+                        <aside id="sidebar" class="rail-painel bg-surface border-r line">
+                            <a href="/admin" title="Ir para o inicio" class="h-16 px-4 flex items-center gap-2.5 border-b line text-body font-bold tracking-tight hover:bg-surface-2 transition">
+                                <i class="fa-solid fa-burger text-accent"></i>
+                                <span class="truncate">${escapeHtml(businessName)}</span>
+                            </a>
+                            <nav class="flex-1 px-3 pb-3 overflow-y-auto">
 ${blocks}
-                        </nav>
-                        <div class="px-3 py-3 border-t line">
-                            <span class="badge ${botOnline ? 'badge-success' : 'badge-danger'}">
-                                <span class="w-1 h-1 rounded-full bg-current"></span>
-                                Bot ${botOnline ? 'online' : 'offline'}
-                            </span>
-                        </div>
-                    </aside>
+                            </nav>
+                            <div class="px-3 py-3 border-t line">
+                                <span class="badge ${botOnline ? 'badge-success' : 'badge-danger'}">
+                                    <span class="w-1 h-1 rounded-full bg-current"></span>
+                                    Bot ${botOnline ? 'online' : 'offline'}
+                                </span>
+                            </div>
+                        </aside>
 
-                    <!--
-                        O botao que guarda a barra.
+                        <button type="button" id="sidebarToggle" onclick="alternaSidebar()"
+                            class="rail-btn rail-btn--fechar"
+                            aria-controls="sidebar" aria-expanded="true" title="Recolher a barra de abas"
+                            aria-label="Recolher a barra de abas">
+                            <i id="sidebarToggleIcon" class="fa-solid fa-angles-left text-xs"></i>
+                        </button>
 
-                        Fica na COLA dela, na vertical, e nao dentro dela: e o unico
-                        lugar onde ele continua visivel com a barra recolhida.
-                        Dentro, ele sumiria junto com o resto -- e a pessoa ficaria
-                        sem caminho para trazer a barra de volta, que e' o pior
-                        estado possivel para um controle de interface.
-                    -->
-                    <button type="button" id="sidebarToggle" onclick="alternaSidebar()"
-                        class="hidden md:flex flex-col items-center justify-center gap-2 w-9 shrink-0 border-r line bg-surface hover:bg-surface-2 transition"
-                        aria-controls="sidebar" aria-expanded="true" title="Recolher a barra de abas">
-                        <span id="sidebarToggleIcon" class="fa-solid fa-angles-left text-sm ink-3"></span>
-                        <span class="text-[10px] ink-3" id="sidebarToggleTexto">Esconder</span>
-                    </button>
+                        <button type="button" id="sidebarAbrir" onclick="abreSidebar()"
+                            class="rail-btn rail-btn--abrir hidden"
+                            aria-controls="sidebar" aria-expanded="false" title="Mostrar a barra de abas"
+                            aria-label="Mostrar a barra de abas">
+                            <i class="fa-solid fa-bars text-xs"></i>
+                        </button>
+                    </div>
 
                     <!--
                         O botao que traz a barra de volta.
@@ -642,6 +800,56 @@ ${sidebar(opts.active, opts.counters ?? { pdv: opts.productCount }, opts.botOnli
                         <span id="botStatusDot" class="w-2 h-2 rounded-full"></span>
                         <span id="botStatusText">Verificando...</span>
                     </span>
+
+                    <!--
+                        O sino.
+
+                        Antes o aviso de pedido novo era um numero em duas abas da
+                        barra lateral, e nenhum aviso de estoque, canal ou
+                        lembrete existia fora da Home. Um numero dentro de uma aba
+                        que a pessoa nao esta olhando nao avisa de nada: e' uma
+                        informacao escondida em um lugar que so e' visto quando a
+                        pessoa ja esta pensando no assunto.
+
+                        O sino fica no topo e em todas as telas, porque a coisa de
+                        que ele avisa acontece em qualquer aba -- o pedido chega
+                        pelo WhatsApp enquanto a pessoa esta no Faturamento.
+                    -->
+                    <div class="relative">
+                        <button type="button" id="sinoBtn" onclick="alternaPainel()" class="btn btn-ghost px-2 relative"
+                            aria-haspopup="true" aria-expanded="false" aria-controls="painelAvisos"
+                            title="Avisos">
+                            <i class="fa-solid fa-bell"></i>
+                            <span id="sinoContador"
+                                class="hidden absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-accent-red text-white text-[10px] font-bold leading-4 text-center"></span>
+                        </button>
+
+                        <!--
+                            O painel.
+
+                            absolute em vez de modal: quem le um aviso quer sair
+                            de onde esta, e um fundo que escurece a tela inteira
+                            transformaria a leitura em duas telas. Fechar e' o
+                            botao de novo e o clique fora -- padrao de menu, e o
+                            que a pessoa ja espera.
+
+                            O hidden do pai controla o painel inteiro; o id
+                            fica no container, e nao em cada linha, para o
+                            aria-controls apontar para uma coisa so.
+                        -->
+                        <div id="painelAvisos" class="hidden absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] card shadow-lg z-30">
+                            <div class="card-pad pb-2 flex items-center justify-between gap-2 border-b border-line">
+                                <h2 class="text-title">Avisos</h2>
+                                <button type="button" onclick="alternaPainel()" class="btn btn-ghost px-2" aria-label="Fechar avisos">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                            <div id="painelLista" class="max-h-96 overflow-y-auto">
+                                <p class="text-body text-ink-3 card-pad">Carregando...</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <a href="/admin" class="btn btn-ghost btn-sm" title="Atualizar">
                         <i class="fa-solid fa-rotate"></i>
                         <span class="hidden sm:inline">Atualizar</span>

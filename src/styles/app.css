@@ -62,6 +62,9 @@
     --focus: #b45309;
     --overlay: rgb(28 25 23 / 0.45);
     --shadow-color: 28 25 23;
+
+    /* Largura da barra de abas. Ver `.rail-btn` para o porque de ser token. */
+    --rail-w: 15rem;
 }
 
 .dark {
@@ -462,6 +465,107 @@
         flex-shrink: 0;
         color: var(--text-3);
         transition: color 140ms cubic-bezier(0.2, 0, 0.2, 1);
+    }
+
+    /*
+     * A barra de abas recolhivel.
+     *
+     * Duas coisas aqui que nao se escrevem com classe do Tailwind.
+     *
+     * 1. A LARGURA E' TOKEN. A posicao do botao circular depende da borda
+     *    direita da barra, entao o valor aparece em tres lugares: a largura do
+     *    painel, o `left` do botao que fecha e o deslocamento do conteudo. Tres
+     *    numeros soltos que precisam concordar sao uma tela quebrada esperando
+     *    alguem mudar 15rem para 16rem e esquecer dos outros dois. Aqui o
+     *    calculo sai de `--rail-w`.
+     *
+     * 2. O ESCONDER E' `.rail-btn.hidden`, E NAO `hidden`. A versao anterior
+     *    usava `hidden md:flex` no botao: no desktop o `md:flex` e' uma regra de
+     *    media query e vence o `hidden` do Tailwind, entao os DOIS botoes
+     *    ficavam na tela ao mesmo tempo e o Javascript nao mandava em nenhum --
+     *    nao havia bug visivel, havia so um botao que nao respondia. Aqui a
+     *    classe que esconde tem especificidade maior que a que exibe, e nao
+     *    depende de qual regra o Tailwind escreve por ultimo.
+     */
+    .rail {
+        position: relative;
+        width: 0;
+        flex-shrink: 0;
+    }
+
+    .rail-painel {
+        position: absolute;
+        inset-block: 0;
+        left: 0;
+        width: var(--rail-w);
+        display: flex;
+        flex-direction: column;
+    }
+
+    /*
+     * `display: inline-flex` SEM media query, e nao `none` + media para md.
+     *
+     * O container ja e' `hidden md:block`, entao abaixo de md nenhum botao
+     * aparece de qualquer jeito -- a media query aqui repetia uma condicao que
+     * ja era verdade e produzia uma regra quebrada no CSS compilado
+     * (`.md\:hidden.rail-btn`), que nao correspondia a elemento nenhum. Era
+     * codigo morto com o preco de confundir quem lesse.
+     */
+    .rail-btn {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.75rem;
+        height: 1.75rem;
+        border-radius: 9999px;
+        background-color: var(--surface);
+        color: var(--text-2);
+        border: 1px solid var(--border);
+        box-shadow: 0 1px 3px rgba(28, 25, 23, 0.12);
+        transition: background-color 140ms cubic-bezier(0.2, 0, 0.2, 1),
+            color 140ms cubic-bezier(0.2, 0, 0.2, 1),
+            box-shadow 140ms cubic-bezier(0.2, 0, 0.2, 1);
+        z-index: 30;
+    }
+
+    /* A partir de md, que e' onde a barra existe. */
+    @media (min-width: 768px) {
+        .rail-btn {
+            display: inline-flex;
+        }
+    }
+
+    .rail-btn:hover {
+        background-color: var(--surface-2);
+        color: var(--text-1);
+        box-shadow: 0 2px 6px rgba(28, 25, 23, 0.16);
+    }
+
+    .rail-btn:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+    }
+
+    /* Fica sobre a borda da barra, para parecer que pertence a ela. */
+    .rail-btn--fechar {
+        left: calc(var(--rail-w) - 0.875rem);
+    }
+
+    /* Barra recolhida: o botao volta para a borda esquerda do conteudo. */
+    .rail-btn--abrir {
+        left: 0.375rem;
+    }
+
+    /*
+     * O que esconde esta classe. Especificidade maior que `.rail-btn`, entao
+     * vence a regra de `display` acima sem `!important` -- que nao existe no
+     * projeto.
+     */
+    .rail-btn.hidden {
+        display: none;
     }
 
     .nav-item:hover .nav-item-icon {

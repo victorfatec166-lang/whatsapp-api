@@ -490,9 +490,25 @@ export function renderCalendar(d: CalendarData): string {
         </div>
 
         <div class="flex items-center gap-4 mb-5">
-            <button onclick="changeMonth(-1)" class="bg-amber-600 hover:bg-amber-700 text-white w-9 h-9 rounded-lg transition"><i class="fa-solid fa-chevron-left"></i></button>
-            <h3 class="text-xl font-bold ink" id="monthYear"></h3>
-            <button onclick="changeMonth(1)" class="bg-amber-600 hover:bg-amber-700 text-white w-9 h-9 rounded-lg transition"><i class="fa-solid fa-chevron-right"></i></button>
+            <button type="button" onclick="changeMonth(-1)" class="bg-amber-600 hover:bg-amber-700 text-white w-9 h-9 rounded-lg transition" aria-label="Mes anterior">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <div class="flex items-center gap-2">
+                <span class="text-[11px] uppercase tracking-wide ink-3">Mes em vista</span>
+                <!--
+                    O mes em vista e' uma pílula, e nao um titulo solto.
+
+                    Sem o contorno, a unica pista de qual mes a grade mostra e' o
+                    proprio texto grande, e texto grande nao sobrevive a quem
+                    acabou de clicar numa seta: o olho ja esta no calendario, nao
+                    no cabecalho. Com a pílula, o mes que voce esta vendo e' a
+                    mesma coisa que voce acabou de escolher.
+                -->
+                <h3 class="text-lg font-bold ink bg-surface border line rounded-lg px-3 py-1" id="monthYear" aria-live="polite"></h3>
+            </div>
+            <button type="button" onclick="changeMonth(1)" class="bg-amber-600 hover:bg-amber-700 text-white w-9 h-9 rounded-lg transition" aria-label="Proximo mes">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
         </div>
 
         <div class="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-bold ink-3 uppercase">
@@ -501,7 +517,18 @@ export function renderCalendar(d: CalendarData): string {
         <div class="grid grid-cols-7 gap-1" id="calendarGrid"></div>
 
         <div class="mt-6 surface-2 p-4 rounded-xl border line">
-            <h3 class="font-bold ink mb-3">Pedidos do dia selecionado</h3>
+            <!--
+                O titulo do painel NOMEIA o dia.
+
+                Esse era o furo do pedido: a grade mostrava o mes, o painel mostrava
+                "Pedidos do dia selecionado", e nada em lugar algum dizia qual dia
+                era esse. Se voce clica no dia 25, vai para o outro mes e volta, o
+                painel continua com os pedidos do dia 25 sem que em nenhum ponto
+                da tela esteja escrito "25". A pessoa sabe do dia so porque
+                lembrou -- e a selecao some assim que a grade e' redesenhada.
+            -->
+            <h3 class="font-bold ink mb-3" id="dayOrdersTitle">Pedidos do dia selecionado</h3>
+            <div id="diaForaDaVista" class="hidden mb-3 text-caption accent-orange"></div>
             <div id="dayOrders"><p class="ink-3 text-sm">Clique em um dia no calendario para ver os pedidos.</p></div>
         </div>
 

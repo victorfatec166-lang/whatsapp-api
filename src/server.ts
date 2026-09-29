@@ -353,6 +353,18 @@ app.get('/api/calendar.js', (_req, res) => {
 let currentMonth = new Date().getMonth();
 let currentYear = new Date().getFullYear();
 let ordersByDate = {};
+/**
+ * O dia que a pessoa escolheu, em "AAAA-MM-DD".
+ *
+ * Vive aqui, e nao em atributo do HTML, por dois motivos. Primeiro, a grade e'
+ * redesenhada a cada mudanca de mes e a cada busca de pedidos: se o estado
+ * estivesse no HTML, ele se perderia na primeira redesenhada e a selecao
+ * apagaria sozinha. Segundo, a selecao PRECISA sobreviver a mudanca de mes -- e
+ * o que o painel de baixo mostra continua sendo o dia escolhido mesmo depois
+ * que a grade passou a mostrar outro mes. Por isso o painel nomeia o dia, e nao
+ * depende da grade para dizer qual e'.
+ */
+let selectedDate = null;
 
 const MONTHS = ['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const WEEKDAYS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sab'];
@@ -361,6 +373,17 @@ function esc(v) {
     return String(v === null || v === undefined ? '' : v)
         .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
         .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+/** "2026-09-25" -> "25/09/2026", que e' como a pessoa le a data no Brasil. */
+function dataBr(iso) {
+    if (!iso || iso.length < 10) return iso || '';
+    return iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4);
+}
+
+/** "2026-09" -> "Setembro de 2026", por extenso. */
+function mesPorExtenso(year, month) {
+    return MONTHS[month] + ' de ' + year;
 }
 
 async function fetchOrdersForCalendar() {
@@ -382,7 +405,7 @@ function renderCalendar() {
     const startDay = new Date(currentYear, currentMonth, 1).getDay();
     const today = new Date();
 
-    label.textContent = MONTHS[currentMonth] + ' ' + currentYear;
+    label.textContent = mesPorExtenso(currentYear, currentMonth);
 
     let html = '';
     for (let i = 0; i < startDay; i++) html += '<div class="p-1"></div>';
@@ -393,17 +416,52 @@ function renderCalendar() {
         const count = data ? data.count : 0;
         const revenue = data ? data.totalRevenue : 0;
         const isToday = day === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+        const isSelected = iso === selectedDate;
 
-        const base = 'p-2 min-h-[4.5rem] rounded-lg border cursor-pointer transition flex flex-col gap-0.5 ';
-        const tone = isToday ? 'border-amber-500 ring-1 ring-amber-500 ' : (count ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40 ' : 'border-stone-200 dark:border-stone-700 ');
+        const base = 'p-2 min-h-[4.5rem] rounded-lg border cursor-pointer transition flex flex-col gap-0.5 text-left ';
+        const tone = count
+            ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40 '
+            : 'border-stone-200 dark:border-stone-700 ';
 
-        html += '<div class="' + base + tone + '" onclick="showDayOrders(\\'' + iso + '\\')" title="' + esc(iso) + '">';
+        /*
+         * O anel e' do SELECIONADO, e o "hoje" e' da data. Sao duas informacoes
+         * diferentes e por isso o anel nao acumula: se os dois entrassem juntos,
+         * o navegador veria ring-1 e ring-2 no mesmo elemento -- a mesma
+         * propriedade CSS, e o vencedor seria a ordem no arquivo de estilos, nao
+         * a ordem no atributo. O resultado seria um dos dois sumindo em silencio.
+         *
+         * A cor e' o token de acento, e nao um amber solto: o anel de selecao
+         * precisa de 3:1 contra o fundo da celula, e o fundo dela varia (branco
+         * num dia sem pedido, verde num dia com). O token ja e' verificado pelo
+         * check:contrast; um amber-500 escolhido a mao passaria em cima de
+         * branco e reprovariam em cima do verde.
+         */
+        const anel = isSelected
+            ? 'border-accent ring-2 ring-accent '
+            : (isToday ? 'border-amber-500 ring-1 ring-amber-500 ' : '');
+
+        /*
+         * Button, e nao div com onclick.
+         *
+         * Um div clicavel nao entra na ordem do teclado: quem opera so com Tab
+         * nao chega nos dias, e o Enter nao abre os pedidos do dia. Aqui cada
+         * celula e' um botao de verdade, com aria-pressed dizendo se o dia esta
+         * selecionado e um rotulo que o leitor de tela le como data -- "25 de
+         * setembro de 2026, 6 pedidos" -- em vez de soletrar "2" e "R$ 7.794,00"
+         * como duas coisas sem contexto.
+         */
+        const rotulo = dataBr(iso) + (count ? ', ' + count + ' pedido(s)' : ', sem pedidos');
+        html += '<button type="button" class="' + base + tone + anel + '"'
+            + ' onclick="showDayOrders(\\'' + iso + '\\')"'
+            + ' aria-pressed="' + (isSelected ? 'true' : 'false') + '"'
+            + ' aria-label="' + esc(rotulo) + '"'
+            + ' title="' + esc(rotulo) + '">';
         html += '<span class="text-sm font-bold ' + (isToday ? 'text-amber-600 dark:text-amber-400' : '') + '">' + day + '</span>';
         if (count) {
             html += '<span class="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">' + count + ' ped.</span>';
             html += '<span class="text-[11px] text-stone-500 dark:text-stone-400">R$ ' + revenue.toFixed(2) + '</span>';
         }
-        html += '</div>';
+        html += '</button>';
     }
     grid.innerHTML = html;
 }
@@ -413,14 +471,25 @@ window.changeMonth = function (delta) {
     if (currentMonth < 0) { currentMonth = 11; currentYear--; }
     if (currentMonth > 11) { currentMonth = 0; currentYear++; }
     renderCalendar();
+    avisaDiaForaDaVista();
 };
 
 window.showDayOrders = function (iso) {
     const box = document.getElementById('dayOrders');
     if (!box) return;
+
+    selectedDate = iso;
+    // A grade e' redesenhada para marcar o anel. Sao 30 celulas: redesenhar e'
+    // mais barato que caçar o elemento velho e trocar classe, e o codigo de
+    // marcar fica em um lugar so -- o lugar que desenha o dia.
+    renderCalendar();
+
+    const titulo = document.getElementById('dayOrdersTitle');
+    if (titulo) titulo.textContent = 'Pedidos de ' + dataBr(iso);
+
     const data = ordersByDate[iso];
     if (!data || !data.orders.length) {
-        box.innerHTML = '<p class="ink-3 text-sm">Nenhum pedido neste dia.</p>';
+        box.innerHTML = '<p class="ink-3 text-sm">Nenhum pedido em ' + dataBr(iso) + '.</p>';
         return;
     }
     const labels = { pendente: 'Pendente', preparando: 'Preparando', entrega: 'Em entrega', concluido: 'Concluido' };
@@ -438,6 +507,33 @@ window.showDayOrders = function (iso) {
     }
     box.innerHTML = html + '</div>';
 };
+
+/**
+ * Ao trocar de mes, o dia escolhido pode nao estar mais na grade.
+ *
+ * Sem este aviso, a tela mostra "Setembro de 2026" com pedidos listados de um
+ * dia de agosto, e nada na tela diz que os dois nao combinam -- que e' a forma
+ * exata de a pessoa conferir o total do dia errado achando que e' o dia de
+ * hoje. O aviso diz qual dia o painel esta mostrando, e o painel ja diz o dia
+ * no titulo; aqui a unica novidade e' o contraste com o mes em vista.
+ */
+function avisaDiaForaDaVista() {
+    const aviso = document.getElementById('diaForaDaVista');
+    if (!aviso) return;
+    if (!selectedDate) { aviso.classList.add('hidden'); return; }
+
+    const mesDoDia = selectedDate.slice(0, 7);
+    const mesEmVista = currentYear + '-' + String(currentMonth + 1).padStart(2, '0');
+
+    // Se o dia escolhido esta de volta na grade, o aviso some -- ele nao pode
+    // ficar parado claiming que os pedidos sao de outro mes, quando a pessoa
+    // acabou de voltar para o mes deles.
+    if (mesDoDia === mesEmVista) { aviso.classList.add('hidden'); return; }
+
+    aviso.classList.remove('hidden');
+    aviso.textContent = 'Voce mudou para ' + mesPorExtenso(currentYear, currentMonth)
+        + '. Os pedidos abaixo sao de ' + dataBr(selectedDate) + '.';
+}
 
 fetchOrdersForCalendar();
 `);

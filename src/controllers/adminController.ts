@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../database/prisma';
 import { logDoModulo } from '../services/logger';
 import { carregarConfig, salvarConfig, falhouSalvar } from '../services/config';
+import { normalizarCategoria } from '../services/categorias';
 const log = logDoModulo('adminController');
 
 export const adminController = {
@@ -53,7 +54,11 @@ export const adminController = {
           description: description ? String(description) : '',
           price: parsedPrice,
           costPrice: safeCost,
-          category: category && String(category).trim() ? String(category).trim() : 'Geral',
+          // A categoria passa pela normalizacao antes de gravar. Sem isso,
+          // "Salgado", "salgados" e "SALGADO" viram tres categorias distintas, e
+          // o filtro do PDV -- que compara texto -- deixa de achar o produto
+          // quando a pessoa procura por uma delas.
+          category: normalizarCategoria(category),
           isAvailable: isAvailable === undefined ? true : isAvailable === true || isAvailable === 'true',
           trackStock: track,
           stock: track ? safeInt(stock) : 0,
@@ -142,7 +147,11 @@ export const adminController = {
           ...(name && { name: String(name).trim() }),
           ...(description !== undefined && { description: String(description) }),
           ...(price !== undefined && price !== '' && { price: parseFloat(price) }),
-          ...(category !== undefined && { category: String(category).trim() || 'Geral' }),
+          // Mesma normalizacao da criacao. Editar e' o caminho pelo qual as
+          // categorias se multiplicam na pratica: a pessoa corrige o campo,
+          // digita "Salgado" num produto que estava em "Salgados", e o filtro
+          // do PDV passa a mostrar o mesmo salgado em dois grupos.
+          ...(category !== undefined && { category: normalizarCategoria(category) }),
           ...(isAvailable !== undefined && { isAvailable: isAvailable === true || isAvailable === 'true' }),
           ...(parsedMin !== undefined && { minStock: parsedMin }),
           ...(parsedCost !== undefined && { costPrice: parsedCost }),

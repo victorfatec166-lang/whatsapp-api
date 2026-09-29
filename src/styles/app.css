@@ -368,6 +368,65 @@
         background-color: var(--chip-hover);
     }
 
+    /*
+     * Abas de filtro do PDV.
+     *
+     * O estado vem do atributo `aria-pressed` e nao de uma classe que o
+     * JavaScript troca. Um atributo e' o estado: ele e' o que o leitor de tela
+     * anuncia, o que o teclado encontra e o que o CSS pode ler. Duas representacoes
+     * do mesmo estado -- `aria-pressed` para um e `bg-amber-600` para o outro --
+     * sao duas chances de divergirem, e a divergencia silenciosa e' a pior
+     * delas: a aba fica marcada na tela e o leitor de tela diz que nenhuma esta
+     * selecionada, ou o inverso.
+     *
+     * A cor e' o MESMO par do botao primario: fundo `--accent` e texto
+     * `--surface`, com o texto escuro no tema escuro, como o `.btn-primary` faz.
+     * Foi tentado #fff fixo, e no tema escuro isso e' branco sobre ambar claro:
+     * 1,7:1, muito abaixo do 4,5:1, e invisivel numa tela de balcao. O par do
+     * botao primario ja e' medido pelo check:contrast, entao reusar o par e'
+     * estar medido de graca.
+     */
+    .pdv-cat {
+        border: 1px solid var(--border);
+    }
+    .pdv-cat[aria-pressed='true'] {
+        background-color: var(--accent);
+        color: var(--surface);
+        border-color: var(--accent);
+    }
+    /* A contagem herda a cor do botao e so muda a opacidade: assim ela
+       acompanha os dois temas sem uma segunda regra para manter. */
+    .pdv-cat[aria-pressed='true'] .ink-3 {
+        color: inherit;
+        opacity: 0.75;
+    }
+
+    /*
+     * Abas de um painel (Produtos / Estoque).
+     *
+     * O estado vem de `aria-selected`, pelo mesmo motivo das abas do PDV: o
+     * atributo e' o que o leitor de tela anuncia e o que o CSS le. Antes o
+     * JavaScript trocava a classe do botao ativo ("bg-accent text-white"), e o
+     * resultado no tema escuro era branco sobre ambar claro: 1,7:1, o botao
+     * ativo ficava ilegivel exatamente onde a pessoa mais precisa ler o nome da
+     * aba em que esta. Aqui o par e' o mesmo do `.btn-primary` -- fundo
+     * `--accent`, texto `--surface`, que no escuro e' o texto escuro.
+     */
+    .stock-tab {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-2);
+        transition: background-color 140ms cubic-bezier(0.2, 0, 0.2, 1), color 140ms cubic-bezier(0.2, 0, 0.2, 1);
+    }
+    .stock-tab:hover {
+        color: var(--text-1);
+    }
+    .stock-tab[aria-selected='true'] {
+        background-color: var(--accent);
+        color: var(--surface);
+    }
+
     /* --------------------------------------------------------------- nav */
     .nav-group {
         font-size: 0.625rem;

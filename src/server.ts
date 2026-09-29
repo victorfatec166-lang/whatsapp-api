@@ -64,6 +64,7 @@ import { resumoArmazenamento } from './services/armazenamento';
 import { startBackupScheduler, backupDir } from './services/backup';
 import { startPodador } from './services/retencao';
 import { ensureSku, exportProductsCsv, importProductsFromCsv } from './services/products';
+import { categoriasDoCatalogo } from './services/categorias';
 import { loadProductFull, priceCart, linesToItemsField } from './services/modifiers';
 import { getDailyMenu, setDailyMenu, copyDailyMenu, previousDailyMenu } from './services/dailyMenu';
 import { escapeHtml } from './views/html';
@@ -520,7 +521,6 @@ window.irPara = function (mes, ano) {
     avisaDiaForaDaVista();
 };
 
-window.showDayOrders = function (iso) {
 /** Um mes a frente ou atras, atravessando a virada de ano. */
 window.mudaMes = function (delta) {
     let m = currentMonth + delta;
@@ -530,6 +530,7 @@ window.mudaMes = function (delta) {
     window.irPara(m, a);
 };
 
+window.showDayOrders = function (iso) {
     const box = document.getElementById('dayOrders');
     if (!box) return;
 
@@ -1884,7 +1885,7 @@ app.get('/admin', async (req, res) => {
                 const todayStart0 = startOfDay(new Date());
                 const counterOrders = orders.filter((o) => o.channel === 'pdv');
                 const todayCounter = counterOrders.filter((o) => o.createdAt >= todayStart0);
-                const categories = [...new Set(products.map((p) => p.category || 'Geral'))].sort();
+                const categories = categoriasDoCatalogo(products.map((p) => p.category));
 
                 // Modificadores e componentes de combo para o modal do PDV e o card.
                 const modifierLinks = await prisma.productModifierGroup.findMany({
@@ -1953,7 +1954,7 @@ app.get('/admin', async (req, res) => {
                     rows,
                     summary: summarize(rows),
                     movements: await recentMovements(30),
-                    categories: [...new Set(products.map((p) => p.category || 'Geral'))].sort(),
+                    categories: categoriasDoCatalogo(products.map((p) => p.category)),
                     reorder: reorderList(rows),
                     waste: await wasteSummary(wasteSince),
                     // O catalogo (CRUD de produto) foi do PDV para ca: a entidade
@@ -1974,7 +1975,7 @@ app.get('/admin', async (req, res) => {
                             minStock: p.minStock,
                             isCombo: p.isCombo,
                         })),
-                        categories: [...new Set(products.map((p) => p.category || 'Geral'))].sort(),
+                        categories: categoriasDoCatalogo(products.map((p) => p.category)),
                         lowStock: rows.filter((r) => {
                             const s = stockStatus(r);
                             return s === 'zerado' || s === 'baixo';

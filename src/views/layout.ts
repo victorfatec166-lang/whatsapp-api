@@ -166,6 +166,62 @@ const APP_SCRIPTS = `
 
                 // ---- Utilitarios compartilhados ----
                 /*
+                 * Recolher e trazer de volta a barra de abas.
+                 *
+                 * Duas pecas em vez de uma, e o motivo esta no comentario do
+                 * HTML: o botao que guarda fica na cola da barra, e o que traz
+                 * de volta fica no lugar onde ela estava. Um botao so, que
+                 * muda de estado, esconderia o rotulo e o icone no lugar
+                 * vazio -- e no lugar vazio nao ha nada que sugira que a barra
+                 * pode voltar.
+                 *
+                 * O estado vai para o localStorage pelo mesmo motivo do tema e
+                 * da aba de estoque: preferencia que se perde a cada F5 faz o
+                 * botao parar de servir para o que foi criado.
+                 */
+                function aplicaSidebar(aberta) {
+                    var barra = document.getElementById('sidebar');
+                    var guardar = document.getElementById('sidebarToggle');
+                    var abrir = document.getElementById('sidebarAbrir');
+                    if (!barra || !guardar || !abrir) return;
+
+                    if (aberta) {
+                        barra.classList.remove('hidden');
+                        guardar.classList.remove('hidden');
+                        abrir.classList.add('hidden');
+                        guardar.setAttribute('aria-expanded', 'true');
+                    } else {
+                        barra.classList.add('hidden');
+                        guardar.classList.add('hidden');
+                        abrir.classList.remove('hidden');
+                        guardar.setAttribute('aria-expanded', 'false');
+                    }
+                    try { localStorage.setItem('sidebarAberta', aberta ? '1' : '0'); } catch (e) {}
+                }
+
+                function alternaSidebar() {
+                    var barra = document.getElementById('sidebar');
+                    if (!barra) return;
+                    aplicaSidebar(barra.classList.contains('hidden'));
+                }
+
+                function abreSidebar() {
+                    aplicaSidebar(true);
+                }
+
+                // Aplica assim que o corpo existe. Este script fica no <head>, e
+                // o id da barra so aparece depois do corpo -- sem o guard, a
+                // preferencia era perdida a cada recarga, que e' pior do que
+                // nao ter preferencia nenhuma.
+                document.addEventListener('DOMContentLoaded', function () {
+                    var aberta = true;
+                    try {
+                        aberta = localStorage.getItem('sidebarAberta') !== '0';
+                    } catch (e) {}
+                    aplicaSidebar(aberta);
+                });
+
+                /*
                  * Confirmacao dentro do painel, e nao o confirm() do navegador.
                  *
                  * O dialogo do navegador era o unico lugar do sistema que nao
@@ -439,21 +495,70 @@ ${items}`;
         return `<optgroup label="${escapeHtml(group.label)}">${options}</optgroup>`;
     }).join('');
 
-    return `                    <aside class="w-60 shrink-0 bg-surface border-r border-line flex flex-col hidden md:flex">
-                        <a href="/admin" title="Ir para o inicio" class="h-16 px-4 flex items-center gap-2.5 border-b border-line text-body font-bold tracking-tight hover:bg-surface-2 transition">
+    /*
+     * A barra lateral recolhivel, e o botao que a guarda.
+     *
+     * A largura (15rem) sai da tela quando ela recolhe, e o conteudo acompanha
+     * por causa do `md:flex` do proprio `aside`: quem recolhe fica com a
+     * coluna de conteudo inteira, o que e' o motivo de recolher em tela grande
+     * -- no balcao, a area util e' o catalogo e o carrinho, nao a lista de abas.
+     *
+     * O estado fica em `localStorage`, como o resto das preferencias da tela
+     * (tema, aba de estoque). Perder a preferencia a cada F5 faria a pessoa
+     * recolher de novo toda vez, e o botao pararia de servir para o que foi
+     * criado.
+     *
+     * O botao e' uma `button` de verdade, com `aria-expanded` -- e nao um
+     * `div` com icone. Quem navega pelo teclado precisa achar o botao, e o
+     * leitor de tela precisa dizer se a barra esta aberta ou fechada.
+     */
+    return `                    <aside id="sidebar" class="w-60 shrink-0 bg-surface border-r line flex-col hidden md:flex">
+                        <a href="/admin" title="Ir para o inicio" class="h-16 px-4 flex items-center gap-2.5 border-b line text-body font-bold tracking-tight hover:bg-surface-2 transition">
                             <i class="fa-solid fa-burger text-accent"></i>
                             <span class="truncate">${escapeHtml(businessName)}</span>
                         </a>
                         <nav class="flex-1 px-3 pb-3 overflow-y-auto">
 ${blocks}
                         </nav>
-                        <div class="px-3 py-3 border-t border-line">
+                        <div class="px-3 py-3 border-t line">
                             <span class="badge ${botOnline ? 'badge-success' : 'badge-danger'}">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                <span class="w-1 h-1 rounded-full bg-current"></span>
                                 Bot ${botOnline ? 'online' : 'offline'}
                             </span>
                         </div>
                     </aside>
+
+                    <!--
+                        O botao que guarda a barra.
+
+                        Fica na COLA dela, na vertical, e nao dentro dela: e o unico
+                        lugar onde ele continua visivel com a barra recolhida.
+                        Dentro, ele sumiria junto com o resto -- e a pessoa ficaria
+                        sem caminho para trazer a barra de volta, que e' o pior
+                        estado possivel para um controle de interface.
+                    -->
+                    <button type="button" id="sidebarToggle" onclick="alternaSidebar()"
+                        class="hidden md:flex flex-col items-center justify-center gap-2 w-9 shrink-0 border-r line bg-surface hover:bg-surface-2 transition"
+                        aria-controls="sidebar" aria-expanded="true" title="Recolher a barra de abas">
+                        <span id="sidebarToggleIcon" class="fa-solid fa-angles-left text-sm ink-3"></span>
+                        <span class="text-[10px] ink-3" id="sidebarToggleTexto">Esconder</span>
+                    </button>
+
+                    <!--
+                        O botao que traz a barra de volta.
+
+                        Fica no lugar onde a barra ESTAVA, e por isso e' invisivel
+                        enquanto ela esta aberta. Uma peca so, mudando de estado,
+                        seria menos codigo -- mas perderia o rotulo e o icone
+                        certainos de que ali existe um botao, e no lugar vazio
+                        nao ha nada que sugira que a barra pode voltar.
+                    -->
+                    <button type="button" id="sidebarAbrir" onclick="abreSidebar()"
+                        class="hidden md:flex flex-col items-center justify-center gap-2 w-9 shrink-0 border-r line bg-surface hover:bg-surface-2 transition"
+                        aria-controls="sidebar" aria-expanded="false" title="Mostrar a barra de abas">
+                        <span class="fa-solid fa-bars text-sm ink-3"></span>
+                        <span class="text-[10px] ink-3">Abas</span>
+                    </button>
 
                     <!-- Navegacao mobile -->
                     <div class="md:hidden bg-surface border-b border-line px-4 py-3 flex items-center justify-between gap-3">

@@ -83,6 +83,7 @@ import {
     restaurarTodasMensagens,
     salvarMensagem,
 } from './services/botMessages';
+import { montarPainel } from './services/notificacoes';
 import { logDoModulo, pastaDeLogs } from './services/logger';
 import { limitador as limitePorJanela } from './services/rateLimit';
 const log = logDoModulo('server');
@@ -267,6 +268,31 @@ function toStockRow(p: {
    startOfToday gerado em renderKanbanData. */
 
 /* ------------------------------------------------------- API do dashboard */
+
+/**
+ * O sino do topo.
+ *
+ * Fica numa rota propria e nao dentro do `/admin`, porque e' a unica coisa do
+ * painel que muda sem a pessoa trocar de aba: o pedido chega pelo WhatsApp, o
+ * produto acaba, o canal derruba. Se viesse embutida no HTML, o sino so
+ * atualizaria no F5 -- e um aviso que so aparece no F5 nao e' aviso.
+ *
+ * Os produtos vao por parametro em vez de uma segunda query: a tela ja tem a
+ * lista em memoria, e duas leituras do mesmo catalogo num request que a pessoa
+ * fez vinte vezes por hora nao tem por que.
+ */
+app.get('/api/notificacoes', async (_req, res) => {
+    try {
+        const produtos = await prisma.product.findMany();
+        res.json(await montarPainel(isBotOnline(), produtos.map(toStockRow)));
+    } catch (error) {
+        log.error('Falha ao montar painel de notificacoes:', error);
+        // Devolve um painel vazio, e nao 500: o sino que falha ao abrir
+        // esconde o resto da tela, e perder o aviso e' melhor que perder o
+        // acesso ao painel inteiro.
+        res.json({ itens: [], urgentes: 0, total: 0 });
+    }
+});
 
 app.get('/api/bot-status', (_req, res) => {
     res.json({ online: isBotOnline(), sseClients: getClientCount() });

@@ -1,18 +1,24 @@
 {
   "name": "whatsapp-api",
   "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "build:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --minify",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:ts": "tsc",
     "build": "npm run clean && npm run build:ts && npm run build:css",
+    "db:migrate": "prisma migrate deploy",
+    "postinstall": "node scripts/postinstall.mjs",
     "watch:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --watch",
     "check:contrast": "node scripts/check-contrast.js",
     "check:js": "node scripts/check-js.js",
     "check:ui": "node scripts/check-ui.js",
     "check": "npm run check:ui && npm run check:js && npm run test",
     "test": "node --import tsx --test tests/*.test.ts",
-    "start": "node dist/server.js"
+    "start": "node scripts/start.mjs"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",

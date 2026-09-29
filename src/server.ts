@@ -84,7 +84,7 @@ const log = logDoModulo('server');
 
 const app = express();
 const prisma = new PrismaClient();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 /*
  * Limite de escrita.
@@ -1922,10 +1922,34 @@ app.get('/admin', async (req, res) => {
     }
 });
 
-app.listen(PORT, async () => {
-    log.info(`Servidor HTTP rodando na porta ${PORT}`);
-    log.info(`Dashboard: http://localhost:${PORT}/admin`);
-    log.info(`API REST:  http://localhost:${PORT}/api/admin`);
+/*
+ * Endereco de escuta.
+ *
+ * Padrao "0.0.0.0": todas as interfaces, o que permite abrir o painel pelo
+ * celular ou por outro computador da loja. E' o que o dono precisa e tambem o
+ * que expoe receita, caixa e conversas para qualquer maquina da mesma rede --
+ * e o painel ainda nao tem senha, o que era decisao de desenvolvimento.
+ *
+ * "127.0.0.1" deixa o painel so nesta maquina. Quem usa o PDV no balcao e nao
+ * precisa de acesso de fora tem aqui o corte de uma linha no .env.
+ */
+const HOST = process.env.HOST?.trim() || '0.0.0.0';
+
+app.listen(PORT, HOST, async () => {
+    log.info(`Servidor HTTP escutando em ${HOST}:${PORT}`);
+    // O endereco que aparece no log e' o que a pessoa digita no navegador. Com
+    // 0.0.0.0, mostrar "localhost" mentiria para quem abre de outro aparelho:
+    // localhost no celular e' o proprio celular.
+    const paraNavegar = HOST === '0.0.0.0' || HOST === '::' ? 'localhost' : HOST;
+    log.info(`Dashboard: http://${paraNavegar}:${PORT}/admin`);
+    log.info(`API REST:  http://${paraNavegar}:${PORT}/api/admin`);
+    if (HOST === '0.0.0.0' || HOST === '::') {
+        log.warn(
+            'Escutando na rede local SEM SENHA: qualquer maquina da mesma rede que saiba a porta ' +
+                PORT + ' ve o faturamento e pode escrever no sistema. Defina HOST=127.0.0.1 no .env ' +
+                'se o acesso e so desta maquina.'
+        );
+    }
     log.info('Iniciando o robo do WhatsApp...');
 
     await loadBotMessages();

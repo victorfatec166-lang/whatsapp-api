@@ -837,7 +837,7 @@ ${sidebar(opts.active, opts.counters ?? { pdv: opts.productCount }, opts.botOnli
                             fica no container, e nao em cada linha, para o
                             aria-controls apontar para uma coisa so.
                         -->
-                        <div id="painelAvisos" class="hidden absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] card shadow-lg z-30">
+                        <div id="painelAvisos" class="hidden absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] panel z-30">
                             <div class="card-pad pb-2 flex items-center justify-between gap-2 border-b border-line">
                                 <h2 class="text-title">Avisos</h2>
                                 <button type="button" onclick="alternaPainel()" class="btn btn-ghost px-2" aria-label="Fechar avisos">

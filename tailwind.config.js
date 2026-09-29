@@ -73,8 +73,26 @@ module.exports = {
             },
 
             borderRadius: {
-                card: '10px',
-                control: '6px',
+                /*
+                 * A MESMA escala do app.css, em px.
+                 *
+                 * Sao dois arquivos com a mesma informacao, e isso e' um risco
+                 * conhecido: mudar o token do CSS sem mudar este aqui produz
+                 * card com raio de um valor e botao com raio de outro, e a
+                 * diferenca de meio centimetro so aparece quando as duas coisas
+                 * estao lado a lado na tela.
+                 *
+                 * Por isso o comentario no app.css manda o CSS ser a fonte, e
+                 * estes valores sao a mesma escala, na mesma ordem: sm para o
+                 * que e' pequeno, md para o botao, lg para o card.
+                 */
+                sm: '8px',
+                control: '10px',
+                card: '14px',
+                md: '10px',
+                lg: '14px',
+                xl: '20px',
+                '2xl': '20px',
             },
 
             boxShadow: {

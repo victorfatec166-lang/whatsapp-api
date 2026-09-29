@@ -65,6 +65,51 @@
 
     /* Largura da barra de abas. Ver `.rail-btn` para o porque de ser token. */
     --rail-w: 15rem;
+
+    /*
+     * Raios: uma escala, nao um numero por elemento.
+     *
+     * Antes cada componente tinha o seu -- 6px no botao, 10px no cartao, 4px no
+     * foco, 9999px no chip. Ninguem via a escala, e o resultado era o que parece
+     * acucar: cartao quase reto, botao quadrado, chip Red Bull. Sao tres
+     * numeros para lembrar, e ninguem lembra.
+     *
+     * A escala e' a mesma dos sistemas de design atuais, e a ordem importa: um
+     * elemento MENOR tem raio MENOR. Botao grande com raio pequeno parece
+     * apertado; botao pequeno com raio grande vira pílula sem querer. Card,
+     * painel e janela entram no mesmo degrau porque ocupam areas parecidas.
+     *
+     * `--r-full` continua 9999px porque e' o que faz um circulo fechar certo,
+     * e um valor unico de raio nao arredonda um disco.
+     */
+    --r-sm: 8px;      /* input, item de lista, barra de rolagem */
+    --r-md: 10px;     /* botao, badge, chip */
+    --r-lg: 14px;     /* cartao, painel, aba */
+    --r-xl: 20px;     /* janela, confirmacao */
+    --r-full: 9999px; /* circulo, pílula */
+
+    /*
+     * Sombras em camadas, nao uma so.
+     *
+     * A sombra antiga (0 1px 2px) e' o que faz uma interface parecer barata:
+     * quando a luz vem de cima, a sombra tambem tem que descer. Uma camada e'
+     * borrão; duas camadas -- uma de contato, outra de difusao -- leem como
+     * altura real.
+     *
+     * E o que separa "elevado" de "flutuando": o painel de avisos passa para a
+     * sombra de cima, o card fica na de baixo. Sem isso, tudo na tela parece
+     * estar na mesma altura, e nada tem prioridade visual.
+     *
+     * `--shadow-color` e' transparente no escuro de proposito: sombra preta
+     * sobre fundo quase preto some, e o que separa um card do fundo no tema
+     * escuro e' a BORDA, nao a sombra.
+     */
+    --shadow-sm: 0 1px 2px 0 rgb(var(--shadow-color) / 0.04),
+        0 1px 3px 0 rgb(var(--shadow-color) / 0.06);
+    --shadow-md: 0 1px 2px 0 rgb(var(--shadow-color) / 0.04),
+        0 4px 8px -2px rgb(var(--shadow-color) / 0.08);
+    --shadow-lg: 0 2px 4px 0 rgb(var(--shadow-color) / 0.04),
+        0 12px 24px -4px rgb(var(--shadow-color) / 0.1);
 }
 
 .dark {
@@ -138,7 +183,7 @@
     :focus-visible {
         outline: 2px solid var(--focus);
         outline-offset: 2px;
-        border-radius: 4px;
+        border-radius: var(--r-sm);
     }
 
     /* Remove o outline padrao so quando o foco nao e por teclado. */
@@ -176,12 +221,31 @@
     .card {
         background-color: var(--surface);
         border: 1px solid var(--border);
-        border-radius: 10px;
-        box-shadow: 0 1px 2px 0 rgb(var(--shadow-color) / 0.05);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-sm);
     }
 
     .card-pad {
         padding: 1.25rem;
+    }
+
+    /*
+     * O mesmo card, uma camada acima.
+     *
+     * Card e' o plano do dia; painel e' o que FLUTUA sobre ele -- o sino, um
+     * menu suspenso. Sem uma classe propria, o que flutuava acabava usando
+     * `shadow-lg` do Tailwind, que e' um numero fixo: meio caminho entre o
+     * token e o valor solto, e a coisa que desfaz a escala de altura.
+     *
+     * E a separacao importa visualmente. Com a mesma sombra, painel e card
+     * parecem estar na mesma altura, e o olho nao sabe o que esta por cima do
+     * que. A elevacao e' o que diz "eu estou acima".
+     */
+    .panel {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-lg);
     }
 
     /* -------------------------------------------------------------- botao */
@@ -190,7 +254,7 @@
         align-items: center;
         justify-content: center;
         gap: 0.5rem;
-        border-radius: 6px;
+        border-radius: var(--r-md);
         font-size: 0.875rem;
         font-weight: 500;
         line-height: 1.25rem;
@@ -260,7 +324,7 @@
         background-color: var(--surface);
         color: var(--text-1);
         border: 1px solid var(--border-input);
-        border-radius: 6px;
+        border-radius: var(--r-sm);
         padding: 0.5rem 0.75rem;
         font-size: 0.875rem;
         line-height: 1.25rem;
@@ -292,9 +356,9 @@
     .kpi {
         background-color: var(--surface);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--r-lg);
         padding: 1rem 1.125rem;
-        box-shadow: 0 1px 2px 0 rgb(var(--shadow-color) / 0.05);
+        box-shadow: var(--shadow-sm);
     }
 
     .kpi-label {
@@ -324,7 +388,7 @@
         display: inline-flex;
         align-items: center;
         gap: 0.25rem;
-        border-radius: 9999px;
+        border-radius: var(--r-full);
         padding: 0.125rem 0.5rem;
         font-size: 0.75rem;
         font-weight: 600;
@@ -358,7 +422,7 @@
         display: inline-flex;
         align-items: center;
         gap: 0.375rem;
-        border-radius: 6px;
+        border-radius: var(--r-sm);
         background-color: var(--chip-bg);
         color: var(--chip-ink);
         padding: 0.375rem 0.75rem;
@@ -445,7 +509,7 @@
         align-items: center;
         gap: 0.625rem;
         padding: 0.4375rem 0.625rem;
-        border-radius: 6px;
+        border-radius: var(--r-sm);
         font-size: 0.8125rem;
         font-weight: 500;
         color: var(--nav-ink);
@@ -520,11 +584,11 @@
         justify-content: center;
         width: 1.75rem;
         height: 1.75rem;
-        border-radius: 9999px;
+        border-radius: var(--r-full);
         background-color: var(--surface);
         color: var(--text-2);
         border: 1px solid var(--border);
-        box-shadow: 0 1px 3px rgba(28, 25, 23, 0.12);
+        box-shadow: var(--shadow-md);
         transition: background-color 140ms cubic-bezier(0.2, 0, 0.2, 1),
             color 140ms cubic-bezier(0.2, 0, 0.2, 1),
             box-shadow 140ms cubic-bezier(0.2, 0, 0.2, 1);
@@ -541,7 +605,7 @@
     .rail-btn:hover {
         background-color: var(--surface-2);
         color: var(--text-1);
-        box-shadow: 0 2px 6px rgba(28, 25, 23, 0.16);
+        box-shadow: var(--shadow-lg);
     }
 
     .rail-btn:focus-visible {
@@ -592,7 +656,7 @@
         transform: translateY(-50%);
         width: 3px;
         height: 1.125rem;
-        border-radius: 0 9999px 9999px 0;
+        border-radius: 0 var(--r-full) var(--r-full) 0;
         background-color: var(--accent);
     }
 
@@ -627,13 +691,13 @@
     /* ------------------------------------------------------------ grafico */
     .bar-track {
         background-color: var(--sunken);
-        border-radius: 9999px;
+        border-radius: var(--r-full);
         overflow: hidden;
     }
     .bar-fill {
         background-color: var(--accent);
         height: 100%;
-        border-radius: 9999px;
+        border-radius: var(--r-full);
     }
     .bar-fill-emerald {
         background-color: var(--success);
@@ -657,8 +721,8 @@
     .modal-panel {
         background-color: var(--surface);
         border: 1px solid var(--border);
-        border-radius: 10px;
-        box-shadow: 0 12px 32px -8px rgb(var(--shadow-color) / 0.16);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-lg);
         width: 100%;
         max-width: 32rem;
         max-height: 88vh;

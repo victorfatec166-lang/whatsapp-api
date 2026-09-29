@@ -135,10 +135,26 @@ export async function computeStats(orders: OrderWithProductless[]): Promise<Dash
         b.revenue += o.total;
     }
 
+    /*
+     * O dia e' o do DONO, e nao o do servidor.
+     *
+     * `toISOString().slice(0, 10)` pega o dia em UTC. Um pedido feito as 21:23
+     * UTC e' 18:23 em Brasilia, do mesmo dia -- e sao as 18h que a marmitaria
+     * funciona. O pedido aparecia no grafico do dia seguinte, com o rotulo
+     * "26/09" para uma venda de sexta a noite.
+     *
+     * No banco de teste isso movia 8 pedidos para o dia errado. Nao era teoria:
+     * o `computeStatsSql` (o mesmo calculo em SQL, com `localtime`) discordou
+     * deste trecho no teste de paridade, e quem estava errado era ele.
+     *
+     * `getFullYear/getMonth/getDate` leem no fuso local do processo, que e' o
+     * fuso de quem esta olhando a tela.
+     */
     const dayMap = new Map<string, { date: string; label: string; revenue: number; orders: number }>();
     for (const o of orders) {
-        const key = o.createdAt.toISOString().slice(0, 10);
-        const cur = dayMap.get(key) ?? { date: key, label: shortDate(o.createdAt), revenue: 0, orders: 0 };
+        const d = o.createdAt;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const cur = dayMap.get(key) ?? { date: key, label: shortDate(d), revenue: 0, orders: 0 };
         cur.revenue += o.total;
         cur.orders += 1;
         dayMap.set(key, cur);

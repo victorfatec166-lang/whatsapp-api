@@ -65,13 +65,13 @@ import { loadProductFull, priceCart, linesToItemsField } from './services/modifi
 import { getDailyMenu, setDailyMenu, copyDailyMenu, previousDailyMenu } from './services/dailyMenu';
 import { escapeHtml } from './views/html';
 import {
-    computeStats,
     toCsv,
     toReportRows,
     currency,
     ORDER_STATUSES,
     type OrderWithProductless,
 } from './services/stats';
+import { computeStatsSql } from './services/statsSql';
 import { DEFAULT_BOT_MESSAGES } from './services/botDefaults';
 import {
     mapaParaTela,
@@ -1511,24 +1511,30 @@ app.get('/admin', async (req, res) => {
         ]);
 
         /*
-         * Todos os pedidos sao carregados em memoria, em toda visita ao painel.
+         * Todos os pedidos ainda sao carregados em memoria, em toda visita.
          *
-         * Isso e' um custo conhecido e hoje invisivel, porque sao 11 pedidos. O
-         * numero que faz a conta: 300 pedidos por mes, ~250 bytes cada, sao
-         * 900 KB por pagina em um ano, e tudo vira filtro em JavaScript depois.
+         * As ESTATISTICAS ja foram movidas para o banco (`computeStatsSql`,
+         * em src/services/statsSql.ts), que e' onde estava o custo de verdade: as
+         * somas e os agrupamentos saem de 4 mil linhas para 4. O que sobra
+         * aqui sao as listas que a tela desenha -- kanban, calendario, relatorio
+         * do periodo -- e cada uma delas tem uma janela que a tela ja impunha.
          *
-         * A correcao -- passar a agregacao do `computeStats` para o banco e dar
-         * janela limitada para as abas -- NAO esta aqui de proposito. Truncar a
-         * lista e' a solucao que parece obvia e e' a errada: `computeStats`
-         * soma receita de todos os pedidos para o "total" e o "mais vendidos",
-         * e cortar a lista faria o Faturamento mostrar um numero menor que o
-         * real sem ninguem perceber. Tela que mostra menos dinheiro e' o tipo de
-         * coisa que a propria tela de Configuracoes servia de exemplo do que nao
-         * se faz aqui.
+         * A carga sem limite que restou e' a que o aviso abaixo mede.
          *
-         * Entao, enquanto nao for refeito, o sistema avisa. Um aviso no log e'
-         * de graca: o dia que o painel comecar a demorar, o log ja diz por que.
-         * Silenciar isso seria a mesma mentira em forma de lentidao.
+         * O numero que faz a conta: 300 pedidos por mes, ~250 bytes cada, sao
+         * 900 KB por pagina em um ano.
+         *
+         * A parte de TRUNCAR a lista continua fora de proposito, e agora por um
+         * motivo concreto: a receita total vem do SQL (`computeStatsSql`), e
+         * cortar esta lista afetaria o que as telas DESENHAM -- kanban, calendario
+         * -- sem mexer no total. Ou seja, o numero de dinheiro ficaria certo e o
+         * kanban perderia pedidos, que e' pior: a pessoa que olha a tela acredita
+         * que a coluna esta vazia, e o pedido existe.
+         *
+         * A solucao para o que resta e' dar janela por tela, com o filtro que a
+         * tela ja aplica, e nao um limite global. E' trabalho de tela por tela,
+         * e o aviso abaixo continua ate la: um aviso no log e' de graca, porque
+         * o dia que o painel comecar a demorar, o log ja diz por que.
          */
         if (orders.length > AVISO_VOLUME_PEDIDOS) {
             log.warn(
@@ -1686,7 +1692,19 @@ app.get('/admin', async (req, res) => {
 
                 body = renderFaturamento(
                     {
-                        stats: await computeStats(orders),
+                        /*
+                         * As estatisticas vem do banco, nao de `computeStats(orders)`.
+                         *
+                         * A receita total, o "mais vendidos" e os graficos sao os
+                         * mesmos numeros -- `tests/stats-sql.test.ts` compara os
+                         * dois calculos campo a campo sobre o banco real. A
+                         * diferenca e' que a soma acontece em SQL, entao o custo
+                         * nao cresce com o historico.
+                         *
+                         * `orders` continua sendo carregado abaixo para a LISTA do
+                         * relatorio, que e' a tabela da tela, e nao e' truncada.
+                         */
+                        stats: await computeStatsSql(),
                         report: {
                             rowsHtml,
                             count: filtrados.length,

@@ -497,11 +497,29 @@ export function renderCalendar(d: CalendarData): string {
      * grupo vira uma ilha: os resumo, a navegacao do mes, a grade e a lista de
      * pedidos pareciam quatro telas diferentes em vez de uma.
      */
-    return `        <div class="space-y-5 max-w-3xl">
-            <div class="flex flex-wrap items-center gap-3">
+    return `        <div class="max-w-6xl">
+            <div class="flex flex-wrap items-center gap-3 mb-5">
                 <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Pedidos no periodo:</span> <span class="font-bold ink ml-1">${d.totalOrders}</span></div>
                 <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Media por dia:</span> <span class="font-bold ink ml-1">${(d.totalOrders / Math.max(1, d.daysInPeriod)).toFixed(1).replace('.', ',')}</span></div>
             </div>
+
+            <!--
+                Duas colunas: calendario na esquerda, lembretes na direita.
+
+                A coluna da direita existia como espaco vazio -- o calendario e'
+                largo, e a largura que sobrava depois dele nao servia para mais
+                nada. Elembrete e' anotacao de trabalho: "ligar para o
+                fornecedor", "renovar o gas", "cobrar o cliente que pediu ago".
+                Isso nao tem lugar nenhum no sistema, e a tela onde a pessoa ja
+                esta pensando em "aquele dia" e' exatamente o calendario.
+
+                A coluna e' estreita de proposito. Lembrete e' uma linha curta, e
+                uma coluna larga transformaria cada lembrete em uma frase
+                pequena perdida no meio do espaco -- que e' o mesmo defeito do
+                calendario esticado, so invertido.
+            -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+            <div class="lg:col-span-2 space-y-5">
 
             <div class="card">
                 <div class="card-pad flex flex-wrap items-center justify-between gap-3">
@@ -577,6 +595,43 @@ export function renderCalendar(d: CalendarData): string {
                 <div class="px-5 pb-5">
                     <div id="dayOrders"><p class="ink-3 text-sm">Clique em um dia no calendario para ver os pedidos.</p></div>
                 </div>
+            </div>
+            </div>
+
+            <!--
+                Lembretes do mes.
+
+                O formulario escreve no dia SELECIONADO, e a frase embaixo diz
+                qual e' -- porque o comportamento padrao seria anotar para hoje
+                e a pessoa descobrir amanha que anotou no dia errado. Antes de
+                selecionar um dia, o campo avisa que o lembrete vai para hoje, em
+                vez de ficar em silencio e assumir o dia.
+
+                E o aviso some quando a selecao chega, pelo mesmo motivo: texto
+                que continua verdadeiro depois da mudanca e' pior do que texto
+                ausente.
+            -->
+            <div class="card">
+                <div class="card-pad pb-2">
+                    <h3 class="font-bold ink flex items-center gap-2">
+                        <i class="fa-solid fa-bell accent-amber"></i> Lembretes
+                    </h3>
+                    <p class="text-caption text-ink-3">O que precisa ser feito em cada dia</p>
+                </div>
+                <div class="px-5 pb-5">
+                    <form id="lembreteForm" onsubmit="return lembreteSalva(event)" class="space-y-2">
+                        <label class="label" for="lembreteTexto">Novo lembrete</label>
+                        <textarea id="lembreteTexto" rows="2" maxlength="160" class="input" placeholder="Ligar para o fornecedor de pao"></textarea>
+                        <p class="text-[11px] text-ink-3" id="lembretePara">Vai para hoje. Clique em um dia no calendario para escolher outro.</p>
+                        <button type="submit" class="btn btn-primary w-full">
+                            <i class="fa-solid fa-plus"></i> Anotar
+                        </button>
+                    </form>
+                    <div id="lembreteLista" class="mt-4 space-y-2">
+                        <p class="ink-3 text-sm">Nenhum lembrete neste mes.</p>
+                    </div>
+                </div>
+            </div>
             </div>
         </div>
 

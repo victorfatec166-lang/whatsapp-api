@@ -65,6 +65,7 @@ import { startBackupScheduler, backupDir } from './services/backup';
 import { startPodador } from './services/retencao';
 import { ensureSku, exportProductsCsv, importProductsFromCsv } from './services/products';
 import { categoriasDoCatalogo } from './services/categorias';
+import { listarDoMes, anotar, alternarConcluido, apagar, falhouAnotar, falhouConcluir, falhouApagar } from './services/lembretes';
 import { loadProductFull, priceCart, linesToItemsField } from './services/modifiers';
 import { getDailyMenu, setDailyMenu, copyDailyMenu, previousDailyMenu } from './services/dailyMenu';
 import { escapeHtml } from './views/html';
@@ -349,6 +350,48 @@ app.get('/api/calendar/orders', async (_req, res) => {
     }
 });
 
+/*
+ * Lembretes do calendario.
+ *
+ * Rotas proprias, e nao uma dentro de `/api/admin`: lembrete e' anotacao da
+ * pessoa na tela dela, como o texto do bot e os textos do cardapio -- dado local
+ * do painel, nao dado de pedido. E o prefixo diferente evita que um DELETE de
+ * lembrete passe perto de um DELETE de pedido.
+ *
+ * O `mes` e' "AAAA-MM". A validacao fica no servico, que e' quem sabe o que e'
+ * um mes valido e o que e' meia-noite local -- a rota so repassa.
+ */app.get('/api/calendar/lembretes', async (req, res) => {
+    const mes = typeof req.query.mes === 'string' ? req.query.mes : '';
+    if (!/^\d{4}-\d{2}$/.test(mes)) {
+        return res.status(400).json({ error: 'Informe o mes no formato AAAA-MM.' });
+    }
+    try {
+        res.json(await listarDoMes(mes));
+    } catch (error) {
+        log.error('Erro ao buscar lembretes:', error);
+        res.status(500).json({ error: 'Erro ao buscar lembretes' });
+    }
+});
+
+app.post('/api/calendar/lembretes', async (req, res) => {
+    const b = req.body ?? {};
+    const r = await anotar(b.texto, typeof b.dia === 'string' ? b.dia : undefined);
+    if (falhouAnotar(r)) return res.status(400).json({ error: r.error });
+    res.status(201).json(r.lembrete);
+});
+
+app.post('/api/calendar/lembretes/:id/concluir', async (req, res) => {
+    const r = await alternarConcluido(req.params.id);
+    if (falhouConcluir(r)) return res.status(404).json({ error: r.error });
+    res.json({ feito: r.feito });
+});
+
+app.post('/api/calendar/lembretes/:id/apagar', async (req, res) => {
+    const r = await apagar(req.params.id);
+    if (falhouApagar(r)) return res.status(404).json({ error: r.error });
+    res.json({ ok: true });
+});
+
 app.get('/api/calendar.js', (_req, res) => {
     res.type('application/javascript').send(`
 let currentMonth = new Date().getMonth();
@@ -366,6 +409,7 @@ let ordersByDate = {};
  * depende da grade para dizer qual e'.
  */
 let selectedDate = null;
+let remindersByDate = {};
 
 const MONTHS = ['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const WEEKDAYS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sab'];
@@ -420,6 +464,155 @@ function pintaSeletores() {
     selAno.value = String(currentYear);
 }
 
+/*
+ * Lembretes.
+ *
+ * Ficam em memoria como os pedidos, e sao buscados junto. A lista do mes inteiro
+ * cabe em uma tela; nao ha paginacao nem busca, e uma busca aqui custaria um
+ * campo e uma fonte de confusao a mais em um painel que ja tem muitos filtros.
+ *
+ * O indice por dia existe para a grade: marcadorLembrete le do mapa direto, em
+ * vez de varrer a lista a cada celula. Trinta celulas vezes uma lista e' o
+ * suficiente para a grade comecar a engasgar, e o custo e' o mesmo de um objeto.
+ */
+function agrupaLembretes(lista) {
+    const mapa = {};
+    for (const l of lista) {
+        if (!mapa[l.iso]) mapa[l.iso] = { total: 0, pendentes: 0 };
+        mapa[l.iso].total += 1;
+        if (!l.feito) mapa[l.iso].pendentes += 1;
+    }
+    return mapa;
+}
+
+/** Ponto de lembrete na celula do dia, e nada quando nao ha. */
+function marcadorLembrete(iso) {
+    const d = remindersByDate[iso];
+    if (!d) return '';
+    // Todos feitos: o ponto esmaece, porque o que a pessoa procura e' o que
+    // ainda esta de pe.
+    const cor = d.pendentes > 0 ? 'bg-accent' : 'bg-stone-300 dark:bg-stone-600';
+    const texto = d.pendentes > 0
+        ? d.pendentes + ' lembrete(s) a fazer'
+        : d.total + ' lembrete(s), tudo concluído';
+    return '<span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ' + cor + '" title="' + esc(texto) + '"></span>';
+}
+
+function desenhaLembretes() {
+    const box = document.getElementById('lembreteLista');
+    if (!box) return;
+
+    const lista = (remindersDoMes || []).slice().sort(function (a, b) {
+        if (a.feito !== b.feito) return a.feito ? 1 : -1;
+        return a.dia === b.dia ? 0 : (a.dia < b.dia ? -1 : 1);
+    });
+
+    if (lista.length === 0) {
+        box.innerHTML = '<p class="ink-3 text-sm">Nenhum lembrete neste mes.</p>';
+        return;
+    }
+
+    let html = '';
+    for (const l of lista) {
+        html += '<div class="flex items-start gap-2 p-2 rounded-lg sunken' + (l.feito ? ' opacity-60' : '') + '">'
+            + '<button type="button" onclick="lembreteConclui(\\'' + l.id + '\\')"'
+            + ' class="w-4 h-4 mt-0.5 rounded border line shrink-0 flex items-center justify-center'
+            + (l.feito ? ' bg-accent border-accent' : '') + '"'
+            + ' aria-pressed="' + (l.feito ? 'true' : 'false') + '"'
+            + ' aria-label="' + (l.feito ? 'Desmarcar lembrete: ' : 'Marcar lembrete como feito: ') + esc(l.texto) + '">'
+            + (l.feito ? '<i class="fa-solid fa-check text-[9px]" style="color: var(--surface)"></i>' : '')
+            + '</button>'
+            + '<div class="min-w-0 flex-1">'
+            + '<p class="text-sm ' + (l.feito ? 'ink-3 line-through' : 'ink') + ' break-words">' + esc(l.texto) + '</p>'
+            + '<p class="text-[11px] ink-3">' + esc(l.dia) + '</p>'
+            + '</div>'
+            + '<button type="button" onclick="lembreteApaga(\\'' + l.id + '\\')"'
+            + ' class="w-6 h-6 rounded badge-slate text-[10px] shrink-0 flex items-center justify-center"'
+            + ' title="Apagar lembrete" aria-label="Apagar lembrete: ' + esc(l.texto) + '">'
+            + '<i class="fa-solid fa-xmark"></i></button>'
+            + '</div>';
+    }
+    box.innerHTML = html;
+}
+
+/**
+ * Para onde o lembrete vai, em texto.
+ *
+ * A frase acompanha a selecao, e nao fica fixa: um texto que continua
+ * verdadeiro depois da mudanca e' pior do que um texto ausente, porque a pessoa
+ * le e acredita.
+ */
+function atualizaAvisoLembrete() {
+    const aviso = document.getElementById('lembretePara');
+    if (!aviso) return;
+    if (selectedDate) {
+        const quantos = remindersByDate[selectedDate];
+        const extra = quantos ? ' Ja tem ' + quantos.pendentes + ' a fazer nesse dia.' : '';
+        aviso.textContent = 'Vai para ' + dataBr(selectedDate) + '.' + extra;
+    } else {
+        aviso.textContent = 'Vai para hoje. Clique em um dia no calendario para escolher outro.';
+    }
+}
+
+window.lembreteSalva = async function (ev) {
+    ev.preventDefault();
+    const campo = document.getElementById('lembreteTexto');
+    if (!campo) return false;
+    const texto = (campo.value || '').trim();
+    if (texto === '') { flash('err', 'Escreva o lembrete antes de salvar.'); return false; }
+
+    const botao = ev.target.querySelector('button[type="submit"]');
+    const original = botao ? botao.innerHTML : '';
+    if (botao) { botao.disabled = true; botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...'; }
+
+    const r = await postJSON('/api/calendar/lembretes', { texto: texto, dia: selectedDate || undefined });
+    if (botao) { botao.disabled = false; botao.innerHTML = original; }
+    if (!r.ok) { flash('err', r.data.error || 'Nao foi possivel salvar o lembrete.'); return false; }
+
+    campo.value = '';
+    await carregaLembretes();
+    flash('ok', 'Lembrete anotado.');
+    return false;
+};
+
+window.lembreteConclui = async function (id) {
+    const r = await postJSON('/api/calendar/lembretes/' + encodeURIComponent(id) + '/concluir', {});
+    if (!r.ok) { flash('err', r.data.error || 'Nao foi possivel atualizar.'); return; }
+    await carregaLembretes();
+};
+
+window.lembreteApaga = function (id) {
+    confirmThen(
+        'O lembrete sai do painel e nao volta. Concluir e melhor quando a ideia e so nao deixar pendente.',
+        async function () {
+            const r = await postJSON('/api/calendar/lembretes/' + encodeURIComponent(id) + '/apagar', {});
+            if (!r.ok) { flash('err', r.data.error || 'Nao foi possivel apagar.'); return; }
+            await carregaLembretes();
+        },
+        { titulo: 'Apagar lembrete', confirmar: 'Apagar' }
+    );
+};
+
+var remindersDoMes = [];
+
+async function carregaLembretes() {
+    const mes = currentYear + '-' + String(currentMonth + 1).padStart(2, '0');
+    try {
+        const res = await fetch('/api/calendar/lembretes?mes=' + mes);
+        if (!res.ok) return;
+        remindersDoMes = await res.json();
+        remindersByDate = agrupaLembretes(remindersDoMes);
+        desenhaLembretes();
+        atualizaAvisoLembrete();
+        // A grade e' redesenhada para aparecer o ponto do lembrete no dia. Sao
+        // trinta celulas: redesenhar e' mais barato que procurar o dia e trocar
+        // uma classe, e o codigo de marcar fica em um lugar so.
+        renderCalendar();
+    } catch (e) {
+        log.error('Erro ao buscar lembretes:', e);
+    }
+}
+
 async function fetchOrdersForCalendar() {
     try {
         const res = await fetch('/api/calendar/orders');
@@ -451,7 +644,7 @@ function renderCalendar() {
         const isToday = day === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
         const isSelected = iso === selectedDate;
 
-        const base = 'p-2 min-h-[4.5rem] rounded-lg border cursor-pointer transition flex flex-col gap-0.5 text-left ';
+        const base = 'p-2 min-h-[4.5rem] rounded-lg border cursor-pointer transition flex flex-col gap-0.5 text-left';
         const tone = count
             ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40 '
             : 'border-stone-200 dark:border-stone-700 ';
@@ -483,13 +676,29 @@ function renderCalendar() {
          * setembro de 2026, 6 pedidos" -- em vez de soletrar "2" e "R$ 7.794,00"
          * como duas coisas sem contexto.
          */
-        const rotulo = dataBr(iso) + (count ? ', ' + count + ' pedido(s)' : ', sem pedidos');
-        html += '<button type="button" class="' + base + tone + anel + '"'
-            + ' onclick="showDayOrders(\\'' + iso + '\\')"'
+        const rotulo = dataBr(iso) + (count ? ', ' + count + ' pedido(s)' : ', sem pedidos')
+            + (remindersByDate[iso] ? ', ' + (remindersByDate[iso].pendentes > 0
+                ? remindersByDate[iso].pendentes + ' lembrete(s) a fazer'
+                : 'lembretes concluidos') : '');
+
+        /*
+         * O dia vai em data-dia, e o clique em um unico listener delegando.
+         *
+         * Era onclick="showDayOrders('2026-09-25')", e isso exige dois níveis de
+         * escape dentro do template literal do servidor -- \\' para virar \' no
+         * JavaScript entregue, porque um \' solto no arquivo TypeScript vira uma
+         * aspas no script e fecha a string. Ja quebrou duas vezes nesta sessao,
+         * e o sintoma e' o mais caro de todos: o bloco inteiro deixa de fazer
+         * parse, a tela abre e nao responde. Delegacao tira o problema pela raiz
+         * -- o atributo nao tem aspas para escapar, e nao ha uma funcao por celula.
+         */
+        html += '<button type="button" class="' + base + tone + anel + ' relative"'
+            + ' data-dia="' + iso + '"'
             + ' aria-pressed="' + (isSelected ? 'true' : 'false') + '"'
             + ' aria-label="' + esc(rotulo) + '"'
-            + ' title="' + esc(rotulo) + '">';
-        html += '<span class="text-sm font-bold ' + (isToday ? 'text-amber-600 dark:text-amber-400' : '') + '">' + day + '</span>';
+            + ' title="' + esc(rotulo) + '">'
+            + marcadorLembrete(iso)
+            + '<span class="text-sm font-bold ' + (isToday ? 'text-amber-600 dark:text-amber-400' : '') + '">' + day + '</span>';
         if (count) {
             html += '<span class="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">' + count + ' ped.</span>';
             html += '<span class="text-[11px] text-stone-500 dark:text-stone-400">R$ ' + revenue.toFixed(2) + '</span>';
@@ -519,6 +728,11 @@ window.irPara = function (mes, ano) {
     if (Number.isFinite(ano)) currentYear = ano;
     renderCalendar();
     avisaDiaForaDaVista();
+    // Os lembretes sao do MES, entao mudar de mes e' o que torna a lista de
+    // cima o que ela mostra. Sem esta chamada, a coluna da direita continuaria
+    // com os lembretes do mes anterior embaixo de uma grade que ja mudou -- a
+    // mesma razao pela qual o aviso de dia fora da vista existe.
+    void carregaLembretes();
 };
 
 /** Um mes a frente ou atras, atravessando a virada de ano. */
@@ -530,8 +744,19 @@ window.mudaMes = function (delta) {
     window.irPara(m, a);
 };
 
-window.showDayOrders = function (iso) {
-    const box = document.getElementById('dayOrders');
+/**
+ * Clique no dia.
+ *
+ * Delegado no grid, e nao um handler por celula: a grade e' redesenhada a cada
+ * mudanca de mes e a cada anotacao de lembrete, e ligar cada celula a cada
+ * redesenho e' trabalho que se perde na primeira troca.
+ */
+document.addEventListener('click', function (ev) {
+    var dia = ev.target.closest('#calendarGrid [data-dia]');
+    if (dia) window.showDayOrders(dia.dataset.dia);
+});
+
+window.showDayOrders = function (iso) {    const box = document.getElementById('dayOrders');
     if (!box) return;
 
     selectedDate = iso;
@@ -542,6 +767,9 @@ window.showDayOrders = function (iso) {
 
     const titulo = document.getElementById('dayOrdersTitle');
     if (titulo) titulo.textContent = 'Pedidos de ' + dataBr(iso);
+    // O formulario de lembrete escreve no dia escolhido. E' o mesmo estado que
+    // pinta o anel e nomeia o titulo -- uma selecao so, lida por tres lugares.
+    atualizaAvisoLembrete();
 
     const data = ordersByDate[iso];
     if (!data || !data.orders.length) {
@@ -592,6 +820,7 @@ function avisaDiaForaDaVista() {
 }
 
 fetchOrdersForCalendar();
+carregaLembretes();
 `);
 });
 

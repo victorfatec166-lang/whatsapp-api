@@ -346,9 +346,39 @@ model Config {
 }
 
 model BotMessage {
-  id      String @id @default("default")
-  key     String @unique
-  value   String
+  id String @id @default("default")
+  key String @unique
+  value String
+}
+
+/// Lembrete que a pessoa anotou em um dia do calendario.
+///
+/// E' do dono, nao do cliente: nao tem telefone, nao tem nome, nao aparece em
+/// nenhuma tela de venda. Por isso nao entra na retencao da meia-noite -- o que
+/// some no corte e' conversa, e esta tabela e' anotacao de trabalho.
+///
+/// A data e' meia-noite local gravada como DateTime, pelo mesmo motivo do cardapio
+/// do dia: o "dia" e' o dia de quem olha a tela, e `date` puro traria problema de
+/// fuso do mesmo ja visto no grafico de receita.
+model Reminder {
+  id String @id @default(uuid())
+  /// Meia-noite local do dia a que o lembrete pertence.
+  date DateTime
+  /// O que precisa ser feito. Curto e' melhor: e' uma anotacao para glance.
+  text String
+  /// Marcado como feito. O lembrete NAO e' apagado quando concluida: apagar
+  /// something a pessoa registrou como "feito" e' o que faz a lista de lembretes
+  /// perder o historico, e o historico e' o que responde "essa entrega ja saiu?".
+  done Boolean @default(false)
+  /// Quando o lembrete foi anotado. Serve para ordenar a lista do dia: o mais
+  /// antigo primeiro, que e' a ordem em que a fila se cumpre.
+  createdAt DateTime @default(now())
+
+  /// A tela lista os lembretes de um mes inteiro, e filtra o dia pela data.
+  @@index([date])
+  /// A lista de um dia e' sempre "deste dia, nao concluido, mais antigo
+  /// primeiro". Esse indice e' exatamente essa consulta.
+  @@index([date, done])
 }
 
 /// Conversa entre um cliente e a loja, pelo WhatsApp.

@@ -69,7 +69,37 @@ export function renderPairing(d: PairData): string {
         '<button onclick="unpair()" class="px-3 py-2 rounded-lg text-sm font-medium transition badge-red flex items-center gap-2">'
         + '<i class="fa-solid fa-link-slash"></i> Desconectar e parear outro numero</button>';
 
+    /*
+     * Aviso de sessao de outra maquina.
+     *
+     * Fica no topo do card de pareamento, e nao em um aviso generico no fim da
+     * tela, porque a pessoa chega aqui querendo entender por que o WhatsApp
+     * nao conectou. O aviso precisa estar antes do QR, e dizer o que fazer --
+     * que e' escanear de novo -- em vez de so accusear.
+     *
+     * Aparece antes do QR, e nao depois, porque o QR e' a solucao: quem leu o
+     * aviso le o QR em seguida.
+     */
+    const sessaoEstranha = d.state.sessaoDeOutraMaquina
+        ? [
+              '        <div id="sessaoEstranha" class="surface border line rounded-2xl p-4 mb-5 flex items-start gap-3" style="border-left: 4px solid var(--badge-red-ink)">',
+              '            <i class="fa-solid fa-triangle-exclamation accent-red mt-0.5 shrink-0"></i>',
+              '            <div class="min-w-0">',
+              '                <p class="font-bold accent-red mb-1">A sessao do WhatsApp veio de outra maquina</p>',
+              '                <p id="sessaoEstranhaTexto" class="text-sm ink-2">' + escapeHtml(d.state.sessaoDeOutraMaquina) + '</p>',
+              '                <p class="text-sm ink-2 mt-2">'
+              + 'A solucao e\' escanear o QR ao lado com o celular. A sessao antiga so e\' reescrita '
+              + 'quando voce le o codigo; ate la, esta maquina fica sem WhatsApp.</p>',
+              '                <p class="text-xs ink-3 mt-1">Se voce <strong>acabou de reinstalar o Windows</strong> '
+              + 'ou trocou o disco, isso e\' esperado. Se nao foi o caso, a pasta '
+              + '<code class="font-mono">' + escapeHtml(d.authPath) + '</code> veio de outra instalacao.</p>',
+              '            </div>',
+              '        </div>',
+          ].join('\n')
+        : '';
+
     return [
+        sessaoEstranha,
         '        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">',
 
         '            <div class="surface border line rounded-2xl p-5 shadow-sm">',
@@ -153,6 +183,16 @@ export const PAIRING_CLIENT_SCRIPT = [
     '            if (err) {',
     '                if (state.lastError) { err.textContent = state.lastError; err.classList.remove("hidden"); }',
     '                else { err.classList.add("hidden"); }',
+    '            }',
+    '            var estranha = document.getElementById("sessaoEstranha");',
+    '            if (estranha && state.sessaoDeOutraMaquina) {',
+    '                // Aparece sem recarregar a pagina. O aviso nasce no boot, e',
+    '                // quem abre a aba do WhatsApp depois disso precisa ver sem',
+    '                // precisar de F5 -- senao ele simplesmente nao existe para',
+    '                // essa pessoa.',
+    '                var texto = document.getElementById("sessaoEstranhaTexto");',
+    '                if (texto) texto.textContent = state.sessaoDeOutraMaquina;',
+    '                estranha.classList.remove("hidden");',
     '            }',
     '            var wantsQr = state.phase === "aguardando-qr" || state.phase === "escaneado";',
     '            var qrBox = document.getElementById("qrBox");',

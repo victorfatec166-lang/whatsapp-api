@@ -11,7 +11,7 @@ import { addClient, notifyClients, notifyConnection, getClientCount } from './se
 // QR_TTL_MS saiu daqui: era usado para expire o QR antigo, e a sessao do
 // Baileys ja resolve isso sozinha. O import nao custava nada, mas deixava
 // parecer que o TTL era configuravel por aqui.
-import { initBot, sendOrderStatusNotification, isBotOnline, loadBotMessages, reconnectBot, logoutBot, getConnectionState, onConnectionChange } from './services/bot';
+import { initBot, sendOrderStatusNotification, isBotOnline, loadBotMessages, reconnectBot, logoutBot, getConnectionState, onConnectionChange, AUTH_DIR } from './services/bot';
 import { renderLayout, tabHint, isTabId, LEGACY_TABS, type TabId } from './views/layout';
 import { PAIRING_CLIENT_SCRIPT } from './views/pairing';
 import { renderWhatsApp } from './views/whatsapp';
@@ -259,11 +259,17 @@ app.get('/api/bot-status', (_req, res) => {
     res.json({ online: isBotOnline(), sseClients: getClientCount() });
 });
 
-const AUTH_DIR = 'auth_info_baileys';
-
+/**
+ * Tem sessao salva no disco?
+ *
+ * Procura `creds.json` pelo nome exato, e nao "qualquer .json". A pasta ganha
+ * outros arquivos ao lado das chaves -- a marcacao de maquina, por exemplo --
+ * e um "tem arquivo .json" responderia verdadeiro mesmo sem sessao pareada,
+ * o que faria a tela mandar para um QR que nao tem o que parear.
+ */
 function hasSavedSession(): boolean {
     try {
-        return fs.existsSync(AUTH_DIR) && fs.readdirSync(AUTH_DIR).some((f) => f.endsWith('.json'));
+        return fs.existsSync(AUTH_DIR) && fs.readdirSync(AUTH_DIR).some((f) => f === 'creds.json');
     } catch {
         return false;
     }
@@ -1284,10 +1290,13 @@ app.post('/admin/bot/logout', async (_req, res) => {
     try {
         await logoutBot();
         // A sessao em disco e apagada para que o proximo pareamento comece do zero.
+        // Apaga TUDO da pasta, e nao so os .json: a marcacao de maquina tambem
+        // precisa ir, senao o proximo pareamento nasceria ja marcado com a
+        // identidade da sessao que acabou de ser desfeita. Ver src/services/maquina.ts.
         try {
             if (fs.existsSync(AUTH_DIR)) {
                 for (const file of fs.readdirSync(AUTH_DIR)) {
-                    if (file.endsWith('.json')) fs.unlinkSync(path.join(AUTH_DIR, file));
+                    fs.unlinkSync(path.join(AUTH_DIR, file));
                 }
             }
         } catch (error) {

@@ -15,6 +15,7 @@ import { loadBotMessages, getBotMessage } from './botMessages';
 import { createOrderWithStock } from './orders';
 import { loadProductFull, priceCart, linesToItemsField, type ProductFull } from './modifiers';
 import { buildBotMenu, renderBotMenuText } from './dailyMenu';
+import { confereAmarracao } from './maquina';
 import {
     botPodeResponder,
     guardaFoto,
@@ -179,6 +180,15 @@ export type ConnectionState = {
     platform: string | null;
     since: number | null;
     lastError: string | null;
+    /**
+     * Preenchido quando a sessao em disco veio de outra maquina.
+     *
+     * E' o que a tela mostra em cima do QR, com o texto do que aconteceu. A
+     * alternativa -- ligar do mesmo jeito e avisar depois -- deixaria dois
+     * aparelhos com a mesma identidade ativa, e o desfecho possivel e' o
+     * WhatsApp derrubar um deles.
+     */
+    sessaoDeOutraMaquina: string | null;
 };
 
 const connection: ConnectionState = {
@@ -191,7 +201,11 @@ const connection: ConnectionState = {
     platform: null,
     since: null,
     lastError: null,
+    sessaoDeOutraMaquina: null,
 };
+
+/** Guardado por fora do estado para sobreviver ao reconnect, que reseta o estado. */
+let sessaoDeOutraMaquina: { motivo: string; podeAparear: boolean } | null = null;
 
 type ConnectionListener = (state: ConnectionState) => void;
 const connectionListeners = new Set<ConnectionListener>();
@@ -213,6 +227,11 @@ export function getConnectionState(): ConnectionState {
 
 function setConnection(patch: Partial<ConnectionState>): void {
     Object.assign(connection, patch);
+    // O aviso de sessao estranha e' reemitido em toda mudanca de estado, e nao
+    // so no boot. Sem isso, um reconnect -- que reseta a fase para
+    // "aguardando-qr" -- faria o aviso sumir da tela bem no momento em que a
+    // pessoa precisa dele para entender por que tem um QR na frente.
+    connection.sessaoDeOutraMaquina = sessaoDeOutraMaquina?.motivo ?? null;
     const snapshot = getConnectionState();
     for (const listener of connectionListeners) {
         try {
@@ -229,9 +248,39 @@ function bindSocket(target: any, handler: (payload: any) => void) {
     target.ev.on('connection.update', handler);
 }
 
+/*
+ * Pasta da sessao do WhatsApp.
+ *
+ * Mora aqui, e nao em cada arquivo que precisa, por causa da amarracao de
+ * maquina: `confereAmarracao` grava a marcacao AO LADO das chaves, entao quem
+ * define a pasta precisa ser o mesmo que confere. Duas constantes iguais em
+ * arquivos diferentes e' como os dois paths divergem sem ninguem notar -- e o
+ * sintoma seria a marcacao sumir sozinha.
+ */
+export const AUTH_DIR = 'auth_info_baileys';
+
 // Adicionamos um parâmetro 'onOrderCreated' para receber a função de aviso do servidor
 export async function startWhatsAppBot(onOrderCreated?: () => void) {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+
+    /*
+     * Confere se esta sessao e' desta maquina, ANTES de abrir o socket.
+     *
+     * A ordem importa: se a sessao for de outro aparelho, o certo e' nao
+     * conectar e pedir o QR. Conectar primeiro e avisar depois deixaria dois
+     * aparelhos com a mesma identidade ativa por alguns segundos -- que e'
+     * exatamente a janela em que o WhatsApp pode derrubar um dos dois.
+     *
+     * Nao trava o app. A sessao pode ter vindo de outra maquina por um motivo
+     * legitimo -- reinstalacao do Windows, HD trocado -- e quem resolve e'
+     * escaneando o QR, em um minuto. Um bloqueio obrigaria a pessoa a apagar
+     * arquivo as maos sem nenhuma pista de por que.
+     */
+    const sessao = confereAmarracao(AUTH_DIR);
+    sessaoDeOutraMaquina = sessao;
+    if (sessao) {
+        log.warn('Sessao de outra maquina detectada. Ignorando a sessao e pedindo um QR novo.');
+    }
 
     sock = makeWASocket({
         auth: state,

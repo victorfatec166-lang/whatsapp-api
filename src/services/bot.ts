@@ -146,14 +146,26 @@ async function createBotOrder(
     userSession[jid].offered = undefined;
 
     const label = line.modLabels.length ? `${line.name} (${line.modLabels.join(', ')})` : line.name;
+    /*
+     * `replaceAll`, e nao `replace`.
+     *
+     * `String.replace` com string troca SO A PRIMEIRA ocorrencia. Escrever
+     * "{total}" duas vezes -- o que e' natural em "Total {total}, e o PIX e'
+     * para {total}" -- mandava o segundo "{total}" literal para o cliente. O
+     * mesmo para {items} em um texto que lista e depois resume.
+     *
+     * E' a razao de a tela de mensagens oferecer as variaveis como botao: a
+     * pessoa nao deveria ter que lembrar de um detalhe de substituicao para
+     * escrever uma frase natural.
+     */
     const orderReceivedMsg = getBotMessage('orderReceived',
         '🎉 *Pedido Recebido com Sucesso!* \n\n' +
         '📦 *Item:* {items}\n' +
         '💵 *Total:* R$ {total}\n\n' +
         'O seu pedido já foi registado na cozinha! Digite *2* para consultar os seus pedidos.'
     )
-        .replace('{items}', label)
-        .replace('{total}', line.total.toFixed(2));
+        .replaceAll('{items}', label)
+        .replaceAll('{total}', line.total.toFixed(2));
 
     await sock?.sendMessage(jid, { text: orderReceivedMsg });
 }
@@ -696,9 +708,12 @@ export async function sendOrderStatusNotification(
     const template = getStatusMessage(status);
     if (!template) return;
 
+    // `replaceAll` e nao `replace`: ver a nota no pedido recebido. Aqui o
+    // efeito era pior, porque a mensagem de status e' a que o cliente le com
+    // mais atencao -- e um "{total}" no meio dela parece erro do sistema.
     const message = template
-        .replace('{items}', items)
-        .replace('{total}', total.toFixed(2));
+        .replaceAll('{items}', items)
+        .replaceAll('{total}', total.toFixed(2));
 
     await sendWhatsAppMessage(remoteJid, message);
 }

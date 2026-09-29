@@ -16,7 +16,7 @@ export function renderWhatsApp(d: { pair: PairData; bot: BotData }): string {
             <summary class="cursor-pointer px-5 py-4 font-bold text-ink flex items-center gap-2 select-none">
                 <i class="fa-solid fa-comment-dots text-accent"></i>
                 Textos do bot
-                <span class="badge-neutral ml-1">${Object.keys(d.bot.messages).length} mensagens</span>
+                <span class="badge-neutral ml-1">${Object.keys(d.bot.mensagens).length} mensagens</span>
                 <i class="fa-solid fa-chevron-down ml-auto text-caption text-ink-3"></i>
             </summary>
             <div class="px-5 pb-5 border-t border-line pt-5">

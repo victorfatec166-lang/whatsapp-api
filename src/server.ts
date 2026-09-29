@@ -73,6 +73,11 @@ import {
     type OrderWithProductless,
 } from './services/stats';
 import { DEFAULT_BOT_MESSAGES } from './services/botDefaults';
+import {
+    mapaParaTela,
+    restaurarTodasMensagens,
+    salvarMensagem,
+} from './services/botMessages';
 import { logDoModulo, pastaDeLogs } from './services/logger';
 import { limitador as limitePorJanela } from './services/rateLimit';
 const log = logDoModulo('server');
@@ -1352,25 +1357,82 @@ app.post('/admin/config/save', async (req, res) => {
 
 const ALLOWED_MESSAGE_KEYS = Object.keys(DEFAULT_BOT_MESSAGES);
 
+/**
+ * Salva as mensagens editadas.
+ *
+ * So as chaves que VIERAM no corpo sao tocadas, e nunca a lista inteira. A
+ * versao anterior gravava as 15 chaves com o que veio no formulario -- e, como
+ * a tela mostrava os campos vazios para quem nunca editou nada, salvar uma
+ * unica mensagem apagaria as outras catorze da tabela. Como o valor vazio caia
+ * no padrao por acidente (o `||` do cache), o bot continuava mandando texto --
+ * mas a tela ficava mostrando "sem edicao" para tudo, e a proxima vez que
+ * alguém editasse ia apagar de novo.
+ *
+ * Agora a regra e' explicita: campo vazio e' "usar o padrao", e a funcao
+ * `salvarMensagem` apaga a linha. Nao e' um efeito colateral do `||`.
+ */
 app.post('/admin/bot-messages/save', async (req, res) => {
     try {
         const body = (req.body ?? {}) as Record<string, unknown>;
+        const salvas: string[] = [];
+        const restauradas: string[] = [];
+
         for (const key of ALLOWED_MESSAGE_KEYS) {
+            // Ausente no corpo = a pessoa nao mexeu. Nao e' o mesmo que vazio.
+            if (!(key in body)) continue;
             if (typeof body[key] !== 'string') continue;
-            const value = body[key].slice(0, 4000);
-            await prisma.botMessage.upsert({
-                where: { key },
-                update: { value },
-                create: { key, value },
-            });
+            const valor = body[key] as string;
+            const estavaEditado = (mapaParaTela()[key]?.editado ?? false);
+
+            await salvarMensagem(key, valor);
+
+            if (valor.trim() === '') {
+                if (estavaEditado) restauradas.push(key);
+            } else if (!estavaEditado) {
+                salvas.push(key);
+            }
         }
-        await loadBotMessages();
+
         notifyClients();
-        res.json({ success: true });
+        res.json({
+            success: true,
+            salvas,
+            restauradas,
+            // Devolve o estado inteiro para a tela se redesenhar sem recarregar.
+            mensagens: mapaParaTela(),
+        });
     } catch (error) {
         log.error('Erro ao salvar mensagens do bot:', error);
         res.status(500).json({ error: 'Erro ao salvar mensagens' });
     }
+});
+
+/**
+ * Volta as mensagens aos padroes.
+ *
+ * Um botao so para as 15, porque a pergunta "qual mensagem eu alterei?" e' a
+ * que a pessoa faz quando o bot comeca a falar uma coisa estranha. O caminho
+ * longo e' apagar as edicoes uma a uma; este e' para quando o estrago foi geral.
+ *
+ * Some com as edicoes de verdade, e nao grava o texto padrao por cima. Ver
+ * `restaurarMensagem`.
+ */
+app.post('/admin/bot-messages/restaurar-todas', async (_req, res) => {
+    try {
+        const quantas = await restaurarTodasMensagens();
+        notifyClients();
+        log.info('Mensagens do bot restauradas ao padrao', { quantas });
+        res.json({ success: true, restauradas: quantas, mensagens: mapaParaTela() });
+    } catch (error) {
+        log.error('Erro ao restaurar mensagens do bot:', error);
+        res.status(500).json({ error: 'Erro ao restaurar mensagens' });
+    }
+});
+
+/** Estado das mensagens: texto atual, padrao e se esta editado. */
+app.get('/admin/bot-messages', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(mapaParaTela());
 });
 
 /* --------------------------------------------------------- Exportacao CSV */
@@ -1438,11 +1500,14 @@ app.get('/admin', async (req, res) => {
         // Sem ?tab= a home e a primeira tela; "pedidos" segue acessivel pelo menu.
         const active: TabId = isTabId(rawTab) ? rawTab : 'home';
 
-        const [products, orders, config, botMessages] = await Promise.all([
+        // `botMessage.findMany()` saiu daqui. As mensagens do bot so' interessam
+        // a aba do WhatsApp, e la' o texto vem de `mapaParaTela()`, que ja
+        // le' o banco. Trazer as linhas em toda visita ao painel era uma
+        // consulta a mais em cada pagina por um dado que quase ninguem abre.
+        const [products, orders, config] = await Promise.all([
             prisma.product.findMany({ orderBy: { createdAt: 'asc' } }),
             prisma.order.findMany({ orderBy: { createdAt: 'desc' } }),
             getConfig(),
-            prisma.botMessage.findMany(),
         ]);
 
         /*
@@ -1473,9 +1538,6 @@ app.get('/admin', async (req, res) => {
                     `Faturamento mostrar menos receita que a real.`
             );
         }
-
-        const messages: Record<string, string> = {};
-        for (const m of botMessages) messages[m.key] = m.value;
 
         let body = '';
 
@@ -1809,7 +1871,7 @@ app.get('/admin', async (req, res) => {
                         authPath: AUTH_DIR,
                         hasSavedSession: hasSavedSession(),
                     },
-                    bot: { messages },
+                    bot: { mensagens: mapaParaTela() },
                 });
                 break;
             }

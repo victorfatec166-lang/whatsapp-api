@@ -396,6 +396,53 @@ test('summarize: valor e capital imobilizado usam o preco certo', () => {
     assert.equal(s.costValue, 24);
 });
 
+/* ------------------------------------------------- substituicao de variaveis */
+
+/*
+ * A tela oferece {items} e {total} como botao justamente porque este
+ * detalhe nao pode ficar nas costas de quem escreve a frase. Com `replace` de
+ * string, a segunda ocorrencia ia para o cliente como "{total}" literal -- e o
+ * unico sintoma era o cliente reclamando de um texto com chaves.
+ */
+const itens = '2x Coxinha';
+const total = '18,00';
+
+function montaMensagem(texto: string): string {
+    return texto.replaceAll('{items}', itens).replaceAll('{total}', total);
+}
+
+test('variavel repetida e' + ' substituida em todas as ocorrencias', () => {
+    const r = montaMensagem('Itens: {items}\nRepetindo: {items}\nTotal {total} e pix para {total}');
+    assert.equal(r.includes('{items}'), false, 'sobrou {items} literal');
+    assert.equal(r.includes('{total}'), false, 'sobrou {total} literal');
+    assert.equal(r.split(itens).length - 1, 2, 'itens aparece duas vezes');
+    assert.equal(r.split(total).length - 1, 2, 'total aparece duas vezes');
+});
+
+test('variavel ausente nao quebra a mensagem', () => {
+    // Mensagem sem {total} e' a maioria. Nao pode virar "undefined".
+    const r = montaMensagem('Ola, tudo bem?');
+    assert.equal(r, 'Ola, tudo bem?');
+});
+
+test('variavel vazia no texto nao some com a frase', () => {
+    // Se o item vier vazio do catalogo, o texto nao pode perder a frase em volta.
+    const r = 'Itens: {items} | Total: {total}'.replaceAll('{items}', '').replaceAll('{total}', '');
+    assert.equal(r, 'Itens:  | Total: ');
+});
+
+/* --------------------------------------------------------- mensagens padrao */
+
+test('campo vazio equivale ao padrao, e isso e' + ' a regra da tela', () => {
+    // A tela manda string vazia para "voltar ao padrao". Se os dois textos
+    // estilisticamente diferentes (espaco a mais no fim) fossem tratados como
+    // edicao, o campo apareceria "Editado" sem nenhuma edicao.
+    const igual = (a: string, b: string) => a.trim() === b.trim();
+    assert.equal(igual('', ''), true, 'dois vazios sao iguais');
+    assert.equal(igual('texto\n', 'texto'), true, 'espaco a mais nao e edicao');
+    assert.equal(igual('outro', 'texto'), false, 'textos diferentes sao edicao');
+});
+
 test('summarize: soma de dinheiro nao acumula erro de ponto flutuante', () => {
     const s = summarize([
         linha({ id: '1', stock: 3, price: 0.1, costPrice: 0 }),

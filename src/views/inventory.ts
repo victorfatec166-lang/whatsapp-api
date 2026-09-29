@@ -207,13 +207,18 @@ ${reorderRows}
                 <div class="p-4 flex flex-wrap items-center justify-between gap-3 border-b line">
                     <h3 class="font-bold ink flex items-center gap-2"><i class="fa-solid fa-boxes-stacked accent-amber"></i> Saldo por produto</h3>
                     <div class="flex flex-wrap items-center gap-2">
+                        <!--
+                            Mesma regra das outras telas: largura declarada e
+                            shrink-0, senao o campo encolhe e o texto digitado
+                            desaparece da caixa sem tecla nenhuma se perder.
+                        -->
                         <input id="stockSearch" type="search" placeholder="Buscar produto..." oninput="stockFilter()"
-                            class="px-3 py-1.5 text-sm border line-in rounded-lg">
-                        <select id="stockCategory" onchange="stockFilter()" class="px-2 py-1.5 text-sm border line-in rounded-lg">
+                            class="px-3 py-1.5 text-sm border line-in rounded-lg w-64 max-w-full shrink-0" autocomplete="off">
+                        <select id="stockCategory" onchange="stockFilter()" class="px-2 py-1.5 text-sm border line-in rounded-lg shrink-0">
                             <option value="">Todas</option>
                             ${d.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
                         </select>
-                        <select id="stockStatusFilter" onchange="stockFilter()" class="px-2 py-1.5 text-sm border line-in rounded-lg">
+                        <select id="stockStatusFilter" onchange="stockFilter()" class="px-2 py-1.5 text-sm border line-in rounded-lg shrink-0">
                             <option value="">Tudo</option>
                             <option value="baixo">So estoque baixo</option>
                             <option value="zerado">So zerados</option>

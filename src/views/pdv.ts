@@ -1,6 +1,7 @@
 import { escapeHtml } from './html';
 import { currency } from '../services/stats';
 import { stockStatus, STOCK_STATUS_LABEL, STOCK_STATUS_BADGE } from '../services/stock';
+import { CATEGORIA_PADRAO } from '../services/categorias';
 
 type PdvModifier = {
     id: string;
@@ -118,6 +119,34 @@ export function renderPdv(d: PdvData): string {
         })
         .join('\n');
 
+    /*
+     * As abas de categoria, com a contagem de produtos em cada uma.
+     *
+     * A contagem e' de produtos visiveis (disponiveis), e nao de produtos
+     * cadastrados: um grupo que mostra "Salgados (3)" e traz 1 salgado
+     * pausado faz a pessoa procurar algo que nao esta la. E o que a contagem
+     * responde e' "estou no grupo certo", nao "quantas coisas eu tenho".
+     *
+     * A aba de "Todos" vem primeiro e nao tem contagem: ela nao e' um grupo, e'
+     * a ausencia de filtro.
+     */
+    const porCategoria = new Map<string, number>();
+    for (const p of d.products) {
+        if (!sellable(p)) continue;
+        const c = p.category || CATEGORIA_PADRAO;
+        porCategoria.set(c, (porCategoria.get(c) ?? 0) + 1);
+    }
+    const categoriasPdv = [
+        `<button type="button" data-pdv-categoria="" class="chip px-3 py-1.5 rounded-lg text-xs font-semibold transition pdv-cat" aria-pressed="true">Todos</button>`,
+        ...d.categories
+            .filter((c) => porCategoria.has(c))
+            .map(
+                (c) =>
+                    `<button type="button" data-pdv-categoria="${escapeHtml(c)}" class="chip px-3 py-1.5 rounded-lg text-xs font-semibold transition pdv-cat" aria-pressed="false">` +
+                    `${escapeHtml(c)} <span class="ink-3">${porCategoria.get(c)}</span></button>`
+            ),
+    ].join('\n                        ');
+
     return `        <div class="flex flex-wrap items-center gap-3 mb-5">
                 <div class="surface border line rounded-xl px-4 py-2 text-sm">
                     <span class="ink-3">Vendas no balcao hoje:</span>
@@ -145,15 +174,58 @@ export function renderPdv(d: PdvData): string {
                     <div class="xl:col-span-2 surface border line rounded-2xl p-5 shadow-sm">
                         <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
                             <h3 class="font-bold ink flex items-center gap-2"><i class="fa-solid fa-cash-register accent-amber"></i> Catalogo</h3>
-                            <div class="flex items-center gap-2">
-                                <input id="pdvScan" type="text" placeholder="Codigo do produto..." onkeydown="if(event.key==='Enter'){event.preventDefault();if(!pdvScanCode(this.value)){flash('err','Codigo nao encontrado.');}this.value='';}" class="px-3 py-1.5 text-sm border line-in rounded-lg w-36">
-                                <input id="pdvSearch" type="search" placeholder="Buscar produto..." oninput="pdvFilter()"
-                                    class="px-3 py-1.5 text-sm border line-in rounded-lg">
-                                <select id="pdvCategory" onchange="pdvFilter()" class="px-2 py-1.5 text-sm border line-in rounded-lg">
-                                    <option value="">Todas</option>
-                                    ${d.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
-                                </select>
-                            </div>
+                            <div class="flex flex-wrap items-center gap-2">
+                            <!--
+                                Os dois campos precisam de largura declarada e de
+                                flex-shrink-0.
+
+                                Sem isso, o campo de busca e' um input dentro de um
+                                flex container sem largura: quando a janela e'
+                                estreita, ele encolhe e o texto rola para fora da
+                                caixa. A pessoa digita "arro" e ve "arro" -&gt; as
+                                letras que ela acabou de apertar nao aparecem mais
+                                nenhuma, sem que nenhuma tecla tenha sido perdida.
+                                Encolher input e' o comportamento padrao do navegador
+                                para form control, diferente de texto, que tem
+                                min-width:auto -- entao nao e' preciso o campo
+                                "crescer", ele simplesmente cede espaco ate
+                                desaparecer.
+
+                                E o container ganha flex-wrap porque, com as duas
+                                caixas em tamanho fixo, o que deve quebrar a linha
+                                em vez de espremer o campo e' o layout.
+                            -->
+                            <input id="pdvScan" type="text" placeholder="Codigo do produto..." onkeydown="if(event.key==='Enter'){event.preventDefault();if(!pdvScanCode(this.value)){flash('err','Codigo nao encontrado.');}this.value='';}" class="px-3 py-1.5 text-sm border line-in rounded-lg w-36 shrink-0" autocomplete="off">
+                            <input id="pdvSearch" type="search" placeholder="Buscar produto..." oninput="pdvFilter()"
+                                class="px-3 py-1.5 text-sm border line-in rounded-lg w-64 max-w-full shrink-0" autocomplete="off">
+                        </div>
+                        </div>
+
+                        <!--
+                            A categoria vira aba, e nao <select>.
+
+                            A pergunta do balcao nao e' "qual categoria tem o item que
+                            eu procuro": e' "que grupo de coisa o cliente esta
+                            pedindo agora". Com um dropdown, essa pergunta custa
+                            dois cliques e um pouco de leitura da lista -- e a lista
+                            esta embaixo, dentro do catalogo, competing com 40
+                            cartoes de produto. A aba responde em um clique, mostra
+                            quantos itens tem em cada grupo (para a pessoa saber se
+                            esta no lugar certo sem precisar rolar), e tem a largura
+                            de um dedo.
+
+                            E a aba cobre um caso que o dropdown nao cobria: a
+                            categoria vazia. Sem produto em "Bebidas", ela nao
+                            aparece -- e assim o grupo nao ocupa espaco para dizer
+                            que esta vazio. Categoria so entra na barra quando tem
+                            algo dentro.
+
+                            O valor viaja em data-categoria, nao em id="pdvCategory":
+                            o id era o que o filtro lia, e o id precisa existir uma
+                            vez so. Ver pdvFiltroCategoria.
+                        -->
+                        <div id="pdvCategorias" class="flex flex-wrap gap-1.5 mb-4" role="tablist" aria-label="Categorias">
+${categoriasPdv}
                         </div>
 
                         ${
@@ -420,7 +492,7 @@ ${sellCards}
 
             function pdvFilter() {
                 var q = (document.getElementById('pdvSearch').value || '').toLowerCase();
-                var cat = (document.getElementById('pdvCategory').value || '').toLowerCase();
+                var cat = pdvCategoriaAtual().toLowerCase();
                 document.querySelectorAll('#pdvGrid [data-pdv-product]').forEach(function (card) {
                     var p = PDV_CATALOG.filter(function (x) { return x.id === card.dataset.pdvProduct; })[0];
                     if (!p) return;
@@ -428,6 +500,27 @@ ${sellCards}
                     card.style.display = ok ? '' : 'none';
                 });
             }
+
+            /** A categoria escolhida, ou string vazia para "Todos". */
+            function pdvCategoriaAtual() {
+                var botao = document.querySelector('#pdvCategorias .pdv-cat[aria-pressed="true"]');
+                return botao ? botao.dataset.pdvCategoria : '';
+            }
+
+            /*
+             * Trocar de categoria e um clique, entao o filtro tem que estar pronto
+             * antes do clique -- por isso o estado mora no atributo do botao, e nao
+             * em variavel. Um botao recem-criado ja entra no estado certo sem
+             * ninguem precisar lembrar de sincronizar.
+             */
+            document.addEventListener('click', function (e) {
+                var botao = e.target.closest('#pdvCategorias .pdv-cat');
+                if (!botao) return;
+                document.querySelectorAll('#pdvCategorias .pdv-cat').forEach(function (b) {
+                    b.setAttribute('aria-pressed', b === botao ? 'true' : 'false');
+                });
+                pdvFilter();
+            });
 
             function pdvModKey(id, picked) {
                 var groups = (picked && Object.keys(picked).length)

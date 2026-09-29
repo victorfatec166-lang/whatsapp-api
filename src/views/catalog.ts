@@ -1,5 +1,6 @@
 import { escapeHtml } from './html';
 import { currency } from '../services/stats';
+import { CATEGORIAS } from '../services/categorias';
 import { logDoModulo } from '../services/logger';
 const log = logDoModulo('catalog');
 
@@ -106,10 +107,26 @@ export function renderCatalog(d: CatalogData): string {
                         <p id="catMarginHint" class="text-[11px] ink-3">Informe o preco de compra para calcular a margem.</p>
                         <div>
                             <label class="label" for="catCategory">Categoria</label>
-                            <input id="catCategory" type="text" name="category" list="categoryList" maxlength="40" placeholder="Geral" class="input">
+                            <input id="catCategory" type="text" name="category" list="categoryList" maxlength="40" placeholder="Escolha ou escreva" class="input">
+                            <!--
+                                As sugeridas entram na lista mesmo sem nenhum
+                                produto nelas.
+
+                                A datalist so oferece o que ja existe no catalogo, e
+                                por isso ela nasce vazia: a loja ainda nao
+                                classificou nada, entao o campo oferece "Geral" e a
+                                pessoa digita "salgado" com a caixa baixa, que vira
+                                uma categoria so dela. Offer as canonicas antes de
+                                existir e' o que faz a separacao por tipo
+                                aparecer no filtro do PDV -- sem esperar alguem
+                                inventar o nome certo.
+                            -->
                             <datalist id="categoryList">
-                                ${d.categories.map((c) => `<option value="${escapeHtml(c)}"></option>`).join('')}
+                                ${[...new Set([...CATEGORIAS, ...d.categories])]
+                                    .map((c) => `<option value="${escapeHtml(c)}"></option>`)
+                                    .join('')}
                             </datalist>
+                            <p class="text-[11px] ink-3 mt-1">Sugestoes: ${CATEGORIAS.slice(0, 4).map((c) => escapeHtml(c)).join(', ')}</p>
                         </div>
                         <div>
                             <label class="label" for="catDescription">Descricao (opcional)</label>
@@ -140,9 +157,20 @@ export function renderCatalog(d: CatalogData): string {
             <div class="surface p-5 rounded-2xl shadow-sm border line lg:col-span-2">
                 <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <h3 class="font-bold ink flex items-center gap-2"><i class="fa-solid fa-utensils accent-amber"></i> Cardapio</h3>
-                    <div class="flex items-center gap-2">
-                        <input id="productSearch" type="search" placeholder="Buscar item ou SKU..." oninput="filterProducts()" class="px-3 py-1.5 text-sm border line-in rounded-lg">
-                        <select id="productCategory" onchange="filterProducts()" class="px-2 py-1.5 text-sm border line-in rounded-lg">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <!--
+                            Largura declarada e shrink-0 em busca e select.
+
+                            Sem isso, o campo de busca encolhe ate quase nada e o
+                            texto digitado rola para fora da caixa: a pessoa ve
+                            "arro" e nenhuma das teclas se perdeu. Input nao tem
+                            min-width:auto como o texto tem, entao ele cede espaco
+                            sem avisar -- e o select do lado faz o mesmo. Ja
+                            aconteceu nesta tela, no Estoque e no PDV; o que
+                            resolve e' o mesmo nos tres.
+                        -->
+                        <input id="productSearch" type="search" placeholder="Buscar item ou SKU..." oninput="filterProducts()" class="px-3 py-1.5 text-sm border line-in rounded-lg w-64 max-w-full shrink-0" autocomplete="off">
+                        <select id="productCategory" onchange="filterProducts()" class="px-2 py-1.5 text-sm border line-in rounded-lg shrink-0">
                             <option value="">Todas</option>
                             ${d.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
                         </select>

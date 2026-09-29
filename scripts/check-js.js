@@ -27,6 +27,21 @@
  *
  * Nao substitui teste de navegador. Pega a classe de erro que impede a tela de
  * funcionar, que e' a que passa mais despercebida.
+ *
+ * A SEGUNDA PARTE: atributo sem handler
+ *
+ * Sintaxe ok nao quer dizer botao funcionando. Houve um dia em que o PDV inteiro
+ * ficou inerte -- clicar no produto nao acrescentava nada, o "+" e o "-" do
+ * carrinho nao faziam nada, o troco nao recalculava -- e nada acusou: o `tsc`
+ * passava, este script aqui passava (a sintaxe estava perfeita), o `check:ui`
+ * passava (os rotulos estavam certos). A tela abria bonita e morta. O commit que
+ * causou isso reescreveu a tela e levou o listener de delegacao junto, sem
+ * nenhum sinal de que aquilo era comportamento.
+ *
+ * Entao, alem da sintaxe, este script confere se cada atributo `data-*` que o
+ * HTML entrega e' lido por algum script da propria pagina. A regra e' simples e
+ * tem um caso de falso positivo conhecido, tratado la embaixo: atributo que
+ * ninguem le e' botao sem funcao.
  */
 const http = require('node:http');
 
@@ -58,6 +73,45 @@ function suspecta(codigo, nome) {
     }
 }
 
+/**
+ * Atributos `data-*` que aparecem no HTML e nao sao lidos por nenhum script.
+ *
+ * O nome no HTML vem em duas grafias e o script costuma ler so uma delas: o
+ * `dataset` do navegador converte o hífen em maiúscula (`data-cart-inc` vira
+ * `dataset.cartInc`), e a busca no texto do código acha qualquer uma das duas.
+ * Por isso a comparação ignora o hífen e a caixa.
+ *
+ * O que NAO entra na conta, para o verificador não virar barulho:
+ *
+ *   - `data-modal-cancel`: é lido pelo behavior de janelas, que está no script
+ *     do layout -- em todas as abas, e nem toda aba o inclui no proprio
+ *     <script>. E `data-*` de comportamento, não de dado.
+ *   - atributos que são só marcação semântica para leitor de tela e estilização.
+ *   - `data-href` e afins: ligada por atributo, não por JavaScript.
+ */
+const NAO_CHECAR = new Set(['modal-cancel', 'href', 'target', 'label', 'value']);
+
+function atributosDataNaoLidos(html, codigo) {
+    const noHtml = new Set();
+    for (const m of html.matchAll(/\sdata-([a-z0-9-]+)\s*=/gi)) {
+        noHtml.add(m[1].toLowerCase());
+    }
+
+    // O script é procurado com o hífen removido, porque é assim que o
+    // `dataset` entrega o nome. E o atributo tambem: `data-cart-inc` no HTML
+    // e' `dataset.cartInc` no script, e as duasformas precisam chegar na mesma
+    // string antes de comparar.
+    const codigoSemHifen = codigo.replace(/-/g, '').toLowerCase();
+
+    const orphans = [];
+    for (const attr of noHtml) {
+        if (NAO_CHECAR.has(attr)) continue;
+        if (codigoSemHifen.includes(attr.replace(/-/g, ''))) continue;
+        orphans.push(attr);
+    }
+    return [...orphans].sort();
+}
+
 async function main() {
     let falha = 0;
     let totalBlocos = 0;
@@ -73,6 +127,27 @@ async function main() {
         }
 
         const blocos = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+
+        /*
+         * Script externo entra na conta tambem.
+         *
+         * O calendario e' o unico caso de script servido por rota, e ele nao
+         * estava sendo conferido: a aba passava por estar "ok" com dois blocos
+         * inline perfeitos, enquanto o arquivo de verdade -- o que desenha a
+         * grade e responde ao clique no dia -- podia estar com erro de sintaxe e
+         * ninguem ver. Verificador que so olha metade do que a pagina entrega
+         * da verde falso no que ele nao cobre.
+         */
+        const externos = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
+        for (const src of externos) {
+            try {
+                blocos.push(await pegar(src));
+            } catch (e) {
+                console.log(`  ERRO    ${aba}: nao foi possivel baixar ${src} (${e.message})`);
+                falha++;
+            }
+        }
+
         totalBlocos += blocos.length;
         const ruins = [];
 
@@ -94,14 +169,29 @@ async function main() {
                 suspecta(r.codigo, aba);
             }
         }
+
+        /*
+         * Sintaxe ok e' precondicao para a parte de atributo: um bloco que nao
+         * faz parse pode "nao usar" um atributo so porque morreu no meio, e
+         * acusar o atributo em vez do parse seria apontar o sintoma.
+         */
+        if (ruins.length === 0) {
+            const orphans = atributosDataNaoLidos(html, blocos.join('\n'));
+            if (orphans.length > 0) {
+                falha++;
+                console.log(`  FALHA   ${aba}  (${orphans.length} atributo(s) data-* sem handler)`);
+                console.log(`        ${orphans.join(', ')}`);
+                console.log('        atributo data-* que ninguem le = botao sem funcao. O painel abre, e o clique nao faz nada.');
+            }
+        }
     }
 
     console.log('');
     if (falha > 0) {
-        console.log(`${falha} aba(s) com script invalido. O painel pode pintar certo e nao responder.`);
+        console.log(`${falha} problema(s). O painel pode pintar certo e nao responder.`);
         process.exitCode = 1;
     } else {
-        console.log(`${ABAS.length} aba(s), ${totalBlocos} bloco(s) de script: sintaxe ok.`);
+        console.log(`${ABAS.length} aba(s), ${totalBlocos} bloco(s) de script: sintaxe ok e todo data-* tem handler.`);
     }
 }
 

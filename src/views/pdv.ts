@@ -679,6 +679,77 @@ ${sellCards}
                 return true;
             }
 
+            /* --------------------------------------------------------- bindings */
+
+            /*
+             * Um clique so no catalogo, e um nos botoes do carrinho.
+             *
+             * Delegacao no document, e nao um onclick em cada card. O card e'
+             * redesenhado a cada filtro, a cada busca e a cada item novo: com
+             * onclick=inline, ligar cada card a cada redesenho e' trabalho que se
+             * perde na primeira troca, e o sintoma e' o botao que "as vezes"
+             * funciona. Com delegacao, o card pode ser reescrito a vontade.
+             *
+             * ESTE BLOCO SUMIU uma vez e o PDV inteiro ficou inerte.
+             *
+             * O commit 9931723 (Faturamento numa aba so) reescreveu esta tela e,
+             * no meio da reescrita, levou junto o listener de delegacao inteiro:
+             * clicar num produto nao acrescentava nada, o "+" e o "-" do
+             * carrinho nao faziam nada, e o calculo do troco nao era recalculado
+             * ao digitar o valor recebido. Nenhum aviso apareceu: o tsc passa, o
+             * check:js so olha sintaxe, o check:ui so olha rotulos, e a tela
+             * abre perfeita -- so que morta. E o botao de finalizar venda
+             * nasce desabilitado, entao a venda nem tinha como comecar.
+             *
+             * A licao que fica registrada: botao sem handler e' um erro que
+             * nenhuma checagem de texto pega. Ele so aparece quando alguem
+             * clica. Por isso o check:js agora tambem exige que todo atributo
+             * data-* entregue no HTML seja lido por algum script da pagina.
+             */
+            document.addEventListener('click', function (e) {
+                var card = e.target.closest('[data-pdv-product]');
+                if (card) {
+                    // sellable = 0 quando o produto esta pausado ou sem saldo
+                    // controlado. Clicar num cartao pausado nao pode acrescentar
+                    // nada: a regra e' do servidor, e o servidor recusaria
+                    // depois, quando a pessoa ja acreditava ter vendido.
+                    if (card.dataset.sellable === '1') pdvModOpen(card.dataset.pdvProduct);
+                    return;
+                }
+
+                var inc = e.target.closest('[data-cart-inc]');
+                if (inc) { pdvSet(inc.dataset.cartInc, (pdvCart[inc.dataset.cartInc] || 0) + 1); return; }
+
+                var dec = e.target.closest('[data-cart-dec]');
+                if (dec) { pdvSet(dec.dataset.cartDec, (pdvCart[dec.dataset.cartDec] || 1) - 1); return; }
+
+                var del = e.target.closest('[data-cart-del]');
+                if (del) { pdvRemove(del.dataset.cartDel); return; }
+            });
+
+            /*
+             * Troco recalculado enquanto a pessoa digita.
+             *
+             * Sem estes dois ouvintes, o troco so era recalculado quando o
+             * carrinho era redesenhado -- ou seja, quando o total mudava. Digitar
+             * "50" no campo Recebido nao mostrava troco nenhum, e a frase de
+             * ajuda continuava la embaixo como se fosse a unica informacao
+             * possivel.
+             *
+             * "change" em vez de "input" na forma de pagamento e' o suficiente:
+             * ela e' uma escolha, nao uma digitacao. No valor recebido e' "input",
+             * porque e' a digitacao que muda a resposta a cada tecla.
+             */
+            var paidInput = document.getElementById('pdvPaid');
+            if (paidInput) paidInput.addEventListener('input', pdvChange);
+            var paySelect = document.getElementById('pdvPayment');
+            if (paySelect) paySelect.addEventListener('change', pdvChange);
+
+            // A primeira pintura vem do HTML do servidor, mas o estado inicial
+            // tambem passa pelo mesmo codigo que desenha qualquer outro -- senao
+            // a tela inicial e a pos-clique podem divergir em um detalhe.
+            pdvRender();
+
             </script>`;
 }
 

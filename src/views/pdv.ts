@@ -656,10 +656,14 @@ ${sellCards}
             }
 
             function pdvDropHold(id) {
-                confirmThen('Descartar esta venda suspensa?', async function () {
-                    await postJSON('/api/admin/pdv/holds/' + encodeURIComponent(id) + '/delete', {});
-                    location.reload();
-                });
+                confirmThen(
+                    'A venda suspensa e descartada na hora. O carrinho nao volta, e o cliente precisa refazer.',
+                    async function () {
+                        await postJSON('/api/admin/pdv/holds/' + encodeURIComponent(id) + '/delete', {});
+                        location.reload();
+                    },
+                    { titulo: 'Descartar venda suspensa', confirmar: 'Descartar' }
+                );
             }
 
 

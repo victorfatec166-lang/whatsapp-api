@@ -188,15 +188,21 @@ export function renderCatalog(d: CatalogData): string {
             async function importCsv() {
                 var box = document.getElementById('importCsv');
                 if (!box.value.trim()) { flash('err', 'Cole o conteudo do CSV.'); return; }
-                if (!confirm('Importar e atualizar os produtos deste CSV?')) return;
-                try {
-                    var r = await postJSON('/api/admin/products/import', { csv: box.value });
-                    if (!r.ok) { flash('err', r.data.error || 'Erro ao importar'); return; }
-                    var msg = r.data.created + ' criado(s), ' + r.data.updated + ' atualizado(s), ' + r.data.skipped + ' ignorado(s)';
-                    if (r.data.errors && r.data.errors.length) msg += ' | ' + r.data.errors.slice(0, 3).join(' | ');
-                    flash(r.data.errors && r.data.errors.length ? 'err' : 'ok', msg);
-                    if (!r.data.errors || !r.data.errors.length) setTimeout(function () { location.reload(); }, 1600);
-                } catch (e) { flash('err', 'Erro de conexao'); }
+                confirmThen(
+                    'Os produtos do CSV entram no catalogo e substituem os que temem o mesmo codigo. ' +
+                        'O catalogo atual continua como esta, entao confira a contagem depois de importar.',
+                    async function () {
+                        try {
+                            var r = await postJSON('/api/admin/products/import', { csv: box.value });
+                            if (!r.ok) { flash('err', r.data.error || 'Erro ao importar'); return; }
+                            var msg = r.data.created + ' criado(s), ' + r.data.updated + ' atualizado(s), ' + r.data.skipped + ' ignorado(s)';
+                            if (r.data.errors && r.data.errors.length) msg += ' | ' + r.data.errors.slice(0, 3).join(' | ');
+                            flash(r.data.errors && r.data.errors.length ? 'err' : 'ok', msg);
+                            if (!r.data.errors || !r.data.errors.length) setTimeout(function () { location.reload(); }, 1600);
+                        } catch (e) { flash('err', 'Erro de conexao'); }
+                    },
+                    { titulo: 'Importar produtos', confirmar: 'Importar' }
+                );
             }
 
             async function fetchProductsCsv() {
@@ -425,11 +431,16 @@ export function renderCatalog(d: CatalogData): string {
             }
 
             async function cfgDeleteGroup(groupId) {
-                if (!confirm('Excluir este grupo de modificadores? Ele será removido de todos os produtos.')) return;
-                var r = await fetch('/api/admin/modifier-groups/' + encodeURIComponent(groupId), { method: 'DELETE' });
-                if (!r.ok) { flash('err', 'Erro ao excluir grupo.'); return; }
-                flash('ok', 'Grupo excluido.');
-                cfgRefresh();
+                confirmThen(
+                    'O grupo sai de todos os produtos que o usam. Os produtos continuam no catalogo, sem as opcoes dele.',
+                    async function () {
+                        var r = await fetch('/api/admin/modifier-groups/' + encodeURIComponent(groupId), { method: 'DELETE' });
+                        if (!r.ok) { flash('err', 'Erro ao excluir grupo.'); return; }
+                        flash('ok', 'Grupo excluido.');
+                        cfgRefresh();
+                    },
+                    { titulo: 'Excluir grupo de modificadores', confirmar: 'Excluir' }
+                );
             }
 
             async function cfgRefresh() {
@@ -529,13 +540,17 @@ export function renderCatalog(d: CatalogData): string {
             }
 
             function deleteProduct(id) {
-                confirmThen('Remover este produto do cardapio?', async function () {
-                    try {
-                        var r = await postJSON('/api/admin/products/' + encodeURIComponent(id) + '/delete', {});
-                        if (!r.ok) { flash('err', r.data.error || 'Erro ao apagar'); return; }
-                        location.reload();
-                    } catch (e) { flash('err', 'Erro de conexao'); }
-                });
+                confirmThen(
+                    'O produto sai do cardapio e some do PDV. O que ja foi pedido continua no historico.',
+                    async function () {
+                        try {
+                            var r = await postJSON('/api/admin/products/' + encodeURIComponent(id) + '/delete', {});
+                            if (!r.ok) { flash('err', r.data.error || 'Erro ao apagar'); return; }
+                            location.reload();
+                        } catch (e) { flash('err', 'Erro de conexao'); }
+                    },
+                    { titulo: 'Remover do cardapio', confirmar: 'Remover' }
+                );
             }
 
             // Botao de configuracao de modificadores/combo (delegado: o nome do

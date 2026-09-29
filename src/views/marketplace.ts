@@ -332,11 +332,17 @@ ${canaisPresentes.map((c) => renderModal(itemSpec(c, d.produtos))).join('\n')}
             }
 
             async function mkApagarCredencial(channel) {
-                if (!confirm('Apagar a credencial de ' + channel + '? Os pedidos continuam no historico.')) return;
-                var r = await postJSON('/api/admin/marketplace/' + channel + '/apagar-credencial');
-                if (!r.ok) { flash('err', r.data.error || 'Nao foi possivel apagar.'); return; }
-                flash('ok', 'Credencial apagada.');
-                setTimeout(function () { window.location.reload(); }, 700);
+                confirmThen(
+                    'Apagar a credencial de ' + channel + ': o sistema esquece o pareamento e o canal volta a pedir. ' +
+                        'Os pedidos ja recebidos continuam no historico.',
+                    async function () {
+                        var r = await postJSON('/api/admin/marketplace/' + channel + '/apagar-credencial');
+                        if (!r.ok) { flash('err', r.data.error || 'Nao foi possivel apagar.'); return; }
+                        flash('ok', 'Credencial apagada.');
+                        setTimeout(function () { window.location.reload(); }, 700);
+                    },
+                    { titulo: 'Apagar credencial', confirmar: 'Apagar' }
+                );
             }
         </script>
 ${marketplaceModalsScript(canaisPresentes)}`;

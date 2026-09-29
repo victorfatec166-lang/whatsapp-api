@@ -174,7 +174,7 @@ type ConfigData = {
     cashDefaultFloat: number;
     /** O que a agenda vai fazer com esses valores, derivado no servico. */
     agenda: import('../services/config').EstadoAgenda;
-    /** N├║meros medidos do disco e do banco. Ver services/armazenamento. */
+    /** Números medidos do disco e do banco. Ver services/armazenamento. */
     dados: import('../services/armazenamento').ResumoArmazenamento;
 };
 
@@ -893,22 +893,34 @@ ${g.campos.map((f) => campoBot(f, d.mensagens[f.key])).join('\n')}
             function msgRestaurar(key) {
                 var area = document.querySelector('textarea[name="' + key + '"]');
                 if (!area) return;
-                if (!confirm('Voltar "' + key + '" ao texto padrao? Vale a pena se confirmar em Salvar.')) return;
-                area.value = '';
-                area.setAttribute('data-original', '');
-                var selo = document.querySelector('[data-selo="' + key + '"]');
-                if (selo) { selo.textContent = 'Padrao'; selo.className = 'badge badge-neutral'; }
-                var botao = document.querySelector('[data-restaurar="' + key + '"]');
-                if (botao) botao.classList.add('hidden');
-                msgConta();
+                confirmThen(
+                    'A area volta a ficar vazia, como o programa entrega essa mensagem. Nada e gravado ainda: ' +
+                        'o que vale e o que estiver na tela quando voce salvar.',
+                    function () {
+                        area.value = '';
+                        area.setAttribute('data-original', '');
+                        var selo = document.querySelector('[data-selo="' + key + '"]');
+                        if (selo) { selo.textContent = 'Padrao'; selo.className = 'badge badge-neutral'; }
+                        var botao = document.querySelector('[data-restaurar="' + key + '"]');
+                        if (botao) botao.classList.add('hidden');
+                        msgConta();
+                    },
+                    { titulo: 'Voltar ao texto padrao', confirmar: 'Voltar ao padrao' }
+                );
             }
 
             async function msgRestaurarTodas() {
-                if (!confirm('Apagar todas as mensagens editadas e voltar ao padrao do programa?')) return;
-                var r = await postJSON('/admin/bot-messages/restaurar-todas', {});
-                if (!r.ok) { flash('err', r.data.error || 'Erro ao restaurar'); return; }
-                flash('ok', 'Mensagens de volta ao padrao.');
-                setTimeout(function () { window.location.reload(); }, 700);
+                confirmThen(
+                    'Todas as mensagens editadas voltam ao texto que vem com o programa. Nao tem como desfazer: ' +
+                        'o que foi digitado aqui e perdido.',
+                    async function () {
+                        var r = await postJSON('/admin/bot-messages/restaurar-todas', {});
+                        if (!r.ok) { flash('err', r.data.error || 'Erro ao restaurar'); return; }
+                        flash('ok', 'Mensagens de volta ao padrao.');
+                        setTimeout(function () { window.location.reload(); }, 700);
+                    },
+                    { titulo: 'Apagar todas as edicoes', confirmar: 'Apagar tudo' }
+                );
             }
 
             async function saveBotMessages(event) {

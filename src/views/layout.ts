@@ -165,9 +165,127 @@ const APP_SCRIPTS = `
                 });
 
                 // ---- Utilitarios compartilhados ----
-                function confirmThen(message, fn) {
-                    if (confirm(message)) fn();
+                /*
+                 * Confirmacao dentro do painel, e nao o confirm() do navegador.
+                 *
+                 * O dialogo do navegador era o unico lugar do sistema que nao
+                 * parecia com o resto: fundo cinza do sistema operacional, botao
+                 * "OK" sem nome, e o titulo "localhost:3000 diz" -- o nome do
+                 * endereco no lugar de uma frase que diz o que vai acontecer. A
+                 * acao mais destrutiva do sistema aparecia com a aparencia de um
+                 * aviso de antivirus.
+                 *
+                 * A janela e' criada na hora, e nao declarada na tela, porque
+                 * confirmThen e' chamado de paginas diferentes. Um esqueleto
+                 * reaproveitado em vez de um por tela: e' o mesmo caminho que o
+                 * renderModal faz do outro lado, so que em tempo de execucao.
+                 *
+                 * Tres detalhes que o dialogo do navegador nao tem e que aqui
+                 * importam:
+                 *
+                 * 1. O foco vai para CANCELAR, nao para confirmar. No dialogo do
+                 *    sistema, quem aperta Enter sem olhar apaga a sessao do
+                 *    WhatsApp. Aqui o Enter nao faz nada, e quem quiser apagar
+                 *    precisa clicar em "Apagar" -- um movimento deliberado.
+                 * 2. Esc e o clique fora cancelam SEM rodar a acao. Sao os
+                 *    mesmos ouvintes das outras janelas, e o modalHide abaixo
+                 *    cuida de limpar o que ficou pendente.
+                 * 3. O texto entra por textContent, nunca por innerHTML. A
+                 *    frase costuma trazer nome de produto e nome de cliente, que
+                 *    vem do banco -- e a tela do WhatsApp ja morreu uma vez
+                 *    inteira por causa de um apostrofo interpolado em JS.
+                 */
+                var confirmarPendente = null;
+                /** Botao que abriu a janela, para devolver o foco no fim. */
+                var confirmarOrigem = null;
+
+                function confirmarMonta() {
+                    var existente = document.getElementById('confirmarJanela');
+                    if (existente) return existente;
+
+                    var div = document.createElement('div');
+                    div.id = 'confirmarJanela';
+                    div.className = 'modal-backdrop hidden';
+                    div.setAttribute('role', 'dialog');
+                    div.setAttribute('aria-modal', 'true');
+                    div.setAttribute('aria-labelledby', 'confirmarJanela-titulo');
+                    div.setAttribute('aria-describedby', 'confirmarJanela-texto');
+                    div.innerHTML =
+                        '<div class="modal-panel">' +
+                        '  <div class="flex items-start justify-between gap-3 mb-1">' +
+                        '    <h3 id="confirmarJanela-titulo" class="text-title flex items-center gap-2">' +
+                        '      <i class="fa-solid fa-triangle-exclamation text-accent-orange"></i>' +
+                        '      <span id="confirmarJanela-tituloTexto"></span>' +
+                        '    </h3>' +
+                        '    <button type="button" data-modal-cancel onclick="confirmarCancelar()" ' +
+                        '      class="btn btn-ghost px-2 -mt-1 -mr-1 shrink-0" aria-label="Fechar">' +
+                        '      <i class="fa-solid fa-xmark"></i>' +
+                        '    </button>' +
+                        '  </div>' +
+                        '  <p id="confirmarJanela-texto" class="text-body text-ink-2 mb-5"></p>' +
+                        '  <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">' +
+                        '    <button type="button" data-modal-cancel onclick="confirmarCancelar()" ' +
+                        '      id="confirmarJanela-cancelar" class="btn btn-ghost sm:min-w-[8rem]" autofocus>Cancelar</button>' +
+                        '    <button type="button" onclick="confirmarAceitar()" ' +
+                        '      id="confirmarJanela-aceitar" class="btn btn-danger sm:min-w-[9rem]">Confirmar</button>' +
+                        '  </div>' +
+                        '</div>';
+                    document.body.appendChild(div);
+                    return div;
                 }
+
+                /**
+                 * opcoes aceita titulo e os rotulos dos botoes. O padrao e'
+                 * "Tem certeza?" e um botao chamado "Confirmar": quando a acao
+                 * e' destrutiva, quem chama passa um verbo -- "Apagar", "Descartar"
+                 * -- porque o botao e' a ultima leitura antes do clique, e
+                 * "Confirmar" nao diz o que esta sendo confirmado.
+                 */
+                function confirmThen(texto, fn, opcoes) {
+                    var o = opcoes || {};
+                    var janela = confirmarMonta();
+
+                    // Confirmar duas vezes em linha nao empilha duas janelas: a
+                    // segunda substitui a mensagem e a acao da primeira.
+                    confirmarPendente = fn;
+
+                    // O foco volta para o botao que abriu a janela quando ela
+                    // fechar. Guardar aqui, e nao em modalHide, porque o
+                    // activeElement no momento de fechar ja' e' o botao da
+                    // propria janela. Sem isso, quem opera o teclado perde o
+                    // lugar e precisa pegar o mouse de novo.
+                    var ativo = document.activeElement;
+                    confirmarOrigem = ativo && ativo !== document.body ? ativo : null;
+
+                    document.getElementById('confirmarJanela-tituloTexto').textContent = o.titulo || 'Tem certeza?';
+                    document.getElementById('confirmarJanela-texto').textContent = texto;
+                    document.getElementById('confirmarJanela-aceitar').textContent = o.confirmar || 'Confirmar';
+                    document.getElementById('confirmarJanela-cancelar').textContent = o.cancelar || 'Cancelar';
+                    modalShow('confirmarJanela');
+                }
+
+                /** Cancelar e' o caminho que NUNCA roda a acao. */
+                function confirmarCancelar() {
+                    confirmarPendente = null;
+                    modalHide('confirmarJanela');
+                    devolverFocoConfirmar();
+                }
+
+                function confirmarAceitar() {
+                    var fn = confirmarPendente;
+                    confirmarPendente = null;
+                    modalHide('confirmarJanela');
+                    devolverFocoConfirmar();
+                    if (fn) fn();
+                }
+
+                function devolverFocoConfirmar() {
+                    if (confirmarOrigem && document.contains(confirmarOrigem)) {
+                        try { confirmarOrigem.focus(); } catch (e) {}
+                    }
+                    confirmarOrigem = null;
+                }
+
                 async function postJSON(url, body) {
                     const res = await fetch(url, {
                         method: 'POST',
@@ -207,6 +325,20 @@ const APP_SCRIPTS = `
                     if (!m) return;
                     m.classList.add('hidden');
                     m.classList.remove('flex');
+                    /*
+                     * Fechar a confirmacao por Esc ou clique fora e' cancelar.
+                     *
+                     * Esses dois caminhos vem pelo modalHide, e nao por
+                     * confirmarCancelar -- entao sem esta linha a acao ficaria
+                     * pendente na memoria depois de uma janela que a pessoa ja
+                     * fechou. Nao chegaria a rodar, porque o botao esta escondido,
+                     * mas "esconder o botao" e' seguranca por acaso, e nao e' o
+                     * que a pessoa quis dizer quando apertou Esc.
+                     */
+                    if (id === 'confirmarJanela') {
+                        confirmarPendente = null;
+                        devolverFocoConfirmar();
+                    }
                 }
 
                 // Clique fora do painel tambem fecha.

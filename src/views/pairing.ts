@@ -243,10 +243,22 @@ export const PAIRING_CLIENT_SCRIPT = [
     '            if (!r.ok) flash("err", r.data.error || "Erro ao reconectar");',
     '        }',
     '        async function unpair() {',
-    '            confirmThen("Isso encerra a sessao atual e apaga os credenciais salvos. Continuar?", async function () {',
-    '                var r = await postJSON("/admin/bot/logout", {});',
-    '                if (r.ok) { lastQr = null; location.reload(); }',
-    '                else flash("err", r.data.error || "Erro ao desconectar");',
-    '            });',
+    /*
+     * Titulo e verbo proprios, em vez de "Confirmar".
+     *
+     * A frase do aviso ja era boa; o que faltava era o botao dizer o que ele
+     * confirmava. "Confirmar" ao lado de "Desconectar e parear outro numero" e'
+     * um botao que exige duas leituras -- e a segunda e' a que a pessoa faz
+     * com o mouse ja a caminho de outro lugar.
+     */
+    '            confirmThen(',
+    '                "Isso encerra a sessao atual e apaga os credenciais salvos deste numero. Para parear de novo, o painel vai pedir o QR outra vez.",',
+    '                async function () {',
+    '                    var r = await postJSON("/admin/bot/logout", {});',
+    '                    if (r.ok) { lastQr = null; location.reload(); }',
+    '                    else flash("err", r.data.error || "Erro ao desconectar");',
+    '                },',
+    '                { titulo: "Desconectar o WhatsApp", confirmar: "Desconectar" }',
+    '            );',
     '        }',
 ].join('\n');

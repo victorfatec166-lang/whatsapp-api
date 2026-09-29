@@ -49,20 +49,36 @@ function carimbo(): string {
 }
 
 /**
+ * As copias do sistema, mais novas primeiro.
+ *
+ * O filtro e' `backup-*.db` e nao `*.db` de proposito. A pasta e' o unico lugar
+ * onde o dono pode fazer um dump manual -- e foi o que aconteceu: um
+ * `pre-drop-colunas-20260928-172125.db` deixado durante uma manutencao estava
+ * na fila de `podar()`, que considerava qualquer `.db` uma copia do sistema. Um
+ * backup que o sistema nao fez nao pode ser apagado por uma regra de rotacao.
+ */
+function copias(): string[] {
+    try {
+        return fs
+            .readdirSync(BACKUP_DIR)
+            .filter((f) => f.startsWith('backup-') && f.endsWith('.db'))
+            // O carimbo no nome ordena por data, sem precisar abrir cada arquivo.
+            .sort()
+            .reverse();
+    } catch {
+        // Pasta ainda nao existe: nao ha copia nenhuma para remover.
+        return [];
+    }
+}
+
+/**
  * Remove as copias mais antigas, mantendo as KEEP mais novas.
  *
  * Nao apaga nada se o diretorio sumir, e nunca apaga a unica copia que
  * existe: quando o total ainda cabe na cota, nao ha o que remover.
  */
 function podar(): void {
-    const arquivos = fs
-        .readdirSync(BACKUP_DIR)
-        .filter((f) => f.endsWith('.db'))
-        // O carimbo no nome ordena por data, sem precisar abrir cada arquivo.
-        .sort()
-        .reverse();
-
-    const sobrando = arquivos.slice(KEEP);
+    const sobrando = copias().slice(KEEP);
     for (const f of sobrando) {
         try {
             fs.unlinkSync(path.join(BACKUP_DIR, f));
@@ -71,6 +87,34 @@ function podar(): void {
             log.error('nao foi possivel remover', { arquivo: f, erro: String(error) });
         }
     }
+}
+
+/**
+ * Remove as copias de antes de `hoje` ("YYYY-MM-DD").
+ *
+ * Existe por causa da virada do dia. A copia e' o banco inteiro, entao mesmo
+ * depois de a poda apagar as mensagens, um backup de ontem continuaria sendo o
+ * lugar onde elas sobrevivem -- e o backup e' o unico arquivo que sai do
+ * controle do dia a dia. Depois desta chamada, o que a loja nao guardou nao
+ * esta em nenhuma copia.
+ *
+ * A comparacao e' entre os prefixos de data dos nomes, que sao `YYYY-MM-DD` e
+ * ordenam como data sem abrir nenhum arquivo. O que importa nao e' a hora da
+ * copia: e' de que dia ela e'.
+ */
+export function podarBackupsDoDia(hoje: string): number {
+    // "backup-" tem 7 caracteres, e a data ocupa os 10 seguintes.
+    const antes = copias().filter((f) => f.slice(7, 17) < hoje);
+
+    for (const f of antes) {
+        try {
+            fs.unlinkSync(path.join(BACKUP_DIR, f));
+            log.info(`copia de antes de ${hoje} removida: ${f}`);
+        } catch (error) {
+            log.error('nao foi possivel remover', { arquivo: f, erro: String(error) });
+        }
+    }
+    return antes.length;
 }
 
 /**
@@ -109,12 +153,20 @@ let timer: NodeJS.Timeout | null = null;
  *
  * A primeira copia no startup e' proposital. Se o servidor esta rodando ha
  * semanas, esse e' o primeiro ponto onde a rotina executa, e um backup que so
- * comeca seis horas depois deja a janela aberta sem nenhuma copia.
+ * comecou seis horas depois deixaria a janela aberta sem nenhuma copia.
+ *
+ * Devolve a Promise da primeira copia, e nao `void`, por causa da ordem de
+ * partida: a virada do dia (`retencao`) roda logo depois e escreve no banco. Um
+ * `VACUUM INTO` que pega o meio de um `DELETE` grava uma copia consistente --
+ * consistente no sentido do SQLite, ou seja, transacionalmente correta -- porem
+ * sem a combinacao que o dono espera: um backup feito no mesmo instante da
+ * poda pode ja vir sem as mensagens de ontem, e ai o backup deixa de ser o
+ * lugar de onde se recupera o dia anterior. Quem chama precisa poder esperar.
  */
-export function startBackupScheduler(): void {
-    if (timer) return;
+export function startBackupScheduler(): Promise<void> {
+    if (timer) return Promise.resolve();
 
-    void backupNow();
+    const primeira = backupNow().then(() => undefined);
 
     timer = setInterval(
         () => {
@@ -124,6 +176,8 @@ export function startBackupScheduler(): void {
     );
     // O agendador nao pode ser a razao do processo ficar vivo.
     timer.unref?.();
+
+    return primeira;
 }
 
 /** Caminho da pasta de backups, para mostrar no log e na tela de status. */

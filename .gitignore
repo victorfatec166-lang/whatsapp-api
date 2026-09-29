@@ -8,6 +8,22 @@ prisma/*.db-wal
 prisma/*.db-shm
 uploads/
 
+# A sessao do WhatsApp inclui o arquivo de amarracao da maquina
+# (sessao-maquina.json, escrito por src/services/maquina.ts), que e' a marca de
+# que esta instalacao ja foi pareada em algum aparelho. Versionado, ele faria a
+# instalacao recusar de arrancar no celular ou no PC da loja -- que e' o que o
+# guard existe para impedir. A pasta auth_info_baileys/ acima ja cobre esse
+# arquivo; esta linha e' a segunda rede, caso o arquivo passe a ser escrito
+# fora dela.
+sessao-maquina.json
+
+# Configuracao do editor: entra o que o projeto precisa que everyone tenha, e
+# nao o que e' preferencia de quem esta na maquina. Hoje e' uma coisa so, o
+# silencio do aviso de @tailwind, que e' falso positivo para qualquer pessoa que
+# abrir o projeto. Preferencia pessoal fica em User, nao aqui.
+.vscode/*
+!.vscode/settings.json
+
 # Copias do banco geradas pelo src/services/backup.ts. Sao artefato local de
 # maquina: nao pertencem ao repositorio e nao fazem sentido em outro clone.
 backups/

@@ -123,7 +123,7 @@ function estaEmRotulo(html, pos) {
 function verifica(html, nomeDaAba) {
     const problemas = [];
     /*
-     * Tira `<script>` e `<style>` antes de varrer.
+     * Tira <script>, <style> e comentario antes de varrer.
      *
      * Sem isso, o codigo JavaScript embutido era lido como HTML: as tres
      * ocorrencias de "<img" da aba de Conversas vinham de uma string que
@@ -131,13 +131,20 @@ function verifica(html, nomeDaAba) {
      * acusa codigo como se fosse marcação vira encher ruido, e ruido e' a
      * razao pela qual as pessoas desistem de rodar o verificador.
      *
-     * Substitui pelo conteudo do `<head>`, que nao tem elementos do corpo, e o
-     * numero de linha deixa de bater -- a saida usa o caminho da aba, nao a
-     * linha, justamente por isso.
+     * Comentario entra pelo mesmo motivo, e porque ele e' o lugar onde a gente
+     * escreve o nome da tag que NAO estamos usando: um texto explicando por que
+     * a categoria virou aba em vez de <select> trazia um "<select>" que o
+     * verificador lia como um campo sem rotulo, e acusava a tela por causa do
+     * proprio comentario que documentava a decisao.
+     *
+     * Substitui pelo <head>, que nao tem elementos do corpo, e o numero de linha
+     * deixa de bater -- a saida usa o caminho da aba, nao a linha, justamente por
+     * isso.
      */
     const corpo = html
         .replace(/<script\b[\s\S]*?<\/script>/gi, '<script></script>')
-        .replace(/<style\b[\s\S]*?<\/style>/gi, '<style></style>');
+        .replace(/<style\b[\s\S]*?<\/style>/gi, '<style></style>')
+        .replace(/<!--[\s\S]*?-->/g, '<!-- -->');
     const elementos = atributosDe(corpo);
 
     const ids = new Set();

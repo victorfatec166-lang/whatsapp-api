@@ -291,8 +291,8 @@ export function renderCatalog(d: CatalogData): string {
                             + '<div class="flex items-center justify-between gap-2">'
                             + '<span class="text-sm font-medium ink">' + esc(g.name) + '</span>'
                             + '<div class="flex gap-1">'
-                            + '<button onclick="cfgToggleGroup(\\'' + esc(g.id) + '\\')" class="badge-slate text-[10px] px-2 py-1 rounded">Desvincular</button>'
-                            + '<button onclick="cfgDeleteGroup(\\'' + esc(g.id) + '\\')" class="badge-red text-[10px] px-2 py-1 rounded">Excluir</button>'
+                            + '<button type="button" onclick="cfgToggleGroup(\\'' + esc(g.id) + '\\')" class="badge-slate text-[10px] px-2 py-1 rounded">Desvincular</button>'
+                            + '<button type="button" onclick="cfgDeleteGroup(\\'' + esc(g.id) + '\\')" class="badge-red text-[10px] px-2 py-1 rounded">Excluir</button>'
                             + '</div></div>'
                             + '<div class="text-[11px] ink-3 mt-1 mb-2">'
                             + (g.maxSelect <= 1 ? 'Escolha unica' : 'Ate ' + g.maxSelect + ' opcoes') + (g.required ? ' | obrigatorio' : '')
@@ -302,14 +302,14 @@ export function renderCatalog(d: CatalogData): string {
                                 return '<div class="flex items-center gap-2 text-xs ink-2">'
                                     + '<span class="flex-1 truncate pl-2 border-l line">' + esc(o.name) + '</span>'
                                     + '<span class="ink-3">' + (o.price > 0 ? '+ R$ ' + o.price.toFixed(2) : 'sem acrescimo') + '</span>'
-                                    + '<button onclick="cfgDeleteOption(\\'' + esc(o.id) + '\\')" class="badge-red w-6 h-6 rounded text-[10px] flex items-center justify-center" title="Remover opcao">'
+                                    + '<button type="button" onclick="cfgDeleteOption(\\'' + esc(o.id) + '\\')" class="badge-red w-6 h-6 rounded text-[10px] flex items-center justify-center" title="Remover opcao">'
                                     + '<i class="fa-solid fa-xmark"></i></button></div>';
                             }).join('')
                             + '</div>'
                             + '<div class="flex gap-1 mt-2">'
                             + '<input id="cfgOptName' + esc(g.id) + '" placeholder="Nova opcao" class="flex-1 px-2 py-1 text-xs border line-in rounded-lg">'
                             + '<input id="cfgOptPrice' + esc(g.id) + '" type="number" step="0.01" placeholder="+0,00" class="w-20 px-2 py-1 text-xs border line-in rounded-lg">'
-                            + '<button onclick="cfgAddOption(\\'' + esc(g.id) + '\\')" class="chip w-8 h-7 rounded-lg text-xs flex items-center justify-center" title="Adicionar opcao">'
+                            + '<button type="button" onclick="cfgAddOption(\\'' + esc(g.id) + '\\')" class="chip w-8 h-7 rounded-lg text-xs flex items-center justify-center" title="Adicionar opcao">'
                             + '<i class="fa-solid fa-plus"></i></button></div>'
                             + '</div>';
                     });
@@ -323,7 +323,7 @@ export function renderCatalog(d: CatalogData): string {
                     html += '<p class="text-sm ink-3">Crie um grupo abaixo ou todos ja estao vinculados.</p>';
                 } else {
                     html += '<div class="flex flex-wrap gap-2">' + avail.map(function (g) {
-                        return '<button onclick="cfgToggleGroup(\\'' + esc(g.id) + '\\')" class="chip px-2.5 py-1.5 rounded-lg text-xs font-medium transition">'
+                        return '<button type="button" onclick="cfgToggleGroup(\\'' + esc(g.id) + '\\')" class="chip px-2.5 py-1.5 rounded-lg text-xs font-medium transition">'
                             + '<i class="fa-solid fa-plus"></i> ' + esc(g.name) + '</button>';
                     }).join('') + '</div>';
                 }
@@ -337,7 +337,7 @@ export function renderCatalog(d: CatalogData): string {
                     + '<div><input id="cfgGroupMin" type="number" min="0" max="20" value="0" placeholder="Min" class="w-full px-3 py-2 text-sm border line-in rounded-lg"></div>'
                     + '<div class="col-span-2 flex items-center gap-2"><input type="checkbox" id="cfgGroupReq" class="accent-amber-600 w-4 h-4"><span class="text-sm ink-2">Obrigatorio</span></div>'
                     + '<div class="col-span-2"><textarea id="cfgGroupOptions" rows="3" placeholder="Uma opcao por linha: Nome | acrescimo | prefixo&#10;Mal passado | 0 | P&#10;Bacon | 6 | Extra" class="w-full px-3 py-2 text-sm border line-in rounded-lg font-mono text-xs"></textarea></div>'
-                    + '<button onclick="cfgCreateGroup()" class="col-span-2 bg-amber-600 hover:bg-amber-700 text-white text-sm py-2 rounded-lg font-medium">Criar grupo</button>'
+                    + '<button type="button" onclick="cfgCreateGroup()" class="col-span-2 bg-amber-600 hover:bg-amber-700 text-white text-sm py-2 rounded-lg font-medium">Criar grupo</button>'
                     + '</div></details>';
 
                 // ---- combo ----
@@ -368,8 +368,8 @@ export function renderCatalog(d: CatalogData): string {
                     + PDV_CATALOG.filter(function (x) { return x.id !== cfgProductId; }).map(function (x) {
                         return '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>';
                     }).join('') + '</select>'
-                    + '<button onclick="cfgAddComponent()" class="chip px-3 py-1.5 rounded-lg text-sm font-medium">+</button></div>'
-                    + '<button onclick="cfgSaveCombo()" class="mt-2 w-full bg-amber-600 hover:bg-amber-700 text-white text-sm py-2 rounded-lg font-medium">Salvar combo</button></div>';
+                    + '<button type="button" onclick="cfgAddComponent()" class="chip px-3 py-1.5 rounded-lg text-sm font-medium">+</button></div>'
+                    + '<button type="button" onclick="cfgSaveCombo()" class="mt-2 w-full bg-amber-600 hover:bg-amber-700 text-white text-sm py-2 rounded-lg font-medium">Salvar combo</button></div>';
 
                 document.getElementById('cfgBody').innerHTML = html;
             }

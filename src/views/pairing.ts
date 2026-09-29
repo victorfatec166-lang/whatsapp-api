@@ -61,12 +61,24 @@ export function renderPairing(d: PairData): string {
     const showQr = d.state.phase === 'aguardando-qr' || d.state.phase === 'escaneado';
     const connected = d.state.phase === 'conectado';
 
+    /*
+     * `type="button"` explicito, e na' o padrao do navegador que decide.
+     *
+     * Um `<button>` sem `type` dentro de um `<form>` vira submit. Estes dois
+     * nao estao em form nenhum hoje, entao nao ha bug -- mas a regra vale para
+     * os botoes de tabela e de card, que a pessoa rearranja. Um botao de
+     * "Reconectar" que recarrega a pagina por accident e' o tipo de defeito que
+     * so aparece quando alguem move o HTML.
+     *
+     * As classes `badge-slate`/`badge-red` continuam: elas carregam a cor de
+     * estado, que o token `.btn-ghost` nao tem. O que faltava era o `type`.
+     */
     const reconnectBtn =
-        '<button onclick="reconnect()" class="px-3 py-2 rounded-lg text-sm font-medium transition badge-slate flex items-center gap-2">'
+        '<button type="button" onclick="reconnect()" class="px-3 py-2 rounded-lg text-sm font-medium transition badge-slate flex items-center gap-2">'
         + '<i class="fa-solid fa-rotate"></i> Reconectar</button>';
 
     const unpairBtn =
-        '<button onclick="unpair()" class="px-3 py-2 rounded-lg text-sm font-medium transition badge-red flex items-center gap-2">'
+        '<button type="button" onclick="unpair()" class="px-3 py-2 rounded-lg text-sm font-medium transition badge-red flex items-center gap-2">'
         + '<i class="fa-solid fa-link-slash"></i> Desconectar e parear outro numero</button>';
 
     /*

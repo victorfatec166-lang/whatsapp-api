@@ -168,6 +168,47 @@ export function logDoModulo(modulo: string) {
     };
 }
 
+/**
+ * Remove os logs de antes de `hoje` ("YYYY-MM-DD").
+ *
+ * A virada do dia chama isto. O arquivo de log e' a unica parte do sistema que
+ * guardava o texto do cliente em texto puro, e ele nao tinha retencao nenhuma:
+ * um arquivo por dia, para sempre. Sem esta chamada, apagar as mensagens do
+ * banco nao apagaria nada do ponto de vista de quem abre a pasta -- o texto
+ * estaria em `app-2026-09-28.log` ate o ano que vem.
+ *
+ * O log de hoje nunca e' tocado, e nao por uma razao de cuidado com o arquivo:
+ * e' o arquivo que o logger esta escrevendo neste instante. Apagar um log
+ * aberto no Windows falharia, e no Linux daria certo e perderia o que viesse
+ * depois.
+ *
+ * A comparacao e' entre os prefixos dos nomes, que sao `YYYY-MM-DD`. O que
+ * importa nao e' a hora da primeira linha: e' de que dia e' o arquivo.
+ */
+export function podarLogsDoDia(hoje: string): string[] {
+    let nomes: string[];
+    try {
+        nomes = fs.readdirSync(DIR_LOGS);
+    } catch {
+        // Sem pasta de log (sem permissao, ou rodando de outro lugar): nao ha o
+        // que remover, e falhar aqui derrubaria a virada do dia.
+        return [];
+    }
+
+    // "app-" tem 4 caracteres, e a data ocupa os 10 seguintes.
+    const antes = nomes.filter((f) => f.startsWith('app-') && f.endsWith('.log') && f.slice(4, 14) < hoje);
+
+    for (const f of antes) {
+        try {
+            fs.unlinkSync(path.join(DIR_LOGS, f));
+        } catch {
+            // Log trancado por um leitor, ou sem permissao. Perder log antigo e'
+            // melhor do que derrubar a virada, que e' o que importa.
+        }
+    }
+    return antes;
+}
+
 /** Caminho da pasta de logs, para mostrar no boot. */
 export function pastaDeLogs(): string {
     return DIR_LOGS;

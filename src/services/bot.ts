@@ -388,7 +388,23 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
             if (!messageText) continue;
 
             const textLower = messageText.toLowerCase().trim();
-            log.info(`📩 Mensagem de ${senderPhone}: ${textLower}`);
+
+            /*
+             * O log registra QUEM escreveu, e nao o que escreveu.
+             *
+             * O texto ja esta gravado em `Message`, e a tela mostra um clique
+             * depois. Aqui ele virava uma segunda copia, em arquivo de texto
+             * plano, sem a mesma regra de validade: a mensagem some na virada
+             * do dia, mas a linha de log ficava no disco para sempre, e esse
+             * arquivo ninguem lembra de limpar. Texto de cliente em dois lugares
+             * com duas politicas de retencao diferentes e' o tipo de coisa que
+             * vaza sem ninguem decidir que vazou.
+             *
+             * Sobrar "quem" e "quando" e' o que fecha diagnostico: para saber
+             * por que o bot nao respondeu, a pergunta e' de quem veio e a que
+             * horas -- a resposta esta na tela.
+             */
+            log.info(`📩 Mensagem de ${senderPhone}`);
 
             /*
              * Grava a mensagem ANTES de qualquer decisao do bot.

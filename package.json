@@ -17,7 +17,7 @@
     "check:js": "node scripts/check-js.js",
     "check:ui": "node scripts/check-ui.js",
     "check": "npm run check:ui && npm run check:js && npm run test",
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "start": "node scripts/start.mjs"
   },
   "dependencies": {

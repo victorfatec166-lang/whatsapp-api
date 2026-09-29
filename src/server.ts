@@ -60,6 +60,7 @@ import {
 } from './services/cash';
 import { startCashScheduler, isValidHhMm } from './services/cashSchedule';
 import { startBackupScheduler, backupDir } from './services/backup';
+import { startPodador } from './services/retencao';
 import { ensureSku, exportProductsCsv, importProductsFromCsv } from './services/products';
 import { loadProductFull, priceCart, linesToItemsField } from './services/modifiers';
 import { getDailyMenu, setDailyMenu, copyDailyMenu, previousDailyMenu } from './services/dailyMenu';
@@ -1962,8 +1963,25 @@ app.listen(PORT, HOST, async () => {
 
     // Backup do banco: uma copia no startup e outra a cada 6h. O negocio todo
     // cabe num arquivo SQLite, e perder esse arquivo nao tem conserto.
-    startBackupScheduler();
+    //
+    // Aguardado de proposito: a virada do dia logo abaixo escreve no banco, e o
+    // backup do startup e' justamente a copia que ainda tem o dia anterior --
+    // que e' o que se recupera se a poda mener a conversation errada. Um backup
+    // que corresse junto com a poda seria consistente e inutil.
+    await startBackupScheduler();
     log.info(`Backups em: ${backupDir()}`);
+
+    /*
+     * Virada do dia: apaga o que e' de ontem -- mensagens, conversas da
+     * lista, backups e log -- e compacta o banco.
+     *
+     * Este primeiro tick roda no boot e e' ele que cobre o servidor que ficou
+     * desligado a noite: o corte e' sempre a meia-noite de hoje, entao as 09:00
+     * de uma manha o resultado e' o mesmo que teria sido a meia-noite. E'
+     * tambem o que vai mexer no `dev.db` de desenvolvimento assim que o servidor
+     * subir com esta versao, apagando as mensagens de ontem que ele tem agora.
+     */
+    startPodador();
 
     // O log vai para arquivo alem do terminal. Quem abre o terminal no meio do
     // expediente ve o que esta acontecendo agora; quem precisa saber o que

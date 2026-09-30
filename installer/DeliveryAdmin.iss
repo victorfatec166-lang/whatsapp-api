@@ -42,6 +42,13 @@ AppPublisher=DeliveryAdmin
 DefaultDirName={autopf}\{#Nome}
 DefaultGroupName={#Nome}
 DisableProgramGroupPage=yes
+; `OutputDir` e' relativo ao arquivo .iss, e este .iss mora em `installer\`.
+; `..\dist` por isso aponta para `D:\whatsapp-api\dist` -- que e' a MESMA pasta
+; onde `npm run build` deixa o servidor compilado. Escrever o instalador la
+; dentro nao e' problema porque `dist` so recebe arquivos de `tsc`/Tailwind, e o
+; nome do instalador nunca colide com nenhum deles. A alternativa seria
+; `..\installer\dist`, que e' onde os artefatos antigos de teste moravam e que
+; ja estava sendo limpo a mao.
 OutputBaseFilename=Instalar DeliveryAdmin
 OutputDir=..\dist
 SetupIconFile=DeliveryAdmin.ico

@@ -1,4 +1,5 @@
 import { escapeHtml } from './html';
+import { kpi, faixaKpi, cardVazio } from './ui/card';
 import { currency } from '../services/stats';
 import { stockStatus, STOCK_STATUS_LABEL, STOCK_STATUS_BADGE } from '../services/stock';
 import { CATEGORIA_PADRAO } from '../services/categorias';
@@ -63,17 +64,17 @@ function sellable(p: PdvProduct): boolean {
 function stockPill(p: PdvProduct): string {
     if (!p.trackStock) return '';
     const status = stockStatus(p);
-    if (status === 'ok') return `<span class="text-[11px] ink-3">${p.stock} un.</span>`;
-    return `<span class="${STOCK_STATUS_BADGE[status]} text-[10px] px-1.5 py-0.5 rounded font-bold">${STOCK_STATUS_LABEL[status]}</span>`;
+    if (status === 'ok') return `<span class="text-caption text-ink-3">${p.stock} un.</span>`;
+    return `<span class="${STOCK_STATUS_BADGE[status]} badge badge-xs font-bold">${STOCK_STATUS_LABEL[status]}</span>`;
 }
 
 /** Margem = (preco - custo) / preco. Sem custo cadastrado, nao e confiavel. */
 function marginPill(p: PdvProduct): string {
     if (!p.costPrice || p.costPrice <= 0 || p.price <= 0) return '';
     const margin = Math.round(((p.price - p.costPrice) / p.price) * 100);
-    if (margin < 0) return '<span class="accent-red text-[10px]">prejuizo</span>';
+    if (margin < 0) return '<span class="text-accent-red">prejuizo</span>';
     const tone = margin < 20 ? 'accent-orange' : 'accent-emerald';
-    return `<span class="${tone} text-[10px]">${margin}% marg</span>`;
+    return `<span class="${tone} text-caption">${margin}% marg</span>`;
 }
 
 export function renderPdv(d: PdvData): string {
@@ -105,16 +106,16 @@ export function renderPdv(d: PdvData): string {
                 ? `<img src="${escapeHtml(p.imageUrl)}" alt="" class="w-full h-16 object-cover rounded-md mb-1">`
                 : '';
             return `                    <button type="button" data-pdv-product="${escapeHtml(p.id)}" data-sellable="${ok ? '1' : '0'}" data-sku="${escapeHtml(p.sku ?? '')}"
-                        class="text-left surface-2 border line rounded-xl p-3 row-hover transition flex flex-col gap-1 relative ${ok ? '' : 'opacity-50 cursor-not-allowed'}"
+                        class="text-left bg-surface-2 border border-line rounded-card p-3 row-hover transition flex flex-col gap-1 relative ${ok ? '' : 'opacity-50 cursor-not-allowed'}"
                         ${ok ? '' : 'disabled'}>
                         ${thumb}
-                        <span class="font-semibold ink text-sm leading-snug">${escapeHtml(p.name)}</span>
-                        <span class="text-[11px] ink-3 flex gap-2">${escapeHtml(p.category)}${marginPill(p)}</span>
+                        <span class="font-semibold text-body text-ink leading-snug">${escapeHtml(p.name)}</span>
+                        <span class="text-caption text-ink-3 flex gap-2">${escapeHtml(p.category)}${marginPill(p)}</span>
                         <span class="mt-auto flex items-end justify-between gap-2">
-                            <span class="font-bold accent-amber-strong text-sm">${money(p.price)}</span>
+                            <span class="font-bold text-accent-strong text-body">${money(p.price)}</span>
                             ${stockPill(p)}
                         </span>
-                        ${p.isAvailable ? '' : '<span class="absolute top-1.5 right-1.5 badge-red text-[10px] px-1.5 py-0.5 rounded font-bold">Pausado</span>'}
+                        ${p.isAvailable ? '' : '<span class="absolute top-1.5 right-1.5 badge badge-danger badge-xs font-bold">Pausado</span>'}
                     </button>`;
         })
         .join('\n');
@@ -137,43 +138,40 @@ export function renderPdv(d: PdvData): string {
         porCategoria.set(c, (porCategoria.get(c) ?? 0) + 1);
     }
     const categoriasPdv = [
-        `<button type="button" data-pdv-categoria="" class="chip px-3 py-1.5 rounded-lg text-xs font-semibold transition pdv-cat" aria-pressed="true">Todos</button>`,
+        `<button type="button" data-pdv-categoria="" class="chip pdv-cat" aria-pressed="true">Todos</button>`,
         ...d.categories
             .filter((c) => porCategoria.has(c))
             .map(
                 (c) =>
-                    `<button type="button" data-pdv-categoria="${escapeHtml(c)}" class="chip px-3 py-1.5 rounded-lg text-xs font-semibold transition pdv-cat" aria-pressed="false">` +
-                    `${escapeHtml(c)} <span class="ink-3">${porCategoria.get(c)}</span></button>`
+                    `<button type="button" data-pdv-categoria="${escapeHtml(c)}" class="chip pdv-cat" aria-pressed="false">` +
+                    `${escapeHtml(c)} <span class="text-ink-3">${porCategoria.get(c)}</span></button>`
             ),
     ].join('\n                        ');
 
-    return `        <div class="flex flex-wrap items-center gap-3 mb-5">
-                <div class="surface border line rounded-xl px-4 py-2 text-sm">
-                    <span class="ink-3">Vendas no balcao hoje:</span>
-                    <span class="font-bold ink ml-1">${d.todaySales}</span>
-                </div>
-                <div class="surface border line rounded-xl px-4 py-2 text-sm">
-                    <span class="ink-3">Itens no cardapio:</span>
-                    <span class="font-bold ink ml-1">${d.totals.available}</span>
-                    <span class="ink-3">/ ${d.totals.total}</span>
-                </div>
-                ${
-                    d.totals.soldOut > 0
-                        ? `<div class="surface border line rounded-xl px-4 py-2 text-sm">
-                               <span class="ink-3">Zerados:</span>
-                               <span class="font-bold accent-red ml-1">${d.totals.soldOut}</span>
-                           </div>`
-                        : ''
-                }
-                <span class="text-xs ink-3">Vendas do balcao entram no Kanban e nos relatorios como canal <strong>PDV</strong>.</span>
-            </div>
+    /*
+     * A faixa do topo e' a mesma faixa de KPI do resto do painel.
+     *
+     * Antes eram tres capsulas soltas (`surface border line rounded-xl px-4
+     * py-2`) mais uma frase de explicacao, o que dava a impressao de quatro
+     * coisas independentes. Vem do mesmo bloco das outras telas agora, e a
+     * frase virou legenda do primeiro numero, onde ela informa em vez de ocupar
+     * uma linha.
+     */
+    return `${faixaKpi([
+        kpi('Vendas no balcao hoje', String(d.todaySales), 'entradas pelo PDV', 'accent'),
+        kpi('Itens no cardapio', `${d.totals.available}`, `de ${d.totals.total} cadastrados`),
+        kpi('Zerados', String(d.totals.soldOut), d.totals.soldOut > 0 ? 'precisam de reposicao' : 'nenhum item travado', d.totals.soldOut > 0 ? 'danger' : 'success', d.totals.soldOut > 0 ? 'danger' : undefined),
+    ])}
 
             <!-- ================= MODO VENDER ================= -->
             <div id="modeVender">
-                <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
-                    <div class="xl:col-span-2 surface border line rounded-2xl p-5 shadow-sm">
-                        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-                            <h3 class="font-bold ink flex items-center gap-2"><i class="fa-solid fa-cash-register accent-amber"></i> Catalogo</h3>
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
+                    <div class="xl:col-span-2 card">
+                        <div class="card-pad pb-3 flex flex-wrap items-center justify-between gap-3 border-b border-line">
+                            <div>
+                                <h3 class="text-title flex items-center gap-2"><i class="fa-solid fa-cash-register text-accent"></i> Catalogo</h3>
+                                <p class="text-caption text-ink-3">Toque para adicionar a venda atual</p>
+                            </div>
                             <div class="flex flex-wrap items-center gap-2">
                             <!--
                                 Os dois campos precisam de largura declarada e de
@@ -194,10 +192,17 @@ export function renderPdv(d: PdvData): string {
                                 E o container ganha flex-wrap porque, com as duas
                                 caixas em tamanho fixo, o que deve quebrar a linha
                                 em vez de espremer o campo e' o layout.
+
+                                A classe e' "input" -- e nao uma receita de borda e
+                                padding. Sem ela o campo nao tem cor de fundo nem cor
+                                de texto: quem pinta e' o navegador, e no tema escuro
+                                ele pinta do jeito dele. Ver color-scheme no
+                                app.css, e o check:contrast, que barra o campo sem a
+                                classe.
                             -->
-                            <input id="pdvScan" type="text" placeholder="Codigo do produto..." onkeydown="if(event.key==='Enter'){event.preventDefault();if(!pdvScanCode(this.value)){flash('err','Codigo nao encontrado.');}this.value='';}" class="px-3 py-1.5 text-sm border line-in rounded-lg w-36 shrink-0" autocomplete="off">
+                            <input id="pdvScan" type="text" placeholder="Codigo do produto..." onkeydown="if(event.key==='Enter'){event.preventDefault();if(!pdvScanCode(this.value)){flash('err','Codigo nao encontrado.');}this.value='';}" class="input w-36 shrink-0" autocomplete="off">
                             <input id="pdvSearch" type="search" placeholder="Buscar produto..." oninput="pdvFilter()"
-                                class="px-3 py-1.5 text-sm border line-in rounded-lg w-64 max-w-full shrink-0" autocomplete="off">
+                                class="input w-56 shrink-0" autocomplete="off">
                         </div>
                         </div>
 
@@ -228,53 +233,104 @@ export function renderPdv(d: PdvData): string {
 ${categoriasPdv}
                         </div>
 
+                        <div class="px-5 pb-5 min-h-0 flex flex-col flex-1 overflow-hidden">
                         ${
                             d.products.length === 0
-                                ? '<p class="text-sm ink-3 text-center py-10">Nenhum produto cadastrado. Use a aba <strong>Produtos</strong> ao lado.</p>'
-                                : `<div id="pdvGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[32rem] overflow-y-auto">
+                                ? cardVazio('Nenhum produto cadastrado. Use a aba Catalogo ao lado.', 'fa-utensils')
+                                : `<div id="pdvGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[calc(100vh-22rem)] overflow-y-auto pr-1">
 ${sellCards}
                     </div>`
                         }
+                        </div>
                     </div>
 
-                    <div class="surface border line rounded-2xl p-5 shadow-sm sticky top-4">
-                        <h3 class="font-bold ink mb-4 flex items-center gap-2"><i class="fa-solid fa-cart-shopping accent-amber"></i> Venda atual</h3>
+                    <!--
+                        O cartao e' o unico lugar da tela que rola por dentro.
 
-                        <div id="pdvCart" class="space-y-2 min-h-[8rem] max-h-[18rem] overflow-y-auto">
-                            <p class="text-sm ink-3 text-center py-8">Toque em um produto para adicionar.</p>
+                        A coluna do carrinho tem mais conteudo do que cabe num
+                        monitor de balcao: lista, cinco totais, atalhos de
+                        desconto, atalhos de gorjeta, observacao, cliente,
+                        pagamento, valor recebido e tres botoes. Somados, passam
+                        da altura util -- e o max-height sozinho nao resolve
+                        nada: sem overflow, o conteudo transborda POR FORA do
+                        cartao e invade a grade de produtos. Foi o que apareceu.
+
+                        Duas medidas, nesta ordem:
+
+                        1. Desconto, gorjeta e observacao foram para uma secao
+                        recolhida. Nao e' perda de funcao: os valores continuam
+                        aparecendo nos totais, entao quem precisa so de ver o
+                        desconto aplicado le em cima e nao precisa abrir nada
+                        para isso. Abrir e' para QUERER MUDAR, que e' occasional.
+                        Sobrou o que se usa em toda venda: lista, total, como
+                        paga, e finalizar.
+
+                        2. O cartao tem overflow, entao se ainda assim faltar
+                        altura em tela muito baixa, a rolagem acontece aqui e nao
+                        na pagina. O teto da lista e' em vh e nao em flex-1: a
+                        lista e' a unica parte que cresce com os itens, mas
+                        deixar ela comer o resto e' o que empurrava os botoes
+                        para fora do cartao.
+                    -->
+                    <div class="card card-pad sticky top-4 flex flex-col max-h-[calc(100vh-7rem)] overflow-y-auto">
+                        <h3 class="text-title flex items-center gap-2 shrink-0"><i class="fa-solid fa-cart-shopping text-accent"></i> Venda atual</h3>
+
+                        <div id="pdvCart" class="space-y-2 max-h-[38vh] overflow-y-auto mt-3">
+                            <p class="text-body text-ink-3 text-center py-6">Toque em um produto para adicionar.</p>
                         </div>
 
-                        <div class="mt-4 pt-3 border-t line space-y-2">
-                            <div class="flex justify-between text-sm">
-                                <span class="ink-3">Itens</span>
-                                <span id="pdvCount" class="font-medium ink">0</span>
+                        <div class="mt-4 pt-3 border-t border-line space-y-1.5 shrink-0">
+
+                            <div class="flex justify-between text-body">
+                                <span class="text-ink-3">Itens</span>
+                                <span id="pdvCount" class="font-medium text-ink">0</span>
                             </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="ink-3">Subtotal</span>
-                                <span id="pdvSubtotal" class="font-medium ink">R$ 0,00</span>
+                            <div class="flex justify-between text-body">
+                                <span class="text-ink-3">Subtotal</span>
+                                <span id="pdvSubtotal" class="font-medium text-ink">R$ 0,00</span>
                             </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="ink-3">Desconto</span>
-                                <span id="pdvDiscountLabel" class="accent-red">- R$ 0,00</span>
+                            <div class="flex justify-between text-body">
+                                <span class="text-ink-3">Desconto</span>
+                                <span id="pdvDiscountLabel" class="text-accent-red">- R$ 0,00</span>
                             </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="ink-3">Gorjeta</span>
-                                <span id="pdvTipLabel" class="accent-emerald">+ R$ 0,00</span>
+                            <div class="flex justify-between text-body">
+                                <span class="text-ink-3">Gorjeta</span>
+                                <span id="pdvTipLabel" class="text-accent-emerald">+ R$ 0,00</span>
                             </div>
-                            <div class="flex justify-between text-lg font-bold pt-1 border-t line">
-                                <span class="ink">Total</span>
-                                <span id="pdvTotal" class="accent-amber-strong">R$ 0,00</span>
+                            <div class="flex justify-between text-title pt-1 border-t border-line mt-1">
+                                <span class="text-ink">Total</span>
+                                <span id="pdvTotal" class="text-accent-strong">R$ 0,00</span>
                             </div>
                         </div>
 
-                        <div class="mt-3 space-y-2">
+                        <!--
+                            Desconto, gorjeta e observacao, recolhidos.
+
+                            Sao tres controles que se mexem uma vez por venda, e
+                            nao em toda venda. Acessiveis ficavam entre o total e
+                            o pagamento, empurrando o botao de finalizar para
+                            baixo da dobra num monitor de 1366x768.
+
+                            Recolhidos, sobram visiveis as tres coisas que se usa
+                            sempre: os itens, o total e como se paga. Quem ja
+                            aplicou o desconto continua vendo o valor dele nos
+                            totais -- o recolhimento esconde o CONTROLE, nunca o
+                            resultado.
+                        -->
+                        <details class="mt-3 shrink-0 border border-line rounded-card">
+                            <summary class="cursor-pointer text-body font-medium text-ink-2 px-3 py-2 flex items-center gap-2">
+                                <i class="fa-solid fa-sliders text-accent"></i>
+                                Desconto, gorjeta e observacao
+                                <i class="fa-solid fa-chevron-down ml-auto text-caption text-ink-3"></i>
+                            </summary>
+                            <div class="px-3 pb-3 space-y-2">
                             <div>
                                 <label class="label" for="pdvDiscount">Desconto</label>
                                 <div class="flex gap-1.5" role="group" aria-label="Atalhos de desconto">
                                     ${['0', '5', '10', '15']
                                         .map(
                                             (p) =>
-                                                `<button type="button" onclick="pdvSetPercent('discount', ${p})" class="pdv-pct flex-1 px-2 py-1.5 rounded-lg badge-slate text-xs font-semibold transition" aria-label="Desconto de ${p === '0' ? 'zero por cento' : p + ' por cento'}">${p === '0' ? 'Sem' : p + '%'}</button>`
+                                                `<button type="button" data-pdv-pct="discount" data-pct="${p}" class="pdv-pct btn btn-ghost btn-sm flex-1 font-semibold" aria-label="Desconto de ${p === '0' ? 'zero por cento' : p + ' por cento'}">${p === '0' ? 'Sem' : p + '%'}</button>`
                                         )
                                         .join('')}
                                 </div>
@@ -287,7 +343,7 @@ ${sellCards}
                                     ${['0', '5', '10']
                                         .map(
                                             (p) =>
-                                                `<button type="button" onclick="pdvSetPercent('tip', ${p})" class="pdv-pct flex-1 px-2 py-1.5 rounded-lg badge-slate text-xs font-semibold transition" aria-label="Gorjeta de ${p === '0' ? 'zero por cento' : p + ' por cento'}">${p === '0' ? 'Sem' : p + '%'}</button>`
+                                                `<button type="button" data-pdv-pct="tip" data-pct="${p}" class="pdv-pct btn btn-ghost btn-sm flex-1 font-semibold" aria-label="Gorjeta de ${p === '0' ? 'zero por cento' : p + ' por cento'}">${p === '0' ? 'Sem' : p + '%'}</button>`
                                         )
                                         .join('')}
                                 </div>
@@ -299,14 +355,15 @@ ${sellCards}
                                 <textarea id="pdvNotes" rows="2" placeholder="Sem cebola, bem passado, entregar depois das 19h..."
                                     class="input"></textarea>
                             </div>
-                        </div>
+                            </div>
+                        </details>
 
-                        <div class="mt-4 space-y-3">
+                        <div class="mt-3 space-y-2 shrink-0">
                             <div>
                                 <label class="label" for="pdvCustomer">Cliente (opcional)</label>
                                 <input id="pdvCustomer" type="text" placeholder="Nome de quem levou" class="input">
                             </div>
-                            <div class="grid grid-cols-2 gap-3">
+                            <div class="grid grid-cols-2 gap-2">
                                 <div>
                                     <label class="label" for="pdvPayment">Pagamento</label>
                                     <select id="pdvPayment" class="input">${paymentOptions}</select>
@@ -317,51 +374,50 @@ ${sellCards}
                                         class="input">
                                 </div>
                             </div>
-                            <p id="pdvChange" class="text-sm ink-3">Informe o valor recebido para calcular o troco.</p>
+                            <p id="pdvChange" class="text-caption text-ink-3">Informe o valor recebido para calcular o troco.</p>
                         </div>
 
                         <button type="button" onclick="pdvCheckout()" id="pdvFinish"
-                            class="btn btn-primary mt-4 w-full disabled:opacity-40 text-sm py-2.5 font-semibold transition flex items-center justify-center gap-2">
+                            class="btn btn-primary mt-4 w-full shrink-0">
                             <i class="fa-solid fa-check"></i> Finalizar venda
                         </button>
-                        <div class="mt-4 flex gap-2">
-                            <button type="button" onclick="pdvHold()" id="pdvHoldBtn"
-                                class="flex-1 badge-amber text-sm py-2 rounded-lg font-medium transition flex items-center justify-center gap-2">
+                        <div class="mt-2 flex gap-2 shrink-0">
+                            <button type="button" onclick="pdvHold()" id="pdvHoldBtn" class="btn btn-ghost flex-1">
                                 <i class="fa-solid fa-pause"></i> Suspender
                             </button>
-                            <button type="button" onclick="pdvClear()" class="flex-1 badge-slate text-sm py-2 rounded-lg font-medium transition">
+                            <button type="button" onclick="pdvClear()" class="btn btn-ghost flex-1">
                                 Limpar
                             </button>
                         </div>
 
-                        <div id="pdvDone" class="hidden mt-4 p-3 rounded-xl badge-emerald text-sm"></div>
+                        <div id="pdvDone" class="hidden mt-4 p-3 rounded-card bg-success-bg text-body shrink-0"></div>
                     </div>
                 </div>
 
                 <!-- Modal de modificadores -->
-                <div id="modModal" class="hidden fixed inset-0 z-50 items-center justify-center p-4" style="background: rgba(0,0,0,0.55)">
-                    <div class="surface border line rounded-2xl shadow-lg w-full max-w-md max-h-[85vh] overflow-y-auto p-5">
+                <div id="modModal" class="hidden modal-backdrop">
+                    <div class="modal-panel max-w-md">
                         <div class="flex items-start justify-between gap-3 mb-3">
                             <div>
-                                <h3 id="modTitle" class="font-bold ink"></h3>
-                                <p id="modPrice" class="text-sm accent-amber-strong"></p>
+                                <h3 id="modTitle" class="text-title"></h3>
+                                <p id="modPrice" class="text-body text-accent-strong"></p>
                             </div>
-                            <button type="button" onclick="pdvModClose()" class="w-8 h-8 rounded-lg badge-slate flex items-center justify-center shrink-0">
+                            <button type="button" onclick="pdvModClose()" class="btn btn-ghost btn-icon shrink-0">
                                 <i class="fa-solid fa-xmark"></i>
                             </button>
                         </div>
                         <div id="modBody" class="space-y-4"></div>
                         <div class="flex gap-2 mt-5">
-                            <button type="button" onclick="pdvModClose()" class="flex-1 badge-slate text-sm py-2 rounded-lg font-medium">Cancelar</button>
-                            <button type="button" onclick="pdvModConfirm()" id="modConfirm"
-                                class="btn btn-primary flex-1 text-sm py-2 font-semibold">
+                            <button type="button" onclick="pdvModClose()" class="btn btn-ghost flex-1">Cancelar</button>
+                            <button type="button" onclick="pdvModConfirm()" id="modConfirm" class="btn btn-primary flex-1">
                                 Adicionar
                             </button>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                        <script>
+        <script>
             var PDV_CATALOG = ${catalog};
             var pdvCart = {};
             var modOpen = null;   // { productId, picked: { groupId: [optionId] } }
@@ -399,7 +455,7 @@ ${sellCards}
                     var rule = g.maxSelect <= 1 ? 'Escolha 1' : 'Ate ' + g.maxSelect;
                     html += '<div><div class="flex items-center justify-between mb-1">'
                         + '<span class="text-sm font-semibold ink">' + esc(g.name) + (g.required ? ' *' : '') + '</span>'
-                        + '<span class="text-[11px] ink-3">' + rule + '</span></div>'
+                        + '<span class="text-caption text-ink-3">' + rule + '</span></div>'
                         + '<div class="space-y-1">';
                     g.options.forEach(function (o) {
                         var price = o.price > 0 ? ' + ' + pdvMoney(o.price) : '';
@@ -414,13 +470,13 @@ ${sellCards}
                         html += '<label class="flex items-center gap-2 p-2 rounded-lg sunken cursor-pointer hover:brightness-95">'
                             + '<input type="' + (g.maxSelect <= 1 ? 'radio' : 'checkbox') + '" name="mod-' + esc(g.id) + '" value="' + esc(o.id) + '" data-group="' + esc(g.id) + '" onchange="pdvModPick(this)" class="accent-amber-600">'
                             + '<span class="text-sm ink">' + esc((o.prefix ? o.prefix + ' ' : '') + o.name) + '</span>'
-                            + (price ? '<span class="ml-auto text-xs accent-amber-strong">' + price + '</span>' : '')
+                            + (price ? '<span class="ml-auto text-body text-accent-strong">' + price + '</span>' : '')
                             + '</label>';
                     });
                     html += '</div></div>';
                 });
                 if (p.isCombo) {
-                    html += '<p class="text-[11px] ink-3">Combo: o estoque e baixado nos componentes.</p>';
+                    html += '<p class="text-caption text-ink-3">Combo: o estoque e baixado nos componentes.</p>';
                 }
 
                 document.getElementById('modBody').innerHTML = html;
@@ -610,7 +666,7 @@ ${sellCards}
                 var box = document.getElementById('pdvCart');
                 var keys = Object.keys(pdvCart);
                 if (keys.length === 0) {
-                    box.innerHTML = '<p class="text-sm ink-3 text-center py-8">Toque em um produto para adicionar.</p>';
+                    box.innerHTML = '<p class="text-body text-ink-3 text-center py-6">Toque em um produto para adicionar.</p>';
                 } else {
                     var html = '';
                     keys.forEach(function (key) {
@@ -622,13 +678,13 @@ ${sellCards}
                             + '<div class="flex items-center gap-2">'
                             + '<div class="min-w-0 flex-1">'
                             + '<div class="text-sm font-medium ink truncate" title="' + esc(title) + '">' + esc(title) + '</div>'
-                            + '<div class="text-xs ink-3">' + pdvMoney(info.unit) + ' cada &middot; <b>' + pdvMoney(line) + '</b></div>'
+                            + '<div class="text-caption text-ink-3">' + pdvMoney(info.unit) + ' cada &middot; <b>' + pdvMoney(line) + '</b></div>'
                             + '</div>'
                             + '<div class="flex items-center gap-1 shrink-0">'
-                            + '<button type="button" data-cart-dec="' + esc(key) + '" class="w-6 h-6 rounded badge-slate text-xs font-bold">-</button>'
+                            + '<button type="button" data-cart-dec="' + esc(key) + '" class="btn btn-ghost btn-icon font-bold">-</button>'
                             + '<span class="w-5 text-center text-sm font-semibold ink">' + pdvCart[key] + '</span>'
-                            + '<button type="button" data-cart-inc="' + esc(key) + '" class="w-6 h-6 rounded badge-slate text-xs font-bold">+</button>'
-                            + '<button type="button" data-cart-del="' + esc(key) + '" title="Remover" class="w-6 h-6 rounded badge-red text-xs font-bold">x</button>'
+                            + '<button type="button" data-cart-inc="' + esc(key) + '" class="btn btn-ghost btn-icon font-bold">+</button>'
+                            + '<button type="button" data-cart-del="' + esc(key) + '" title="Remover" class="btn btn-danger btn-icon font-bold">x</button>'
                             + '</div></div></div>';
                     });
                     box.innerHTML = html;
@@ -668,7 +724,7 @@ ${sellCards}
                     out.className = diff >= 0 ? 'text-sm font-semibold accent-emerald' : 'text-sm font-semibold accent-red';
                 } else {
                     out.textContent = 'Informe o valor recebido para calcular o troco.';
-                    out.className = 'text-sm ink-3';
+                    out.className = 'text-caption text-ink-3';
                 }
             }
 
@@ -818,6 +874,19 @@ ${sellCards}
 
                 var del = e.target.closest('[data-cart-del]');
                 if (del) { pdvRemove(del.dataset.cartDel); return; }
+
+                /*
+                 * Atalhos de desconto e gorjeta.
+                 *
+                 * O valor vinha escrito dentro do onclick, como
+                 * pdvSetPercent('tip', 10). Um argumento de string no atributo
+                 * nao quebra a pagina como acontece com um id de produto, mas
+                 * e' o mesmo caminho: a regra vira codigo no HTML em vez de
+                 * dado. Aqui os dois campos vem em data-*, e a lista de botoes
+                 * some do markup: sete atributos repetidos viram um so.
+                 */
+                var pct = e.target.closest('[data-pdv-pct]');
+                if (pct) { pdvSetPercent(pct.dataset.pdvPct, pct.dataset.pct); return; }
             });
 
             /*

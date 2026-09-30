@@ -6,7 +6,7 @@ const log = logDoModulo('layout');
 // Reports e System saíram da barra, e isTabId() so aceita o que esta em TABS,
 //entao mantê-los aqui dava a impressao de que ainda dava para abrir ?tab=caixa
 // e nao dava: LEGACY_TABS e' que resolve o link antigo, com redirecionamento.
-export type TabId = 'home' | 'kanban' | 'pdv' | 'estoque' | 'calendario' | 'chat' | 'faturamento' | 'whatsapp' | 'marketplace' | 'config';
+export type TabId = 'home' | 'kanban' | 'pdv' | 'estoque' | 'calendario' | 'chat' | 'faturamento' | 'whatsapp' | 'marketplace' | 'config' | 'usuarios';
 
 /**
  * Ordem da sidebar: o dia primeiro, o catalogo, os canais de terceiro, os
@@ -81,6 +81,16 @@ export const TABS: Array<{ id: TabId; group: TabGroupId; label: string; icon: st
     { id: 'marketplace', group: 'apps', label: 'iFood e 99Food', icon: 'fa-solid fa-store', hint: 'Marketplace: credenciar e conferir pedidos' },
 
     { id: 'config', group: 'ajustes', label: 'Configuracoes', icon: 'fa-solid fa-gear', hint: 'Entrega e negocio' },
+
+    /*
+     * Quem entra no painel, no mesmo grupo das configuracoes.
+     *
+     * A conta e' uma configuracao do negocio, nao uma aba de uso diario: quem
+     * gerencia e' o dono, e uma vez por trimestre. Ficar no fim do grupo, logo
+     * antes do dinheiro, e' o que a mantem longe do caminho de quem so esta
+     * vendendo.
+     */
+    { id: 'usuarios', group: 'ajustes', label: 'Usuarios', icon: 'fa-solid fa-user-shield', hint: 'Quem pode entrar no painel' },
 
     // Um item so: resumo, caixa, clientes e pedidos vivem em sub-abas aqui.
     { id: 'faturamento', group: 'dinheiro', label: 'Faturamento', icon: 'fa-solid fa-chart-column', hint: 'Receita, caixa, clientes e pedidos' },
@@ -475,15 +485,124 @@ const APP_SCRIPTS = `
                     confirmarOrigem = null;
                 }
 
-                async function postJSON(url, body) {
+                /*
+                 * Toda escrita leva o token do CSRF.
+                 *
+                 * Esta e' a UNICA funcao que faz POST no painel inteiro, e o
+                 * token entra aqui e nao em cada chamada. Se entrasse em cada
+                 * uma, bastaria uma rota nova esquecer e ficar aceitando
+                 * formulario de fora -- que e' a falha classica de CSRF, e ela
+                 * nao aparece em teste nenhum, porque o teste tambem manda o
+                 * token.
+                 *
+                 * O token vem da meta csrf do <head>. O cookie sozinho seria
+                 * quase suficiente (SameSite Lax barra o caso comum), mas a meta
+                 * cobre o que o cookie nao cobre: mesma origem em outra aba, e
+                 * subdominio sob controle de alguem.
+                 */
+                function csrfDoPainel() {
+                    var meta = document.querySelector('meta[name="csrf"]');
+                    return meta ? meta.content : '';
+                }
+
+                /*
+                 * Pagina velha: o token do CSRF nao bate com o cookie.
+                 *
+                 * O token viaja no HTML. Se o navegador mostrar uma copia antiga
+                 * desse HTML -- guardada de quando o painel ainda nao tinha senha,
+                 * ou de antes de uma troca de sessao em outra aba -- a meta leva
+                 * um token velho e TODA gravacao volta 403, com a tela dizendo
+                 * "Recarregue a pagina". A pessoa recarrega, funciona, e a proxima
+                 * aba velha falha igual: o defeito fica na mao dela, sem solucao.
+                 *
+                 * Por que repetir depois de recarregar e' seguro: o exigeCsrf
+                 * e' middleware e roda ANTES do handler, entao o 403 garante que
+                 * aquele pedido NAO aconteceu no servidor. Nao ha metade de
+                 * gravacao para duplicar -- o que havia era recusar a tela e
+                 * perder o clique de quem apertou "Assumir" ou "Salvar".
+                 */
+                var CHAVE_RETRY = 'da_pendente';
+                var CHAVE_TENTATIVAS = 'da_csrf_tentativas';
+
+                async function postJSON(url, body, aviso) {
+                    const dados = body === undefined || body === null ? body : Object.assign({}, body, { csrf: csrfDoPainel() });
                     const res = await fetch(url, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: body === undefined ? undefined : JSON.stringify(body)
+                        body: dados === undefined ? undefined : JSON.stringify(dados)
                     });
                     let parsed = {};
                     try { parsed = await res.json(); } catch (e) {}
+
+                    // Recarga bem-sucedida: o contador volta a zero, porque a
+                    // pagina nova esta com o token certo de novo.
+                    if (res.ok) {
+                        try { sessionStorage.removeItem(CHAVE_TENTATIVAS); } catch (e) {}
+                    } else if (res.status === 403 && parsed && parsed.error) {
+                        var tentativas = 0;
+                        try { tentativas = Number(sessionStorage.getItem(CHAVE_TENTATIVAS) || 0); } catch (e) {}
+                        // Duas tentativas e' o limite. A terceira seria a
+                        // recarregar a tela para sempre, que e' a versão
+                        // irritante do mesmo problema.
+                        if (tentativas < 2) {
+                            try {
+                                sessionStorage.setItem(CHAVE_TENTATIVAS, String(tentativas + 1));
+                                sessionStorage.setItem(CHAVE_RETRY, JSON.stringify({ url: url, body: body, aviso: aviso }));
+                            } catch (e) {}
+                            location.reload();
+                            return { ok: false, status: 403, data: parsed };
+                        }
+                    }
+
+                    /*
+                     * Sessao vencida no meio do uso.
+                     *
+                     * A tela fica aberta o dia inteiro, e a sessao dura 12 horas.
+                     * Apos isso, a proxima acao leva 401 e a pessoa ve "Nao foi
+                     * possivel salvar" -- que e' mentira: salvou, so que em outra
+                     * sessao. Levar para o login, levando o caminho de onde a
+                     * pessoa estava, e' a saida honesta.
+                     */
+                    if (res.status === 401 && parsed && parsed.sessaoExpirada) {
+                        location.href = '/entrar?destino=' + encodeURIComponent(location.pathname + location.search);
+                        return { ok: false, status: 401, data: parsed };
+                    }
+
                     return { ok: res.ok, status: res.status, data: parsed };
+                }
+
+                /**
+                 * Repete o que sobrou da pagina velha, depois do recarregamento.
+                 *
+                 * A pendencia e lida e APAGADA antes da repeticao: se o
+                 * servidor recusar de novo, o postJSON desta pagina ve o
+                 * contador e nao entra em recarga infinita.
+                 *
+                 * O que repetir pode ter mudado de pagina -- quem salvou estava
+                 * no Calendario e pode ter aberto outra aba. Por isso a repeticao
+                 * avisa em um evento, e nao desenha nada: quem quiser atualizar a
+                 * tela escuta painel:replay e recarrega a parte dele.
+                 */
+                function csrfRepetePendente() {
+                    var bruto;
+                    try { bruto = sessionStorage.getItem(CHAVE_RETRY); } catch (e) { return; }
+                    if (!bruto) return;
+                    try { sessionStorage.removeItem(CHAVE_RETRY); } catch (e) {}
+
+                    var p;
+                    try { p = JSON.parse(bruto); } catch (e) { return; }
+                    if (!p || !p.url) return;
+
+                    postJSON(p.url, p.body, p.aviso).then(function (r) {
+                        if (r.ok && p.aviso) flash('ok', p.aviso);
+                        document.dispatchEvent(new CustomEvent('painel:replay', { detail: { url: p.url, ok: r.ok, data: r.data } }));
+                    });
+                }
+
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', csrfRepetePendente);
+                } else {
+                    csrfRepetePendente();
                 }
                 function flash(kind, message) {
                     var box = document.getElementById('flash');
@@ -732,22 +851,6 @@ ${blocks}
                         </button>
                     </div>
 
-                    <!--
-                        O botao que traz a barra de volta.
-
-                        Fica no lugar onde a barra ESTAVA, e por isso e' invisivel
-                        enquanto ela esta aberta. Uma peca so, mudando de estado,
-                        seria menos codigo -- mas perderia o rotulo e o icone
-                        certainos de que ali existe um botao, e no lugar vazio
-                        nao ha nada que sugira que a barra pode voltar.
-                    -->
-                    <button type="button" id="sidebarAbrir" onclick="abreSidebar()"
-                        class="hidden md:flex flex-col items-center justify-center gap-2 w-9 shrink-0 border-r line bg-surface hover:bg-surface-2 transition"
-                        aria-controls="sidebar" aria-expanded="false" title="Mostrar a barra de abas">
-                        <span class="fa-solid fa-bars text-sm ink-3"></span>
-                        <span class="text-[10px] ink-3">Abas</span>
-                    </button>
-
                     <!-- Navegacao mobile -->
                     <div class="md:hidden bg-surface border-b border-line px-4 py-3 flex items-center justify-between gap-3">
                         <a href="/admin" class="font-bold flex items-center gap-2 shrink-0">
@@ -769,6 +872,10 @@ export type LayoutOptions = {
     businessName: string;
     /** Contadores exibidos entre parenteses na sidebar. */
     counters?: Partial<Record<TabId, number>>;
+    /** Quem esta comecando. Ausente so em paginas publicas, que nao usam o layout. */
+    sessao?: { nome: string; email: string; papel: string };
+    /** Token do CSRF, para o JavaScript do painel mandar nas rotas de escrita. */
+    csrf?: string;
     body: string;
     /** Scripts extras de uma aba especifica. */
     scripts?: string;
@@ -787,13 +894,42 @@ export function renderLayout(opts: LayoutOptions): string {
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/styles/app.css">
+    <!--
+        O CSRF da sessao, para o JavaScript do painel.
+
+        Vai em meta e nao em variavel global de propósito: um script solto no
+        corpo colocaria o token num lugar que o "ver fonte" mostra e que entra em
+        print de tela. Com a meta, ele continua no HTML -- o que muda e' o tanto
+        que aparece: so o valor, e so no cabecalho que a tela precisa ler.
+
+        O cookie sozinho resolveria o caso comum (SameSite Lax barra o site de
+        terceiro). A meta cobre o que o cookie nao cobre: a mesma origem em outra
+        aba, e um subdominio sob controle de alguem. Os dois juntos fecham.
+    -->
+    <meta name="csrf" content="${escapeHtml(opts.csrf ?? '')}">
 </head>
 <body>
-    <div class="flex min-h-screen flex-col md:flex-row overflow-hidden">
+    <!--
+        O painel e' um app de altura fixa, nao um documento.
+
+        h-screen overflow-hidden no container, e min-h-0 na coluna de conteudo.
+        A diferenca nao e' estetica: e' o que garante que a barra de abas e o
+        cabecalho fiquem parados enquanto a pessoa mexe na lista de pedidos. Com
+        min-h-screen e overflow-y-auto na coluna, tudo que for mais alto que a
+        tela empurra o cabecalho para fora -- e o cabecalho e' onde esta o sino,
+        que e' justamente o aviso que chega enquanto a pessoa esta no meio da
+        tela.
+
+        E' por isso que cada aba precisa declarar onde a rolagem acontece: a
+        regiao que cresce com os dados leva flex-1, min-h-0 e overflow-y-auto.
+        Sem o min-h-0 no meio do caminho, o flex nao encolhe -- o item prefere a
+        altura do conteudo, e a coluna volta a crescer.
+    -->
+    <div class="flex h-screen overflow-hidden">
 ${sidebar(opts.active, opts.counters ?? { pdv: opts.productCount }, opts.botOnline, opts.businessName)}
 
-        <div class="flex-1 flex flex-col overflow-y-auto min-w-0">
-            <header class="bg-surface h-14 md:h-16 shrink-0 flex items-center justify-between gap-4 px-4 md:px-8 border-b border-line sticky top-0 z-20">
+        <div class="flex-1 flex flex-col min-w-0 min-h-0">
+            <header class="bg-surface h-14 md:h-16 shrink-0 flex items-center justify-between gap-4 px-4 md:px-8 border-b border-line z-20">
                 <h1 class="text-title truncate">${opts.title}</h1>
                 <div class="flex items-center gap-2 shrink-0">
                     <span id="botStatus" class="badge hidden sm:inline-flex">
@@ -850,6 +986,13 @@ ${sidebar(opts.active, opts.counters ?? { pdv: opts.productCount }, opts.botOnli
                         </div>
                     </div>
 
+                    <div class="flex items-center gap-2 shrink-0">
+                    ${opts.sessao
+                        ? `<a href="/sair" class="btn btn-ghost btn-sm" title="Encerrar a sessao neste navegador">
+                            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                            <span class="hidden sm:inline">Sair</span>
+                        </a>`
+                        : ''}
                     <a href="/admin" class="btn btn-ghost btn-sm" title="Atualizar">
                         <i class="fa-solid fa-rotate"></i>
                         <span class="hidden sm:inline">Atualizar</span>
@@ -867,7 +1010,22 @@ ${sidebar(opts.active, opts.counters ?? { pdv: opts.productCount }, opts.botOnli
                 </div>
             </header>
 
-            <main class="flex-1 w-full max-w-content mx-auto px-4 md:px-8 py-5 md:py-8">
+            <!--
+                A regiao de conteudo e' ela propria a rolar, e nao a pagina.
+
+                A coluna de fora e' h-screen, entao o documento nao cresce e o
+                cabecalho fica parado. Aqui dentro, o conteudo que for mais alto
+                que a tela rola sozinho.
+
+                Isso e' uma rede de seguranca, e nao o destino. O destino e' cada
+                aba caber: e' por isso que as listas recebem teto em
+                calc(100vh - ...) e nao em rem. Sem esta rede, uma aba que
+                estourasse o limite esconderia o conteiroso de baixo em vez de
+                mostrar -- que e' o que aconteceu quando o limite chegou antes da
+                hora. Nada pode ficar inacessivel; o que ainda sobra e' o que a
+                regiao interna absorve.
+            -->
+            <main class="flex-1 min-h-0 w-full max-w-content mx-auto px-4 md:px-8 py-5 md:py-8 overflow-y-auto">
                 <div id="flash" class="hidden"></div>
 ${opts.body}
             </main>

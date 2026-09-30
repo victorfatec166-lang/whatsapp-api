@@ -1,4 +1,5 @@
 import { escapeHtml } from './html';
+import { cardVazio } from './ui/card';
 import { currency, statusLabel } from '../services/stats';
 import { renderModal } from './ui/modal';
 import { credencialSpec, itemSpec, marketplaceModalsScript } from './marketplaceModals';
@@ -131,8 +132,8 @@ function cardCanal(d: MarketplaceData, channel: Canal): string {
     // seria sugerir que bastaria colar la.
     const urlWebhook = d.webhookBase + '/webhook/marketplace/' + channel;
 
-    return `            <div class="card mb-5">
-                <div class="flex flex-wrap items-center justify-between gap-3 card-pad pb-3">
+    return `            <div class="card">
+                <div class="flex flex-wrap items-center justify-between gap-3 card-pad pb-3 border-b border-line">
                     <div>
                         <h3 class="text-title flex items-center gap-2">
                             <i class="fa-solid fa-store text-accent"></i> ${escapeHtml(NOME_CANAL[channel])}
@@ -150,17 +151,17 @@ function cardCanal(d: MarketplaceData, channel: Canal): string {
                     </div>
                 </div>
 
-                <div class="px-5 pb-5 space-y-4">
+                <div class="px-5 pb-5 pt-4 space-y-3">
                     ${
                         conta?.lastError
-                            ? `                    <div class="flex items-start gap-2 text-caption text-ink-2 bg-surface-2 border line rounded-card p-3">
+                            ? `                    <div class="flex items-start gap-2 text-caption text-ink-2 bg-surface-2 border border-line rounded-card p-3">
                         <i class="fa-solid fa-circle-info text-accent mt-0.5 shrink-0"></i>
                         <span>${escapeHtml(conta.lastError)}</span>
                     </div>`
                             : ''
                     }
 
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div class="grid grid-cols-2 gap-3">
                         ${metrica('Credencial', temCredencial ? 'Guardada' : 'Falta', temCredencial)}
                         ${metrica('Token de webhook', temToken ? 'Guardado' : 'Falta', temToken)}
                         ${metrica('Itens casados', String(itens.length), itens.length > 0)}
@@ -169,8 +170,8 @@ function cardCanal(d: MarketplaceData, channel: Canal): string {
 
                     ${
                         !d.temChaveDeCifra
-                            ? `                    <div class="flex items-start gap-2 text-caption text-ink-2 bg-surface-2 border line rounded-card p-3">
-                        <i class="fa-solid fa-triangle-exclamation text-accent-red mt-0.5 shrink-0"></i>
+                            ? `                    <div class="flex items-start gap-2 text-caption text-ink-2 bg-warning-bg border border-accent-orange rounded-card p-3">
+                        <i class="fa-solid fa-triangle-exclamation text-accent-orange mt-0.5 shrink-0"></i>
                         <span>
                             Sem <code class="font-mono">CHANNEL_SECRET</code> no <code class="font-mono">.env</code>.
                             A credencial nao e guardada sem essa chave, e guardar em claro seria o mesmo que nao guardar.
@@ -180,7 +181,7 @@ function cardCanal(d: MarketplaceData, channel: Canal): string {
                     }
 
                     <div class="flex flex-wrap items-center gap-2">
-                        <button type="button" onclick="mkTestar('${channel}')" class="btn btn-ghost btn-sm">
+                        <button type="button" data-mk-testar="${channel}" class="btn btn-ghost btn-sm">
                             <i class="fa-solid fa-plug-circle-check"></i> Testar comunicacao
                         </button>
                         <button type="button" onclick="mkItem_${channel}Open()" class="btn btn-ghost btn-sm">
@@ -188,7 +189,7 @@ function cardCanal(d: MarketplaceData, channel: Canal): string {
                         </button>
                         ${
                             temCredencial
-                                ? `                        <button type="button" onclick="mkApagarCredencial('${channel}')" class="btn btn-ghost btn-sm">
+                                ? `                        <button type="button" data-mk-apagar="${channel}" class="btn btn-ghost btn-sm">
                             <i class="fa-solid fa-trash"></i> Apagar credencial
                         </button>`
                                 : ''
@@ -199,7 +200,7 @@ function cardCanal(d: MarketplaceData, channel: Canal): string {
                         temToken
                             ? `                    <div>
                         <p class="text-caption text-ink-3 mb-1">Endereco do webhook para cadastrar no ${escapeHtml(NOME_CANAL[channel])}</p>
-                        <code class="input font-mono text-xs block cursor-default">${escapeHtml(urlWebhook)}</code>
+                        <code class="input font-mono text-caption block cursor-default">${escapeHtml(urlWebhook)}</code>
                         <p class="text-caption text-ink-3 mt-1">
                             A plataforma assina o corpo com o token guardado no passo 1. Sem assinatura valida o pedido e' recusado.
                         </p>
@@ -212,10 +213,10 @@ function cardCanal(d: MarketplaceData, channel: Canal): string {
                             ? `                    <p class="text-caption text-ink-3">
                         Nenhum item casado. Enquanto for assim, o pedido entra no Kanban mas <strong>nao baixa estoque</strong>.
                     </p>`
-                            : `                    <div class="border line rounded-card overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead>
-                                <tr class="text-left text-caption text-ink-3 border-b border-line">
+                            : `                    <div class="border border-line rounded-card overflow-x-auto max-h-[calc(100vh-46rem)] overflow-y-auto">
+                        <table class="w-full text-body">
+                            <thead class="sticky top-0 bg-surface-2">
+                                <tr class="text-left text-caption text-ink-3">
                                     <th class="px-3 py-2 font-semibold">Id no marketplace</th>
                                     <th class="px-3 py-2 font-semibold">Produto do catalogo</th>
                                     <th class="px-3 py-2 font-semibold text-right">Preco</th>
@@ -226,9 +227,9 @@ function cardCanal(d: MarketplaceData, channel: Canal): string {
                                 ${itens
                                     .map(
                                         (i) => `                                <tr class="border-b border-line last:border-0">
-                                    <td class="px-3 py-2 font-mono text-xs ink-2">${escapeHtml(i.externalId)}</td>
-                                    <td class="px-3 py-2 ink">${escapeHtml(i.product.name)}</td>
-                                    <td class="px-3 py-2 text-right ink">${money(i.product.price)}</td>
+                                    <td class="px-3 py-2 font-mono text-caption text-ink-2">${escapeHtml(i.externalId)}</td>
+                                    <td class="px-3 py-2 text-ink">${escapeHtml(i.product.name)}</td>
+                                    <td class="px-3 py-2 text-right text-ink">${money(i.product.price)}</td>
                                     <td class="px-3 py-2">${divergencia(i)}</td>
                                 </tr>`
                                     )
@@ -242,68 +243,89 @@ function cardCanal(d: MarketplaceData, channel: Canal): string {
 }
 
 function metrica(label: string, valor: string, ok: boolean): string {
-    return `                        <div class="surface-2 border line rounded-card p-3">
+    return `                        <div class="bg-surface-2 border border-line rounded-card p-3">
                             <p class="text-caption text-ink-3">${escapeHtml(label)}</p>
-                            <p class="text-body font-bold mt-0.5 ${ok ? 'accent-emerald' : 'ink-3'}">${escapeHtml(valor)}</p>
+                            <p class="text-body font-bold mt-0.5 ${ok ? 'text-accent-emerald' : 'text-ink-3'}">${escapeHtml(valor)}</p>
                         </div>`;
 }
 
+/**
+ * A lista de pedidos de um canal.
+ *
+ * Com teto. Vinte pedidos de cada canal, lado a lado, sao quarenta linhas --
+ * e a lista estava sem limite nenhum, entao a tela crescia conforme a entrada
+ * do canal, nao conforme a quantidade. A rolagem e' aqui dentro, que e' onde
+ * faz sentido: e' a unica regiao desta tela que cresce com dado.
+ */
 function listaPedidos(pedidos: PedidoExterno[]): string {
     if (pedidos.length === 0) {
-        return '<p class="text-caption text-ink-3">Nenhum pedido recebido por marketplace ate agora.</p>';
+        return cardVazio('Nenhum pedido recebido por marketplace ate agora.', 'fa-store');
     }
-    return `                <ul class="space-y-2">
+    return `                <div class="max-h-[calc(100vh-34rem)] overflow-y-auto">
+                    <ul class="space-y-1">
                     ${pedidos
                         .map(
                             (p) => `                    <li class="flex items-center justify-between gap-3 py-2 border-b border-line last:border-0">
                         <div class="min-w-0">
-                            <p class="text-body ink truncate">${money(p.total)}</p>
+                            <p class="text-body text-ink truncate">${money(p.total)}</p>
                             <p class="text-caption text-ink-3 font-mono">${escapeHtml(p.externalId ?? '')}</p>
                         </div>
                         <div class="text-right shrink-0">
                             <p class="text-caption text-ink-3">${quando(p.createdAt)}</p>
-                            <p class="text-caption ink-2">${escapeHtml(statusLabel(p.status))}</p>
+                            <p class="text-caption text-ink-2">${escapeHtml(statusLabel(p.status))}</p>
                         </div>
                     </li>`
                         )
                         .join('\n')}
-                </ul>`;
+                    </ul>
+                </div>`;
 }
 
 export function renderMarketplace(d: MarketplaceData): string {
     const canaisPresentes = CANAIS;
 
-    return `        <p class="text-sm text-ink-2 max-w-3xl mb-5">
+    return `        <p class="text-body text-ink-2 max-w-3xl mb-4">
             Pedidos do iFood e do 99Food entram no mesmo Kanban dos demais, e a baixa de estoque acontece
             junto com a gravacao. O que o sistema <strong>nao</strong> faz e' dizer que um canal esta
             conectado sem ter falado com ele: o status abaixo so vira "Ativo" depois de uma comunicacao
             que deu certo.
         </p>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
             ${passos
                 .map(
-                    (p) => `                <div class="surface-2 border line rounded-card p-3">
-                    <p class="text-caption font-bold accent-amber">Passo ${p.n}</p>
-                    <p class="text-body font-semibold ink">${escapeHtml(p.titulo)}</p>
+                    (p) => `                <div class="bg-surface-2 border border-line rounded-card p-3">
+                    <p class="text-caption font-semibold text-accent">Passo ${p.n}</p>
+                    <p class="text-body font-semibold text-ink">${escapeHtml(p.titulo)}</p>
                     <p class="text-caption text-ink-3 mt-1">${escapeHtml(p.texto)}</p>
                 </div>`
                 )
                 .join('\n')}
         </div>
 
-${canaisPresentes.map((c) => cardCanal(d, c)).join('\n')}
+        <!--
+            Os dois canais lado a lado, e nao um embaixo do outro.
 
-        <div class="card">
-            <div class="card-pad pb-3">
+            Empilhados, o segundo canal empurrava a lista de pedidos recentes
+            para fora da tela -- e essa lista e' o que a pessoa abre a aba para
+            ver: os pedidos que chegaram de fora. Lado a lado, cada canal ocupa
+            metade da largura e a lista fica visivel embaixo, que e' onde a
+            leitura comeca.
+        -->
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+${canaisPresentes.map((c) => cardCanal(d, c)).join('\n')}
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-pad pb-3 border-b border-line">
                 <h3 class="text-title">Pedidos recentes</h3>
                 <p class="text-caption text-ink-3">Ultimos 20 pedidos de cada canal</p>
             </div>
-            <div class="px-5 pb-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="px-5 pb-5 pt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
                 ${canaisPresentes
                     .map(
-                        (c) => `                <div>
-                    <p class="text-body font-semibold ink mb-2">${escapeHtml(NOME_CANAL[c])}</p>
+                        (c) => `                <div class="min-w-0">
+                    <p class="text-body font-semibold text-ink mb-2">${escapeHtml(NOME_CANAL[c])}</p>
 ${listaPedidos(d.pedidos[c] ?? [])}
                 </div>`
                     )
@@ -344,6 +366,27 @@ ${canaisPresentes.map((c) => renderModal(itemSpec(c, d.produtos))).join('\n')}
                     { titulo: 'Apagar credencial', confirmar: 'Apagar' }
                 );
             }
+
+            /*
+             * Os dois botoes de canal por delegacao, e nao por onclick.
+             *
+             * Sao os mesmos dois botoes em duas colunas, e o onclick repetia o
+             * nome da funcao com o canal escrito dentro do atributo. Um id ou um
+             * slug interpolado em codigo e' uma string montada no servidor: se um
+             * deles trouxer uma aspa, o bloco de script para de fazer sentido e a
+             * pagina perde todos os ouvintes de uma vez. O canal viaja em
+             * data-mk-testar e data-mk-apagar, que sao dado e nao codigo.
+             */
+            document.addEventListener('click', function (ev) {
+                var alvo = ev.target;
+                if (!alvo || !alvo.closest) return;
+
+                var testar = alvo.closest('[data-mk-testar]');
+                if (testar) { mkTestar(testar.dataset.mkTestar); return; }
+
+                var apagar = alvo.closest('[data-mk-apagar]');
+                if (apagar) { mkApagarCredencial(apagar.dataset.mkApagar); return; }
+            });
         </script>
 ${marketplaceModalsScript(canaisPresentes)}`;
 }

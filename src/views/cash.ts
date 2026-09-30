@@ -2,6 +2,7 @@ import { escapeHtml } from './html';
 import { currency } from '../services/stats';
 import type { OpenShift, ShiftHistoryRow } from '../services/cash';
 import { renderModal } from './ui/modal';
+import { kpi, faixaKpi } from './ui/card';
 import {
     ENDPOINT_ABRIR,
     ENDPOINT_FECHAR,
@@ -27,13 +28,7 @@ export type CashData = {
     todayOrders: number;
 };
 
-function kpi(label: string, value: string, sub: string, tone: string): string {
-    return `                <div class="kpi">
-                    <p class="kpi-label">${label}</p>
-                    <p class="kpi-value ${tone}">${value}</p>
-                    <p class="kpi-sub">${sub}</p>
-                </div>`;
-}
+
 
 /**
  * Tela de Caixa.
@@ -198,12 +193,12 @@ export function renderCash(d: CashData): string {
         ? `Abre ${d.autoOpen || '--:--'} e fecha ${d.autoClose || '--:--'}${d.hasFloat ? '' : ' (abertura desativada: falta o fundo de troco)'}`
         : 'Agenda automatica desativada';
 
-    return `        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            ${kpi('Turno', d.shift ? 'Aberto' : 'Fechado', agenda, d.shift ? 'text-accent-emerald' : 'text-ink-3')}
-            ${kpi('Esperado na gaveta', d.shift ? money(d.shift.totals.expected) : '--', 'troco + vendas em dinheiro', 'text-accent-strong')}
-            ${kpi('Faturamento hoje', money(d.todayRevenue), d.todayOrders + ' pedido(s)', 'text-accent')}
-            ${kpi('A conferir', String(d.pending.length), d.pending.length === 1 ? 'turno sem contagem' : 'turnos sem contagem', d.pending.length > 0 ? 'text-accent-orange' : 'text-ink-3')}
-        </div>
+    return `${faixaKpi([
+        kpi('Turno', d.shift ? 'Aberto' : 'Fechado', agenda, d.shift ? 'success' : 'default'),
+        kpi('Esperado na gaveta', d.shift ? money(d.shift.totals.expected) : '--', 'troco + vendas em dinheiro'),
+        kpi('Faturamento hoje', money(d.todayRevenue), d.todayOrders + ' pedido(s)', 'accent'),
+        kpi('A conferir', String(d.pending.length), d.pending.length === 1 ? 'turno sem contagem' : 'turnos sem contagem', d.pending.length > 0 ? 'warning' : 'default'),
+    ])}
 
         ${conferencia}
 

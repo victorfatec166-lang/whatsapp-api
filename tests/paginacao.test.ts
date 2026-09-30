@@ -21,6 +21,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PrismaClient } from '@prisma/client';
+import { createRequire } from 'node:module';
+
+// A sessao de teste e' o mesmo login que o navegador faz -- nenhum bypass, e a
+// conta e' de operador. Ver o porque em scripts/lib/sessaoDeTeste.cjs.
+const { sessaoDeTeste } = createRequire(import.meta.url)('./../scripts/lib/sessaoDeTeste.cjs');
 
 const BASE = process.env.TEST_BASE || 'http://localhost:3000';
 const JID = '5500000000000@teste-paginacao';
@@ -28,6 +33,13 @@ const TOTAL = 250;
 const PAGINA = 100;
 
 const prisma = new PrismaClient();
+
+/** Cabecalho de cookie da sessao, montado no primeiro uso. */
+let cookie: string | undefined;
+async function sessao(): Promise<string> {
+    if (!cookie) cookie = (await sessaoDeTeste()).Cookie;
+    return cookie;
+}
 
 type Mensagem = { text: string; sentAt: string };
 type Pagina = { mensagens: Mensagem[]; temMais: boolean };
@@ -55,7 +67,7 @@ async function semeia(): Promise<string> {
 
 async function pegaPagina(id: string, antes?: string): Promise<Pagina> {
     const url = antes ? `${BASE}/api/admin/chat/${id}?antes=${encodeURIComponent(antes)}` : `${BASE}/api/admin/chat/${id}`;
-    const r = await fetch(url);
+    const r = await fetch(url, { headers: { Cookie: await sessao() } });
     if (!r.ok) throw new Error(`GET ${url} -> ${r.status}`);
     return (await r.json()) as Pagina;
 }

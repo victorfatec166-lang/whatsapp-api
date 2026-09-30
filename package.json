@@ -16,8 +16,9 @@
     "check:contrast": "node scripts/check-contrast.js",
     "check:js": "node scripts/check-js.js",
     "check:ui": "node scripts/check-ui.js",
-    "check": "npm run check:ui && npm run check:js && npm run test",
-    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
+    "check:comentarios": "node scripts/check-comentarios.js",
+    "check": "npm run check:ui && npm run check:js && npm run check:comentarios && npm run test",
+    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts tests/*.test.js",
     "start": "node scripts/start.mjs"
   },
   "dependencies": {

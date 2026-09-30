@@ -14,10 +14,10 @@ export const MOVEMENT_LABELS: Record<MovementType, string> = {
 };
 
 export const MOVEMENT_BADGES: Record<MovementType, string> = {
-    entrada: 'badge-emerald',
-    saida: 'badge-red',
-    perda: 'badge-orange',
-    ajuste: 'badge-amber',
+    entrada: 'badge-success',
+    saida: 'badge-danger',
+    perda: 'badge-warn',
+    ajuste: 'badge-neutral',
 };
 
 /** Tipos que aumentam o saldo. */
@@ -65,10 +65,10 @@ export const STOCK_STATUS_LABEL: Record<string, string> = {
 };
 
 export const STOCK_STATUS_BADGE: Record<string, string> = {
-    ok: 'badge-emerald',
-    baixo: 'badge-amber',
-    zerado: 'badge-red',
-    'sem-controle': 'badge-slate',
+    ok: 'badge-success',
+    baixo: 'badge-warn',
+    zerado: 'badge-danger',
+    'sem-controle': 'badge-neutral',
 };
 
 /**

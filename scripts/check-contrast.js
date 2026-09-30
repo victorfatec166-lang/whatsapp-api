@@ -147,6 +147,7 @@ for (const [tema, regras] of Object.entries(REGRAS)) {
 
 const VIEWS_DIR = path.join(__dirname, '..', 'src', 'views');
 const CORES_FIXAS = /(?<!accent-)\b(?:bg|text|border)-(?:amber|red|green|emerald|blue|indigo|purple|pink|slate|zinc|stone|gray)-[0-9]{2,3}\b/;
+const dataSemInput = /data-sem-input/;
 
 function arquivosView(dir) {
     const saida = [];
@@ -177,12 +178,68 @@ for (const arquivo of arquivosView(VIEWS_DIR)) {
     });
 }
 
-const falhasTotais = falhas + corFixa;
+/*
+ * Terceira parte: campo de formulario escrito a mao.
+ *
+ * As duas primeiras medem cor. Esta nao mede nada: ela pergunta se a classe
+ * `.input` esta no `<input>`/`<select>`/`<textarea>`.
+ *
+ * O defeito era de tema, nao de contraste, e por isso escapava das duas
+ * medidas. Um campo escrito como `px-3 py-1.5 text-sm border line-in rounded-lg`
+ * tem borda e tamanho, mas nao tem `background-color` e nao tem `color`: quem
+ * pinta o campo e' o navegador. No tema claro isso parece certo, porque o padrao
+ * do navegador e' claro. No tema escuro o campo continuava branco com o texto
+ * que o navegador escolhesse -- e o <select> ainda trazia a seta do tema claro.
+ *
+ * Alem disso, `color-scheme` no CSS (veja o comentario em :root) resolve o que
+ * o navegador desenha sozinho. As duas coisas juntas fecham o caso: o que vem
+ * de token, e o que vem do navegador.
+ *
+ * A excecao e' o campo marcado com data-sem-input: sao os casos em que a caixa
+ * nao e' um campo de formulario (o `<pre>` da comanda, por exemplo), e a classe
+ * do que era antes fica por compatibilidade.
+ */
+console.log(`\n=== CAMPO SEM .input (src/views) ===\n`);
 
-console.log(`\n${total - falhas}/${total} combinacoes conformes; ${corFixa} cor(es) fixa(s) em botao`);
+let campoCru = 0;
+for (const arquivo of arquivosView(VIEWS_DIR)) {
+    const texto = fs.readFileSync(arquivo, 'utf8');
+
+    /*
+     * Tag por tag, e nao linha por linha: o `class` de um <input> cai na linha
+     * seguinte sempre que a tag tem atributo condicional -- e no projeto quase
+     * todo input tem. Varrer por linha dava falso negativo (a tag e' achada, o
+     * class nao) e apontava a linha errada.
+     *
+     * O `[^<>]*` no meio exige que a tag nao contenha outra tag. E' o que separa
+     * a tag de verdade de um `<select>` citado em prosa dentro de um comentario,
+     * e o `[=/]` exige atributo, para nao casar com um nome de elemento solto.
+     */
+    const tags = texto.matchAll(/<(?:input|select|textarea)\b[^<>]*[=/][^<>]*>/g);
+
+    for (const achado of tags) {
+        const tag = achado[0];
+        if (dataSemInput.test(tag)) continue;
+        // Campo oculto nao aparece, entao nao tem cor a medir.
+        if (/<input[^>]*type="hidden"/.test(tag)) continue;
+        // Caixa de selecao e' desenhada pelo navegador a partir de `accent-color`
+        // e nao aceita `background`/`color`. O que se mede ali e' o `accent-*`.
+        if (/<input[^>]*type="(?:checkbox|radio)"/.test(tag)) continue;
+        if (/(^|\s)class="[^"]*\binput\b/.test(tag)) continue;
+
+        const linha = texto.slice(0, achado.index).split('\n').length;
+        console.log(`  FALHA  ${path.basename(arquivo)}:${linha}  campo sem a classe .input`);
+        console.log(`         use class="input": fundo, cor e borda vem do token e funcionam nos dois temas.`);
+        campoCru++;
+    }
+}
+
+const falhasTotais = falhas + corFixa + campoCru;
+
+console.log(`\n${total - falhas}/${total} combinacoes conformes; ${corFixa} cor(es) fixa(s) em botao; ${campoCru} campo(s) sem .input`);
 
 if (falhasTotais > 0) {
-    console.error(`\n${falhasTotais} falha(s). Tokens em src/styles/app.css; botoes em src/views/*.ts.`);
+    console.error(`\n${falhasTotais} falha(s). Tokens em src/styles/app.css; botoes e campos em src/views/*.ts.`);
     process.exit(1);
 }
-console.log('Todos os tokens atendem a WCAG AA, e nenhum botao escapa do token.');
+console.log('Todos os tokens atendem a WCAG AA, nenhum botao escapa do token e todo campo usa .input.');

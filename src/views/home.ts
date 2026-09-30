@@ -3,6 +3,7 @@ import { currency } from '../services/stats';
 import type { HomeData } from '../services/home';
 import { cashOpenSpec, cashModalsScript } from './cashModals';
 import { renderModal } from './ui/modal';
+import { kpi, faixaKpi } from './ui/card';
 
 function money(n: number): string {
     return escapeHtml(currency(n));
@@ -22,14 +23,6 @@ function deltaBadge(value: number | null, invert = false): string {
     return `<span class="text-caption ${tone} font-semibold"><i class="fa-solid ${arrow}"></i> ${Math.abs(value).toFixed(1).replace('.', ',')}%</span>`;
 }
 
-/** KPI do topo. Esta era a 4a copia quase identica deste bloco no projeto. */
-function kpi(label: string, value: string, sub: string, tone: string): string {
-    return `                <div class="kpi">
-                    <p class="kpi-label">${label}</p>
-                    <p class="kpi-value ${tone}">${value}</p>
-                    <p class="kpi-sub">${sub}</p>
-                </div>`;
-}
 
 export function renderHome(d: HomeData): string {
     /* ------------------------------------------------------ precisa de atencao */
@@ -327,12 +320,12 @@ const cashModalsHtml = renderModal(cashOpenSpec());
      * A ordem dentro de cada coluna e' do urgente para o consultivo: quem
      * chegou na Home quer saber o que precisa ser feito agora.
      */
-    return `        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-            ${kpi('Pedidos hoje', String(d.today.orders), deltaBadge(d.delta.orders), 'text-accent')}
-            ${kpi('Em aberto', String(d.queue.pendente + d.queue.preparando + d.queue.entrega), 'aguardando ou em preparo', 'text-accent-orange')}
-            ${kpi('Concluidos', String(d.queue.concluidoHoje), 'finalizados hoje', 'text-accent-emerald')}
-            ${kpi('Itens no cardapio', String(d.menuProducts.length), 'disponiveis para vender', 'text-ink-2')}
-        </div>
+    return `${faixaKpi([
+        kpi('Pedidos hoje', String(d.today.orders), deltaBadge(d.delta.orders), 'accent'),
+        kpi('Em aberto', String(d.queue.pendente + d.queue.preparando + d.queue.entrega), 'aguardando ou em preparo', 'warning'),
+        kpi('Concluidos', String(d.queue.concluidoHoje), 'finalizados hoje', 'success'),
+        kpi('Itens no cardapio', String(d.menuProducts.length), 'disponiveis para vender'),
+    ])}
 
         ${atencao}
 
@@ -427,7 +420,7 @@ const cashModalsHtml = renderModal(cashOpenSpec());
                 </div>
 
                 <p id="menuEmptyPick" class="text-body text-ink-3 py-4 text-center hidden">Nenhum produto disponivel no cardapio.</p>
-                <div id="menuList" class="space-y-1.5 max-h-72 overflow-y-auto">
+                <div id="menuList" class="space-y-1.5 max-h-[calc(100vh-30rem)] overflow-y-auto">
                     ${d.menuProducts
                         .map(
                             (p) => `                    <label class="flex items-center gap-3 p-2 rounded-card bg-sunken cursor-pointer row-hover">

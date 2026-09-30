@@ -4,18 +4,13 @@ import type { DashboardStats } from '../services/stats';
 import { renderStats, type ReportData } from './tabs';
 import { renderCash, type CashData } from './cash';
 import { renderCustomers, type CustomersData } from './customers';
+import { kpi, faixaKpi } from './ui/card';
 
 function money(n: number): string {
     return escapeHtml(currency(n));
 }
 
-function kpi(label: string, value: string, sub: string, tone: string): string {
-    return `                <div class="kpi">
-                    <p class="kpi-label">${label}</p>
-                    <p class="kpi-value ${tone}">${value}</p>
-                    <p class="kpi-sub">${sub}</p>
-                </div>`;
-}
+
 
 export type FaturamentoData = {
     stats: DashboardStats;
@@ -67,17 +62,17 @@ function resumo(d: FaturamentoData): string {
 
     const ticket = d.todayOrders > 0 ? money(d.averageTicket) : '--';
 
-    return `        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            ${kpi('Faturamento hoje', money(d.todayRevenue), d.todayOrders + ' pedido(s)', 'text-accent-strong')}
-            ${kpi('Ticket medio', ticket, d.todayOrders > 0 ? 'por pedido hoje' : 'sem pedidos hoje', 'text-accent-orange')}
-            ${kpi(
-                'Lucro estimado',
-                d.margin ? money(d.margin.value) : '--',
-                d.margin ? `margem de ${String(d.margin.percent).replace('.', ',')}%` : 'cadastre o custo dos produtos',
-                d.margin ? 'text-accent-emerald' : 'text-ink-3'
-            )}
-            ${kpi('Pedidos no periodo', String(d.report.count), 'aba Pedidos', 'text-accent')}
-        </div>
+    return `${faixaKpi([
+        kpi('Faturamento hoje', money(d.todayRevenue), d.todayOrders + ' pedido(s)'),
+        kpi('Ticket medio', ticket, d.todayOrders > 0 ? 'por pedido hoje' : 'sem pedidos hoje', 'warning'),
+        kpi(
+            'Lucro estimado',
+            d.margin ? money(d.margin.value) : '--',
+            d.margin ? `margem de ${String(d.margin.percent).replace('.', ',')}%` : 'cadastre o custo dos produtos',
+            d.margin ? 'success' : 'default'
+        ),
+        kpi('Pedidos no periodo', String(d.report.count), 'aba Pedidos', 'accent'),
+    ])}
 
         ${
             barras

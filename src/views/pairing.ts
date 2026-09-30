@@ -50,9 +50,9 @@ function phonePretty(raw: string | null): string {
 }
 
 function infoRow(label: string, value: string): string {
-    return '                    <div class="flex justify-between gap-3 py-2 border-b line last:border-0">'
-        + '<span class="text-sm ink-3">' + label + '</span>'
-        + '<span class="text-sm font-medium ink text-right">' + value + '</span>'
+    return '                    <div class="flex justify-between gap-3 py-2 border-b border-line last:border-0">'
+        + '<span class="text-caption text-ink-3">' + label + '</span>'
+        + '<span class="text-body font-medium text-ink text-right">' + value + '</span>'
         + '</div>';
 }
 
@@ -62,23 +62,20 @@ export function renderPairing(d: PairData): string {
     const connected = d.state.phase === 'conectado';
 
     /*
-     * `type="button"` explicito, e na' o padrao do navegador que decide.
+     * `type="button"` explicito, e nao o padrao do navegador que decide.
      *
-     * Um `<button>` sem `type` dentro de um `<form>` vira submit. Estes dois
-     * nao estao em form nenhum hoje, entao nao ha bug -- mas a regra vale para
-     * os botoes de tabela e de card, que a pessoa rearranja. Um botao de
-     * "Reconectar" que recarrega a pagina por accident e' o tipo de defeito que
+     * Um `<button>` sem `type` dentro de um `<form>` vira submit. Estes dois nao
+     * estao em form nenhum hoje, entao nao ha bug -- mas a regra vale para os
+     * botoes de tabela e de card, que a pessoa rearranja. Um botao de
+     * "Reconectar" que recarrega a pagina por acidente e' o tipo de defeito que
      * so aparece quando alguem move o HTML.
-     *
-     * As classes `badge-slate`/`badge-red` continuam: elas carregam a cor de
-     * estado, que o token `.btn-ghost` nao tem. O que faltava era o `type`.
      */
     const reconnectBtn =
-        '<button type="button" onclick="reconnect()" class="px-3 py-2 rounded-lg text-sm font-medium transition badge-slate flex items-center gap-2">'
+        '<button type="button" onclick="reconnect()" class="btn btn-ghost">'
         + '<i class="fa-solid fa-rotate"></i> Reconectar</button>';
 
     const unpairBtn =
-        '<button type="button" onclick="unpair()" class="px-3 py-2 rounded-lg text-sm font-medium transition badge-red flex items-center gap-2">'
+        '<button type="button" onclick="unpair()" class="btn btn-danger">'
         + '<i class="fa-solid fa-link-slash"></i> Desconectar e parear outro numero</button>';
 
     /*
@@ -94,15 +91,15 @@ export function renderPairing(d: PairData): string {
      */
     const sessaoEstranha = d.state.sessaoDeOutraMaquina
         ? [
-              '        <div id="sessaoEstranha" class="surface border line rounded-2xl p-4 mb-5 flex items-start gap-3" style="border-left: 4px solid var(--badge-red-ink)">',
-              '            <i class="fa-solid fa-triangle-exclamation accent-red mt-0.5 shrink-0"></i>',
+              '        <div id="sessaoEstranha" class="card card-pad mb-4 flex items-start gap-3 border-l-4 border-l-accent-red">',
+              '            <i class="fa-solid fa-triangle-exclamation text-accent-red mt-0.5 shrink-0"></i>',
               '            <div class="min-w-0">',
-              '                <p class="font-bold accent-red mb-1">A sessao do WhatsApp veio de outra maquina</p>',
-              '                <p id="sessaoEstranhaTexto" class="text-sm ink-2">' + escapeHtml(d.state.sessaoDeOutraMaquina) + '</p>',
-              '                <p class="text-sm ink-2 mt-2">'
+              '                <p class="font-semibold text-accent-red mb-1">A sessao do WhatsApp veio de outra maquina</p>',
+              '                <p id="sessaoEstranhaTexto" class="text-body text-ink-2">' + escapeHtml(d.state.sessaoDeOutraMaquina) + '</p>',
+              '                <p class="text-body text-ink-2 mt-2">'
               + 'A solucao e\' escanear o QR ao lado com o celular. A sessao antiga so e\' reescrita '
               + 'quando voce le o codigo; ate la, esta maquina fica sem WhatsApp.</p>',
-              '                <p class="text-xs ink-3 mt-1">Se voce <strong>acabou de reinstalar o Windows</strong> '
+              '                <p class="text-caption text-ink-3 mt-1">Se voce <strong>acabou de reinstalar o Windows</strong> '
               + 'ou trocou o disco, isso e\' esperado. Se nao foi o caso, a pasta '
               + '<code class="font-mono">' + escapeHtml(d.authPath) + '</code> veio de outra instalacao.</p>',
               '            </div>',
@@ -112,26 +109,40 @@ export function renderPairing(d: PairData): string {
 
     return [
         sessaoEstranha,
-        '        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">',
+        /*
+         * Duas colunas: pareamento e, ao lado, o que se consulta uma vez.
+         *
+         * Antes as tres placas da direita -- Como conectar, Conta pareada e
+         * Atencao -- ficavam abertas empilhadas, e a coluna ficava mais alta que
+         * o QR. Isso empurrava os textos do bot para fora da tela, e quem abria a
+         * aba para conferir um texto do bot tinha de descer.
+         *
+         * Viraram tres blocos recolhidos, um sob o outro. A leitura e' a mesma,
+         * a altura nao: quem precisa do passo a passo clica e ele aparece; quem
+         * nao precisa, ve o rotulo e segue. E o aviso de seguranca continua
+         * aberto de proposito -- e a unica coisa da coluna que ninguem deve
+         * descobrir tarde demais.
+         */
+        '        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">',
 
-        '            <div class="surface border line rounded-2xl p-5 shadow-sm">',
+        '            <div class="card card-pad">',
         '                <div class="flex items-center justify-between gap-3 mb-4">',
-        '                    <h3 class="font-bold ink flex items-center gap-2"><i class="fa-brands fa-whatsapp accent-emerald"></i> Pareamento</h3>',
-        '                    <span id="phaseBadge" class="' + phase.badge + ' text-xs font-bold uppercase px-2.5 py-1 rounded-full">' + phase.label + '</span>',
+        '                    <h3 class="text-title flex items-center gap-2"><i class="fa-brands fa-whatsapp text-accent-emerald"></i> Pareamento</h3>',
+        '                    <span id="phaseBadge" class="badge ' + phase.badge + '">' + phase.label + '</span>',
         '                </div>',
 
         '                <div id="qrBox" class="' + (showQr ? '' : 'hidden') + ' flex flex-col items-center gap-3 py-2">',
-        // bg-white e proposital: um QR so e lido com/modules escuros sobre fundo
-        // claro, entao este container nao acompanha o tema escuro.
-        '                    <div id="qrCode" class="p-3 rounded-2xl bg-white border line"></div>',
-        '                    <p class="text-xs ink-3 text-center">O codigo renova sozinho e expira em ~' + Math.round(QR_TTL_MS / 1000) + 's.</p>',
+        // O fundo branco e' proposital: QR so e' lido com modulos escuros sobre
+        // fundo claro, entao este container nao acompanha o tema escuro.
+        '                    <div id="qrCode" class="p-3 rounded-card bg-white border border-line max-w-[15rem]"></div>',
+        '                    <p class="text-caption text-ink-3 text-center">O codigo renova sozinho e expira em ~' + Math.round(QR_TTL_MS / 1000) + 's.</p>',
         '                </div>',
 
         /*
          * Tres estados, nao dois: tem QR, esta esperando, ou ja esta pronto.
          *
          * A caixa de espera aparecia sempre que nao havia QR -- o que inclui o
-         * caso em que o celular JA ESTA CONECTADO. Aí nenhum QR ia chegar
+         * caso em que o celular JA ESTA CONECTADO. Ai nenhum QR ia chegar
          * nunca, e a pessoa ficava olhando "Aguardando o WhatsApp emitir um
          * codigo de pareamento" girando para sempre, num sistema que ja estava
          * funcionando. E' a tela dizendo que espera algo que ela mesma sabe
@@ -141,18 +152,18 @@ export function renderPairing(d: PairData): string {
          * pareado, e nada para esperar.
          */
         '                <div id="waitingBox" class="' + (showQr || connected ? 'hidden' : '') + ' py-8 text-center">',
-        '                    <i class="fa-solid fa-circle-notch fa-spin text-3xl ink-3"></i>',
-        '                    <p class="text-sm ink-3 mt-3">Aguardando o WhatsApp emitir um codigo de pareamento...</p>',
+        '                    <i class="fa-solid fa-circle-notch fa-spin text-3xl text-ink-3"></i>',
+        '                    <p class="text-body text-ink-3 mt-3">Aguardando o WhatsApp emitir um codigo de pareamento...</p>',
         '                </div>',
 
         '                <div id="conectadoBox" class="' + (connected ? '' : 'hidden') + ' py-6 text-center">',
-        '                    <i class="fa-brands fa-whatsapp text-4xl accent-emerald"></i>',
-        '                    <p class="font-bold ink mt-3">WhatsApp conectado</p>',
-        '                    <p class="text-sm ink-3 mt-1">Este numero ja esta pareado com este painel. Nao ha nada para esperar.</p>',
+        '                    <i class="fa-brands fa-whatsapp text-4xl text-accent-emerald"></i>',
+        '                    <p class="font-semibold text-ink mt-3">WhatsApp conectado</p>',
+        '                    <p class="text-body text-ink-3 mt-1">Este numero ja esta pareado com este painel. Nao ha nada para esperar.</p>',
         '                </div>',
 
-        '                <p id="phaseHint" class="text-sm ink-2 mt-3">' + phase.hint + '</p>',
-        '                <p id="lastError" class="text-xs accent-red mt-2 ' + (d.state.lastError ? '' : 'hidden') + '">' + escapeHtml(d.state.lastError ?? '') + '</p>',
+        '                <p id="phaseHint" class="text-body text-ink-2 mt-3">' + phase.hint + '</p>',
+        '                <p id="lastError" class="text-caption text-accent-red mt-2 ' + (d.state.lastError ? '' : 'hidden') + '">' + escapeHtml(d.state.lastError ?? '') + '</p>',
 
         '                <div class="mt-4 flex flex-wrap gap-2">',
         connected ? '' : reconnectBtn,
@@ -160,32 +171,45 @@ export function renderPairing(d: PairData): string {
         '                </div>',
         '            </div>',
 
-        '            <div class="space-y-5">',
-        '                <div class="surface border line rounded-2xl p-5 shadow-sm">',
-        '                    <h3 class="font-bold ink mb-3 flex items-center gap-2"><i class="fa-solid fa-list-ol accent-amber"></i> Como conectar</h3>',
-        '                    <ol class="space-y-2 text-sm ink-2 list-decimal list-inside">',
-        '                        <li>No celular, abra o WhatsApp.</li>',
-        '                        <li>Menu <strong>Aparelhos conectados</strong>.</li>',
-        '                        <li>Toque em <strong>Conectar com numero de telefone</strong>.</li>',
-        '                        <li>Leia o codigo QR exibido ao lado com a camera do celular.</li>',
-        '                        <li>Use o <strong>codigo de 8 digitos</strong> se o WhatsApp pedir (a tela mostra o codigo de pareamento).</li>',
-        '                    </ol>',
+        '            <div class="space-y-3 min-h-0">',
+        /*
+         * O aviso de seguranca fica aberto. Os outros dois vao recolhidos.
+         */
+        '                <div class="card card-pad border-l-4 border-l-accent-red">',
+        '                    <h3 class="text-title text-accent-red flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation"></i> Atencao</h3>',
+        '                    <p class="text-body text-ink-2 mt-1">O QR Code daqui concede controle total da conta do WhatsApp. '
+        + 'Mantenha o painel em rede local e nunca exponha esta pagina na internet aberta.</p>',
         '                </div>',
 
-        '                <div class="surface border line rounded-2xl p-5 shadow-sm">',
-        '                    <h3 class="font-bold ink mb-3 flex items-center gap-2"><i class="fa-solid fa-address-card accent-amber"></i> Conta pareada</h3>',
+        '                <details class="card">',
+        '                    <summary class="cursor-pointer text-title flex items-center gap-2 select-none card-pad">',
+        '                        <i class="fa-solid fa-address-card text-accent"></i> Conta pareada',
+        '                        <i class="fa-solid fa-chevron-down ml-auto text-caption text-ink-3"></i>',
+        '                    </summary>',
+        '                    <div class="px-5 pb-5 border-t border-line pt-4">',
         infoRow('Numero', escapeHtml(phonePretty(d.state.phone))),
         infoRow('Nome', escapeHtml(d.state.name ?? '-')),
         infoRow('Aparelho', escapeHtml(d.state.platform ?? '-')),
         infoRow('Sessao salva', d.hasSavedSession ? 'Sim' : 'Nao'),
         infoRow('Credenciais', escapeHtml(d.authPath)),
-        '                </div>',
+        '                    </div>',
+        '                </details>',
 
-        '                <div class="surface border line rounded-2xl p-5 shadow-sm" style="border-left: 4px solid var(--badge-red-ink)">',
-        '                    <h3 class="font-bold accent-red mb-2 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation"></i> Atencao</h3>',
-        '                    <p class="text-sm ink-2">O QR Code daqui concede controle total da conta do WhatsApp. '
-        + 'Mantenha o painel em rede local e nunca exponha esta pagina na internet aberta.</p>',
-        '                </div>',
+        '                <details class="card">',
+        '                    <summary class="cursor-pointer text-title flex items-center gap-2 select-none card-pad">',
+        '                        <i class="fa-solid fa-list-ol text-accent"></i> Como conectar',
+        '                        <i class="fa-solid fa-chevron-down ml-auto text-caption text-ink-3"></i>',
+        '                    </summary>',
+        '                    <div class="px-5 pb-5 border-t border-line pt-4">',
+        '                        <ol class="space-y-2 text-body text-ink-2 list-decimal list-inside">',
+        '                            <li>No celular, abra o WhatsApp.</li>',
+        '                            <li>Menu <strong>Aparelhos conectados</strong>.</li>',
+        '                            <li>Toque em <strong>Conectar com numero de telefone</strong>.</li>',
+        '                            <li>Leia o codigo QR exibido ao lado com a camera do celular.</li>',
+        '                            <li>Use o <strong>codigo de 8 digitos</strong> se o WhatsApp pedir (a tela mostra o codigo de pareamento).</li>',
+        '                        </ol>',
+        '                    </div>',
+        '                </details>',
         '            </div>',
         '        </div>',
     ].join('\n');

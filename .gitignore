@@ -39,7 +39,32 @@ scripts/fix/
 scripts/insert/
 scripts/misc/
 
+# Diretorio chamado "~" na raiz: 51 GB e 478 mil arquivos.
+#
+# Nao serve a nada aqui. Entrei no repositorio em dez/2025, criado por ferramenta
+# externa, e e' uma COPIA do perfil do usuario -- AppData, .config, .local, .vscode,
+# omniroute-app e opencode-app. Pior: vinha acompanhado de 97 junctions apontando
+# para Downloads, Documents e Pictures de verdade.
+#
+# Por que esta linha e' obrigatoria e nao e' sujeira: sem ela o git via o diretorio
+# como "??", e um `git add -A` versionava o perfil inteiro -- incluindo a chave do
+# provedor em .config e o token da Anthropic em .claude. Isso nao e' backup que se
+# descarte depois; e' historico do git, que precisa de reescrita para sumir.
+# Ja foi removido do disco em 29/09/2026, com as copias reais do perfil conferidas
+# antes e depois. A linha fica para o proximo `~` que aparecer.
+~/
+
 # Configuracao local do Claude Code
 .claude/settings.local.json
 # Log do dia, gerado por src/services/logger.ts. Arquivo local da maquina.
 logs/
+
+# O instalador montado. payload e' a copia de producao do programa (274 MB,
+# 4.500 arquivos, com o node.exe dentro) e dist e' a saida do Inno Setup.
+# Sao artefatos de build: o codigo que os produz e' montar.ps1 e
+# DeliveryAdmin.cs, e ambos versionados. Versionar 274 MB no git deixaria o
+# historico inchado de um jeito que nao volta atras.
+installer/payload/
+installer/dist/
+installer/build/
+installer/entrega/

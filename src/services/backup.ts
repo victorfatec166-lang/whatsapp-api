@@ -2,6 +2,7 @@ import { prisma } from '../database/prisma';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logDoModulo } from './logger';
+import { DIR_BACKUPS as DIR_BACKUPS_CENTRAL } from './paths';
 const log = logDoModulo('backup');
 
 /**
@@ -28,7 +29,7 @@ const log = logDoModulo('backup');
  * exemplo para um disco externo ou um sync de pasta.
  */
 
-const BACKUP_DIR = path.resolve(__dirname, '..', '..', 'backups');
+const BACKUP_DIR = DIR_BACKUPS_CENTRAL;
 
 /** Quantas copias manter. Cada uma tem o tamanho do banco, entao o numero
  *  importa: um mes de backups de uma base pequena ainda cabe facil, mas nao
@@ -69,6 +70,50 @@ function copias(): string[] {
         // Pasta ainda nao existe: nao ha copia nenhuma para remover.
         return [];
     }
+}
+
+export type CopiaBackup = {
+    arquivo: string;
+    bytes: number;
+    /** Quando a copia foi feita, lido do carimbo do nome. */
+    quando: Date;
+};
+
+/**
+ * As copias que existem, com tamanho e hora, mais novas primeiro.
+ *
+ * A hora vem do carimbo do NOME, e nao do mtime do arquivo. Sao a mesma coisa
+ * quando o backup foi feito pelo sistema -- e sao justamente esses que estao na
+ * lista, porque o filtro e' `backup-*.db`. Ler o mtime abriria um `stat` por
+ * arquivo para descobrir o que o nome ja diz.
+ *
+ * E' o que permite mostrar a pessoa "a ultima copia foi ha 2 horas" em vez de um
+ * nome de arquivo, que e' informacao de maquina, e nao de reassurance.
+ */
+export function listarBackups(): CopiaBackup[] {
+    const saida: CopiaBackup[] = [];
+    for (const arquivo of copias()) {
+        let bytes = 0;
+        try {
+            bytes = fs.statSync(path.join(BACKUP_DIR, arquivo)).size;
+        } catch {
+            // Corrompido ou sumido entre a listagem e o stat: entra sem tamanho,
+            // que e' melhor do que a tela inteira falhar por causa de um arquivo.
+        }
+
+        const carimbo = arquivo.replace('backup-', '').replace('.db', ''); // YYYY-MM-DD_HHMM
+        const quando = new Date(
+            `${carimbo.slice(0, 4)}-${carimbo.slice(4, 6)}-${carimbo.slice(6, 8)}T` +
+                `${carimbo.slice(9, 11)}:${carimbo.slice(11, 13)}:00`
+        );
+
+        saida.push({
+            arquivo,
+            bytes,
+            quando: Number.isNaN(quando.getTime()) ? new Date(0) : quando,
+        });
+    }
+    return saida;
 }
 
 /**

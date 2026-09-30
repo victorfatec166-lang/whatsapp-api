@@ -48,8 +48,10 @@ import { reorderList, type StockRow } from './stock';
 /** Duas horas. Ver a decisao sobre "novo" no comentario do modulo. */
 const JANELA_NOVO_MS = 2 * 60 * 60 * 1000;
 
-/** Lembretes de hoje e dos proximos dias valem aviso; mais longe e' agenda. */
-const DIAS_DE_ANTECEDENCIA = 2;
+/**
+ * Uma semana. Ver a decisao sobre o agrupamento no comentario de `deLembretes`.
+ */
+export const DIAS_DE_ANTECEDENCIA = 7;
 
 const CANAL_NOME: Record<Canal, string> = {
     ifood: 'iFood',
@@ -100,7 +102,7 @@ export type Notificacao = {
 };
 
 /** Bot parado: nenhum pedido de WhatsApp chega, e nada avisa que parou. */
-function deBot(botOnline: boolean): Notificacao[] {
+function deBot(botOnline: boolean, agora: number): Notificacao[] {
     if (botOnline) return [];
     return [
         {
@@ -110,7 +112,16 @@ function deBot(botOnline: boolean): Notificacao[] {
             detalhe: 'Nenhum cliente consegue fazer pedido enquanto isso.',
             href: '/admin?tab=whatsapp',
             cta: 'Reconectar',
-            quando: Date.now(),
+            /*
+             * O mesmo `agora` dos outros, e nao um Date.now() proprio. Dois
+             * avisos da mesma gravidade que empatam sao desempatados pela ordem
+             * em que foram montados -- que e' a ordem de urgencia declarada
+             * aqui. Com um relogio lido em instantes diferentes, quem fosse lido
+             * um milissegundo depois passava a frente: bot parado e produto
+             * zerado trocavam de lugar conforme o dia, e nenhum dos dois estava
+             * errado. Era o `ordem` da lista virando sorte.
+             */
+            quando: agora,
         },
     ];
 }
@@ -193,9 +204,25 @@ async function deCanais(): Promise<Notificacao[]> {
     return saida;
 }
 
-/** Lembretes de hoje e dos proximos `DIAS_DE_ANTECEDENCIA` dias, sem os feitos. */
+/**
+ * Lembretes que pedem atencao, em duas formas.
+ *
+ * HOJE E AMANHA sao uma linha cada. Sao os unicos que mudam o que a pessoa faz
+ * hoje, e uma linha por lembrete e' o que faz o sino valer a pena abrir.
+ *
+ * DEPOIS DISSO VEM AGRUPADO. Uma semana de antecedencia e' o limite, e o
+ * agrupamento e' o que permite esse limite sem virar barulho: sete lembretes
+ * soltos empurrariam para baixo os avisos de bot parado e de estoque zerado,
+ * que sao os que custam dinheiro. Uma linha dizendo "3 lembretes nos proximos
+ * dias" ocupa o mesmo espaco que uma e ainda mostra o que sao.
+ *
+ * O que fica DEPOIS de uma semana nao entra no sino, e o Calendario avisa isso
+ * no momento em que a pessoa anota -- silenciar a regra e' o que faz a pessoa
+ * concluir que o sistema esqueceu.
+ */
 async function deLembretes(): Promise<Notificacao[]> {
     const hojeIso = dataIso(new Date());
+    const amanhaIso = dataIso(diasAFrente(1));
     const horizonte = dataIso(diasAFrente(DIAS_DE_ANTECEDENCIA));
 
     // Os dois meses, e nao so o corrente: o lembrete do dia 31 lido no dia 30
@@ -204,9 +231,12 @@ async function deLembretes(): Promise<Notificacao[]> {
     const meses = [...new Set([hojeIso.slice(0, 7), horizonte.slice(0, 7)])];
     const todos: LembreteView[] = (await Promise.all(meses.map((m) => listarDoMes(m)))).flat();
 
-    return todos
+    const pendentes = todos
         .filter((l) => !l.feito && l.iso >= hojeIso && l.iso <= horizonte)
-        .sort((a, b) => a.iso.localeCompare(b.iso))
+        .sort((a, b) => a.iso.localeCompare(b.iso));
+
+    const linhas: Notificacao[] = pendentes
+        .filter((l) => l.iso <= amanhaIso)
         .map((l) => ({
             id: `lembrete-${l.id}`,
             tom: (l.iso === hojeIso ? 'ambar' : 'info') as NotificacaoTom,
@@ -218,10 +248,31 @@ async function deLembretes(): Promise<Notificacao[]> {
             // `sort` acima, e o Epoch serve so para o desempate final.
             quando: new Date(`${l.iso}T00:00:00`).getTime() + 1000,
         }));
+
+    const maisAdiante = pendentes.filter((l) => l.iso > amanhaIso);
+    if (maisAdiante.length > 0) {
+        linhas.push({
+            id: 'lembretes-mais-adiante',
+            tom: 'info',
+            titulo: `${maisAdiante.length} lembrete(s) nos proximos dias`,
+            detalhe:
+                maisAdiante
+                    .slice(0, 3)
+                    .map((l) => `${quandoTexto(l.iso)}: ${l.texto}`)
+                    .join(' · ') + (maisAdiante.length > 3 ? '...' : ''),
+            href: '/admin?tab=calendario',
+            cta: 'Ver agenda',
+            // A data do mais proximo, para a linha agrupada nao subir acima de um
+            // lembrete de amanha por causa de um Epoch sintetico.
+            quando: new Date(`${maisAdiante[0].iso}T00:00:00`).getTime() + 1000,
+        });
+    }
+
+    return linhas;
 }
 
 /** Produtos zerados e abaixo do minimo: o motivo de o cliente esperar no balcao. */
-function deEstoque(produtos: StockRow[]): Notificacao[] {
+function deEstoque(produtos: StockRow[], agora: number): Notificacao[] {
     const reposicao = reorderList(produtos);
     if (reposicao.length === 0) return [];
 
@@ -236,7 +287,8 @@ function deEstoque(produtos: StockRow[]): Notificacao[] {
                 .join(', ') + (itens.length > 3 ? '...' : ''),
         href: '/admin?tab=estoque',
         cta: 'Repor',
-        quando: Date.now(),
+        // Mesmo instante dos demais: ver o comentario de `deBot`.
+        quando: agora,
     });
 
     return [
@@ -268,6 +320,8 @@ export type PainelNotificacoes = {
 };
 
 export async function montarPainel(botOnline: boolean, produtos: StockRow[]): Promise<PainelNotificacoes> {
+    // Um so relogio para a montage inteira. Ver o comentario de `deBot`.
+    const agora = Date.now();
     const [canais, lembretes, novos] = await Promise.all([
         deCanais(),
         deLembretes(),
@@ -278,7 +332,7 @@ export async function montarPainel(botOnline: boolean, produtos: StockRow[]): Pr
          * ele deveria gritar.
          */
         prisma.order.findMany({
-            where: { createdAt: { gte: new Date(Date.now() - JANELA_NOVO_MS) }, status: 'pendente' },
+            where: { createdAt: { gte: new Date(agora - JANELA_NOVO_MS) }, status: 'pendente' },
             select: { clientName: true, createdAt: true },
             orderBy: { createdAt: 'desc' },
         }),
@@ -303,7 +357,7 @@ export async function montarPainel(botOnline: boolean, produtos: StockRow[]): Pr
               ]
             : [];
 
-    const itens = [...deNovos, ...deBot(botOnline), ...canais, ...deEstoque(produtos), ...lembretes].sort(
+    const itens = [...deNovos, ...deBot(botOnline, agora), ...canais, ...deEstoque(produtos, agora), ...lembretes].sort(
         (a, b) => ORDEM_TOM[a.tom] - ORDEM_TOM[b.tom] || b.quando - a.quando
     );
 

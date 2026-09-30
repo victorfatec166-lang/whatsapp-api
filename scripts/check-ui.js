@@ -29,6 +29,13 @@
 
 const http = require('node:http');
 
+/*
+ * Sessao de teste. Ver o porque em lib/sessaoDeTeste.cjs: o painel tem senha,
+ * e sem entrar as duas pecas deste script seriam conferidas contra a tela de
+ * login -- um verde falso.
+ */
+const { sessaoDeTeste } = require('./lib/sessaoDeTeste.cjs');
+
 const PORT = process.env.PORT || 3000;
 const BASE = `http://localhost:${PORT}`;
 const ABAS = [
@@ -41,10 +48,31 @@ const VARIACOES = {
     faturamento: ['resumo', 'caixa', 'clientes', 'pedidos'],
 };
 
+/** Cabecalho de cookie da sessao de teste. Vazio ate `main` entrar. */
+let cookieSessao = '';
+
+/**
+ * Toda pagina pedida com a sessao de teste.
+ *
+ * Sem o cabecalho, o painel responde 401 e este script conferiria a tela de
+ * login dez vezes, dando "ok" a dez telas que ninguem pediu para conferir. O
+ * silencio e' o que torna o verde falso aceitavel: e' preciso que o token
+ * entre pelo mesmo caminho do navegador.
+ */
 function pegar(caminho) {
     return new Promise((resolve, reject) => {
+        /*
+         * O cabecalho vai NAS OPCOES, e nao em `req.setHeader` depois.
+         *
+         * `http.get()` envia a requisicao no momento da chamada. Um
+         * `setHeader` seguinte chega tarde demais e o Node lanca
+         * "Cannot set headers after they are sent" -- que e' erro do cliente
+         * aparecendo como se fosse do servidor, e fazia os doze verbos
+         * falharem com a mensagem errada.
+         */
+        const opcoes = cookieSessao ? { headers: { Cookie: cookieSessao } } : undefined;
         http
-            .get(BASE + caminho, (res) => {
+            .get(BASE + caminho, opcoes, (res) => {
                 let corpo = '';
                 res.on('data', (d) => (corpo += d));
                 res.on('end', () => resolve(corpo));
@@ -223,7 +251,95 @@ function verifica(html, nomeDaAba) {
         }
     }
 
+    /*
+     * 5. Tag sem fechador.
+     *
+     * Este e' o defeito mais caro do checklist, e o unico que o navegador
+     * conserta sozinho -- por isso ele passou semanas.
+     *
+     * Uma `<div>` sem `</div>` nao gera erro: o navegador fecha no fim do pai
+     * e continua desenhando. O que acontece depois e' que tudo que vem a
+     * seguir vira FILHO do elemento que ficou aberto, e a hierarquia vira outra
+     * sem que nada mude de lugar na tela. Na aba de Estoque, um `</div>` que
+     * faltava no painel fez a janela de entrada e o script entrarem dentro dele,
+     * e a tabela de produtos sumiu. O sintoma foi "o conteudo desapareceu", a
+     * causa estava a duzentas linhas de distancia, e nenhuma das outras quatro
+     * verificacoes tinha como ver: rotulo certo, id certo, botao com nome certo,
+     * script com sintaxe certa. Tudo estava certo menos uma tag.
+     *
+     * A contagem e' feita no corpo ja sem `<script>`, `<style>` e comentario,
+     * porque ali o texto do JavaScript -- que tem `<div>` dentro de string --
+     * deixaria a conta errada.
+     *
+     * Tags com fechador opcional nao entram: `br`, `hr`, `img`, `input`, `meta`,
+     * `link`. E so o que aceita contenido que precisa fechar.
+     */
+    const semFechador = tagsSemFechador(corpo);
+    if (semFechador.saldo !== 0) {
+        // Saldo negativo e' tan grave quanto o positivo: ha um `</div>` a mais,
+        // e o navegador descarta o elemento que sobrou -- o conteudo some. Foi o
+        // que aconteceu na aba de Estoque.
+        const forma = semFechador.saldo > 0 ? 'aberta(s) e nunca fechada(s)' : 'fechada(s) sem estar aberta(s)';
+        problemas.push({
+            tipo: 'tag-sem-fechador',
+            detalhe: `${Math.abs(semFechador.saldo)} tag(s) ${forma}; a primeira e' <${semFechador.primeira.tag}${semFechador.primeira.id ? ' id="' + semFechador.primeira.id + '"' : ''}>`,
+        });
+    }
+
     return { nomeDaAba, problemas };
+}
+
+/** Tags que nao precisam de fechador. */
+const VAZIAS = new Set([
+    'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+    'link', 'meta', 'param', 'source', 'track', 'wbr',
+]);
+
+/**
+ * Conta tags que aceitam conteudo e estao abertas a mais do que fechada.
+ *
+ * Devolve tambem qual e' a primeira nao fechada, que e' a unica informacao
+ * util: o numero sozinho nao diz onde comecou o erro.
+ */
+function tagsSemFechador(corpo) {
+    const pilha = [];
+    let primeira = null;
+
+    for (const m of corpo.matchAll(/<(\/?)([a-z][a-z0-9]*)\b[^>]*?(\/?)>/gi)) {
+        const [, barra, tagCrua, autoFechada] = m;
+        const tag = tagCrua.toLowerCase();
+        if (VAZIAS.has(tag) || autoFechada === '/') continue;
+
+        if (barra === '/') {
+            // Fecha a ultima aberta da MESMA tag. Tags diferentes nao fecham uma
+            // a outra: e' por isso que o saldo e' a medida, e nao a busca pelo
+            // `</div>` mais proximo.
+            for (let i = pilha.length - 1; i >= 0; i--) {
+                if (pilha[i].tag === tag) {
+                    pilha.length = i;
+                    break;
+                }
+            }
+            continue;
+        }
+
+        const id = (m[0].match(/\bid="([^"]+)"/) || [])[1] ?? null;
+        if (pilha.length === 0 && !primeira) primeira = { tag, id };
+        pilha.push({ tag, id });
+    }
+
+    if (!primeira) {
+        // Nao sobra nada, ou o que sobra e' uma tag sem id no topo: procura a
+        // primeira aberta que continua na pilha.
+        for (const p of pilha) {
+            if (!p.id) continue;
+            primeira = p;
+            break;
+        }
+        if (!primeira && pilha.length > 0) primeira = { tag: pilha[0].tag, id: pilha[0].id };
+    }
+
+    return { saldo: pilha.length, primeira };
 }
 
 async function main() {
@@ -254,6 +370,25 @@ async function main() {
 
     let total = 0;
     const porTipo = new Map();
+
+    /*
+     * Entra antes de varrer.
+     *
+     * A conta de teste e' de operador, entao a aba de Usuarios responde 403
+     * para ela -- e essa aba nao entra na lista. O motivo: ela e' a tela de
+     * administracao, e um verificador rodando com conta restrita nao teria o
+     * que conferir. As dez abas abaixo sao as de uso, e sao as que este script
+     * precisa cobrir.
+     */
+    try {
+        const sessao = await sessaoDeTeste();
+        cookieSessao = sessao.Cookie;
+    } catch (e) {
+        console.log(`ERRO: nao foi possivel entrar para conferir o painel (${e.message}).`);
+        console.log('      O servidor precisa estar no ar em ' + BASE + ' com o banco migrated.');
+        process.exitCode = 1;
+        return;
+    }
 
     for (const aba of ABAS) {
         const variacoes = VARIACOES[aba] || [null];
@@ -303,8 +438,11 @@ async function main() {
         }
         console.log('');
         console.log('Rotulo sem "for" e campo sem "id" e' + ' o primeiro: o campo funciona, mas');
-        console.log('clicar no texto do rotulo nao foca ele, e leitor de tela nao diz qual e' + ' o campo.');
+        console.log('clicar o texto do rotulo nao foca ele, e leitor de tela nao diz qual e' + ' o campo.');
+        console.log('Tag sem fechador e' + ' o mais caro: o navegador conserta sozinho, entao nada acusa,');
+        console.log('e o sintoma aparece longe da causa -- "o conteudo desapareceu".');
         process.exitCode = 1;
+
     }
 }
 

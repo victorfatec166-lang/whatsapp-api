@@ -2,6 +2,8 @@ import pino from 'pino';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { DIR_LOGS as DIR_LOGS_CENTRAL } from './paths';
+
 /**
  * Log do sistema.
  *
@@ -43,7 +45,7 @@ function nivelDoAmbiente(): string {
     return v === 'debug' || v === 'warn' || v === 'error' || v === 'silent' ? v : NIVEL_PADRAO;
 }
 
-const DIR_LOGS = path.resolve(__dirname, '..', '..', 'logs');
+const DIR_LOGS = DIR_LOGS_CENTRAL;
 
 /**
  * Arquivo do dia.

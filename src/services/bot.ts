@@ -34,6 +34,7 @@ import {
 } from './carrinho';
 import { notifyChat } from './sse';
 import { logDoModulo } from './logger';
+import { DIR_SESSAO_WHATSAPP } from './paths';
 const log = logDoModulo('bot');
 
 let botOnline = false;
@@ -468,7 +469,7 @@ function bindSocket(target: any, handler: (payload: any) => void) {
  * arquivos diferentes e' como os dois paths divergem sem ninguem notar -- e o
  * sintoma seria a marcacao sumir sozinha.
  */
-export const AUTH_DIR = 'auth_info_baileys';
+export const AUTH_DIR = process.env.BAILEYS_AUTH_DIR?.trim() || DIR_SESSAO_WHATSAPP;
 
 // Adicionamos um parâmetro 'onOrderCreated' para receber a função de aviso do servidor
 export async function startWhatsAppBot(onOrderCreated?: () => void) {
@@ -1314,4 +1315,37 @@ export async function logoutBot(): Promise<void> {
         since: null,
         lastError: null,
     });
+}
+
+/**
+ * Fecha o socket sem deslogar e sem reconectar.
+ *
+ * Terceira via, e a mais importante das tres. `reconnectBot` fecha e abre de novo
+ * (serve para o botao "reconectar"), e `logoutBot` fecha e apaga as credenciais
+ * (serve para "parear outro numero"). Nenhuma das duas serve para desligar o
+ * servidor, e usar a errada e' caro:
+ *
+ *   - `logoutBot` no desligamento apagaria `auth_info_baileys`, e o proximo boot
+ *     cairia no QR. O dono teria que escanear de novo para o bot voltar, e o
+ *     downtime de um reinstalo comum vira um telefonema.
+ *   - `reconnectBot` no desligamento abriria uma conexao nova no meio do
+ *     desligamento, e o processo sairia com o socket tentando conectar, o que
+ *     segura o event loop e alonga o restart.
+ *
+ * Aqui o socket fecha limpo, os listeners saem e o estado vai para offline. O
+ * proximo boot encontra os credenciais intactos e conecta sozinho.
+ *
+ * Devolve se havia socket, para o log do desligamento ser honesto.
+ */
+export async function desconectaBot(): Promise<boolean> {
+    if (!sock) return false;
+    try {
+        sock.ev.removeAllListeners('connection.update');
+        await sock.end(undefined);
+    } catch (error) {
+        log.error('Erro ao fechar o socket do WhatsApp:', error);
+    }
+    sock = null;
+    botOnline = false;
+    return true;
 }

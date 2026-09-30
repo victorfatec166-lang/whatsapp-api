@@ -168,6 +168,29 @@
         -webkit-text-size-adjust: 100%;
     }
 
+    /*
+     * O que o navegador desenha sozinho.
+     *
+     * `color-scheme` diz ao navegador qual tema a pagina esta usando, e e' ele
+     * que pinta as partes que nao sao nosso CSS: a seta do <select>, o fundo
+     * dos campos de data e hora, a barra de rolagem, o quadro de foco padrao.
+     *
+     * Sem esta linha, no tema escuro o <select> e o <input type="time"> sao
+     * desenhados com o estilo CLARO do sistema operacional -- fundo branco, seta
+     * escura -- no meio de uma tela escura. E' o caso dos campos de busca do
+     * catalogo e do PDV, que aparecem toda vez que o tema escuro liga.
+     *
+     * Uma declaracao arruma todos de uma vez, e de graca: o navegador ja tem
+     * o par de cores medido para cada esquema.
+     */
+    :root {
+        color-scheme: light;
+    }
+
+    .dark {
+        color-scheme: dark;
+    }
+
     body {
         background-color: var(--bg);
         color: var(--text-1);
@@ -307,6 +330,22 @@
         padding: 0.3125rem 0.625rem;
     }
 
+    /*
+     * Botao so com icone, do tamanho de um quadrado.
+     *
+     * existedia como escrito a mao em cada linha de tabela -- `w-7 h-7 rounded
+     * badge-slate text-xs font-bold` no mais/menos, `text-xs px-2 py-1.5
+     * rounded-lg` nos tres botoes de acao. Eram cinco formatos para o mesmo
+     * botao, e nenhum deles era um botao: usavam uma cor de fundo de badge
+     * porque na epoca nao havia um botao de icone. A cor era a unica coisa que
+     * os distinguia, entao a mesma acao aparecia verde numa tela e cinza em outra.
+     */
+    .btn-icon {
+        padding: 0;
+        width: 1.75rem;
+        height: 1.75rem;
+    }
+
     /* ------------------------------------------------------------- campos */
     .label {
         display: block;
@@ -415,6 +454,23 @@
     .badge-neutral {
         background-color: var(--neutral-bg);
         color: var(--neutral-ink);
+    }
+
+    /*
+     * O rotulo que cabe DENTRO de uma linha.
+     *
+     * "Voce", "Bot", "sem numero", a categoria de um produto: sao distincoes
+     * pequenas que ficam na mesma linha do texto, e nao acima dele. Cada uma
+     * delas reescrevia o tamanho do `.badge` por fora -- `text-[10px] px-1.5
+     * py-0.5 rounded` aparecia em treze lugares --, e a override ficava
+     * amontoada na classe utilitaria, onde ninguem a lia. Aqui e' um degrau da
+     * escala, do mesmo jeito que `--r-sm` e' um degrau de `--r-lg`.
+     */
+    .badge-xs {
+        font-size: 0.625rem;
+        line-height: 0.875rem;
+        padding: 0.0625rem 0.3125rem;
+        gap: 0.125rem;
     }
 
     /* --------------------------------------------------------------- chip */
@@ -704,6 +760,19 @@
     }
     .bar-fill-orange {
         background-color: var(--warning);
+    }
+    /*
+     * A quarta barra.
+     *
+     * O grafico de "Pedidos por dia da semana" usava `bar-fill-slate` desde que
+     * foi escrito, e a classe nao existia aqui: a barra ficava com a cor do
+     * trilho, entao a coluna parecia vazia. Nao dava erro nenhum -- uma classe
+     * que o CSS nao conhece e' so um nome que o navegador ignora. A regra
+     * entra aqui para o dia da semana deixar de ser o unico grafico da tela que
+     * nao mostrava dado.
+     */
+    .bar-fill-slate {
+        background-color: var(--text-3);
     }
 
     /* -------------------------------------------------------------- modal */

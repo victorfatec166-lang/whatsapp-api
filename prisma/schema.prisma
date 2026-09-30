@@ -1,6 +1,16 @@
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  // Caminho ABSOLUTO, e nao "./dev.db".
+  //
+  // O Prisma resolve caminho relativo a partir deste arquivo do schema -- que, na
+  // versao instalada, fica dentro de `C:\Program Files`, uma pasta que o usuario
+  // comum nao pode escrever. O caminho relativo punha o banco dentro do programa,
+  // e a primeira atualizacao levava junto.
+  //
+  // Em desenvolvimento, o `.env` continua apontando para `prisma/dev.db`, que e'
+  // o mesmo arquivo de sempre. Quem instala tem o caminho completo escrito pelo
+  // instalador, e este valor e' o que nao depende de onde o programa mora.
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -349,6 +359,68 @@ model BotMessage {
   id String @id @default("default")
   key String @unique
   value String
+}
+
+/// Quem entra no painel.
+///
+/// A senha nunca e' guardada: ficam o hash scrypt e o sal, em campos separados,
+/// porque a comparacao precisa refazer a derivacao com o sal da linha. Ver
+/// services/auth.ts.
+///
+/// `papel` existe para o controle de usuarios: "admin" ve tudo e gerencia quem
+/// entra, "operador" ve o painel mas nao mexe em quem entra nem em conta. O
+/// valor nao e' enum porque SQLite nao tem enum, e o default "admin" faz o
+/// primeiro usuario criado ja nascer com o poder todo -- que e' o que evita a
+/// maquina nova subir com ninguem capaz de administer.
+model User {
+  id        String   @id @default(uuid())
+  /// Minusculo e sem espaco, como a chave de login. Ver normalizaEmail.
+  email     String   @unique
+  nome      String
+  senhaHash String
+  senhaSalt String
+  papel     String   @default("admin")
+  ativo     Boolean  @default(true)
+  /// Marcado quando a senha e' a gerada no primeiro boot. A tela de login leva
+  /// direto para a troca, e nada mais abre ate ela ser trocada.
+  precisaTrocarSenha Boolean @default(false)
+  /// Contador de tentativas erradas followed by o instante do bloqueio.
+  tentativas  Int      @default(0)
+  bloqueadoAte DateTime?
+  /// Codigo de uso unico para quem perdeu a senha, e quando ele deixa de valer.
+  /// Nao ha envio de e-mail no sistema, entao o codigo sai no log do servidor.
+  codigoRecuperacao   String?
+  recuperacaoExpiraEm DateTime?
+  ultimoLogin  DateTime?
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  sessoes Sessao[]
+}
+
+/// Sessao aberta, uma por navegador.
+///
+/// Guarda o HASH do token, nunca o token. O token vai inteiro no cookie da
+/// pessoa; se o banco vazar, o que o atacante tem nao abre sessao nenhuma --
+/// hash nao se desfaz para o valor original. Ver services/auth.ts.
+model Sessao {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  /// IP e navegador guardados para a tela "acessos dispositivos" poder dizer a
+  /// pessoa qual sessao revogar, e nao so quantas ha.
+  ip        String   @default("")
+  agente    String   @default("")
+  expiraEm  DateTime
+  criadaEm  DateTime @default(now())
+  /// Ultimo uso. A sessao parada e' a que a pessoa esqueceu aberta em outro
+  /// computador, e e' a primeira a cair na limpeza.
+  usadoEm   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiraEm])
 }
 
 /// Lembrete que a pessoa anotou em um dia do calendario.

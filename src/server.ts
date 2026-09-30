@@ -1,17 +1,22 @@
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import QRCode from 'qrcode';
 import adminRoutes from './routes/adminRoutes';
+import authRoutes from './routes/authRoutes';
+import usuariosRoutes from './routes/usuariosRoutes';
+import calendarioRoutes from './routes/calendarioRoutes';
+import sistemaRoutes from './routes/sistemaRoutes';
+import backupRoutes from './routes/backupRoutes';
 import comandaRoutes from './routes/comandaRoutes';
 import chatRoutes from './routes/chatRoutes';
 import marketplaceRoutes from './routes/marketplaceRoutes';
-import { addClient, notifyClients, notifyConnection, getClientCount } from './services/sse';
+import { addClient, notifyClients, notifyConnection, getClientCount, fechaClientes } from './services/sse';
 // QR_TTL_MS saiu daqui: era usado para expire o QR antigo, e a sessao do
 // Baileys ja resolve isso sozinha. O import nao custava nada, mas deixava
 // parecer que o TTL era configuravel por aqui.
-import { initBot, sendOrderStatusNotification, isBotOnline, loadBotMessages, reconnectBot, logoutBot, getConnectionState, onConnectionChange, AUTH_DIR } from './services/bot';
+import { initBot, sendOrderStatusNotification, isBotOnline, loadBotMessages, reconnectBot, logoutBot, desconectaBot, getConnectionState, onConnectionChange, AUTH_DIR } from './services/bot';
 import { renderLayout, tabHint, isTabId, LEGACY_TABS, type TabId } from './views/layout';
 import { PAIRING_CLIENT_SCRIPT } from './views/pairing';
 import { renderWhatsApp } from './views/whatsapp';
@@ -29,6 +34,7 @@ import { renderHome } from './views/home';
 import { renderFaturamento } from './views/faturamento';
 import { renderMarketplace } from './views/marketplace';
 import { renderChat } from './views/chat';
+import { renderUsuarios } from './views/usuarios';
 import { listarContas, listarItensCasados, temChaveDeCifra, type Canal } from './services/marketplace';
 import { listarConversas, totalNaoLidas } from './services/chat';
 import { loadHomeData, estimateMargin } from './services/home';
@@ -61,7 +67,7 @@ import {
 import { startCashScheduler } from './services/cashSchedule';
 import { carregarConfig, salvarConfig, estadoAgendaCaixa, falhouSalvar } from './services/config';
 import { resumoArmazenamento } from './services/armazenamento';
-import { startBackupScheduler, backupDir } from './services/backup';
+import { startBackupScheduler, backupDir, backupNow } from './services/backup';
 import { startPodador } from './services/retencao';
 import { ensureSku, exportProductsCsv, importProductsFromCsv } from './services/products';
 import { categoriasDoCatalogo } from './services/categorias';
@@ -83,13 +89,15 @@ import {
     restaurarTodasMensagens,
     salvarMensagem,
 } from './services/botMessages';
-import { montarPainel } from './services/notificacoes';
+import { montarPainel, DIAS_DE_ANTECEDENCIA } from './services/notificacoes';
 import { logDoModulo, pastaDeLogs } from './services/logger';
+import { csrfDoRequest, exigeCsrf, exigeSessao, exigeSessaoApi, garanteAdministrador, limpaSessoes } from './services/auth';
 import { limitador as limitePorJanela } from './services/rateLimit';
+import { prisma } from './database/prisma';
+import { DIR_UPLOADS, DIR_UPLOADS_PRODUTOS, DATA_DIR, criaArvoreDeDados } from './services/paths';
 const log = logDoModulo('server');
 
 const app = express();
-const prisma = new PrismaClient();
 const PORT = Number(process.env.PORT) || 3000;
 
 /*
@@ -164,12 +172,46 @@ app.use('/api/admin', (req, res, next) => {
 });
 
 // Fotos de produto ficam em public/uploads e sao servidas estaticamente.
-app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads'), { maxAge: '7d' }));
+app.use('/uploads', express.static(DIR_UPLOADS, { maxAge: '7d' }));
 // CSS compilado do design system (saida de `npm run build:css`).
 // Sem maxAge longo de proposito: o arquivo nao tem hash no nome, e um cache
 // fixo serviria estilo velho depois de uma recompilacao. O ETag padrao do
 // Express resolve com 304 cheaply.
 app.use('/styles', express.static(path.join(process.cwd(), 'dist', 'styles'), { etag: true, lastModified: true }));
+
+/*
+ * As rotas de entrada ficam ANTES do bloqueio.
+ *
+ * `/entrar`, `/sair`, `/api/auth/*` e o painel de usuarios sao as unicas rotas
+ * que funcionam sem sessao. Montadas depois do `exigeSessao`, elas responderiam
+ * 401 para sempre -- inclusive a propria tela de login, que e' o unico jeito de
+ * conseguir uma sessao.
+ *
+ * A ordem importa tambem para a leitura: quem abre este arquivo procura "onde
+ * a porta esta fechada" e encontra logo abaixo de onde a porta e' aberta.
+ */
+app.use(authRoutes);
+
+/*
+ * Aqui comeca o painel fechado.
+ *
+ * `/admin` e' HTML: sem sessao, vira 303 para a tela de entrada guardando o
+ * destino, e com senha provisoria vira 303 para a troca. `/api/admin` e' dado:
+ * sem sessao vira 401 em JSON, porque um fetch seguido de 303 troca o HTML do
+ * painel por uma pagina de login no meio de uma chamada.
+ *
+ * Sao dois middlewares e nao um com dois caminhos porque o corpo da resposta e'
+ * diferente, e um unico middleware teria de decidir o formato olhando o
+ * `Accept` -- e uma rota de API chamada por `fetch` sem `Accept: text/html`
+ * receberia um redirecionamento em vez do codigo de erro que a tela sabe
+ * tratar.
+ *
+ * O CSRF entra depois e so para quem muda estado: leitura do painel dispara
+ * dezenas de requisicoes por visita, e exigir token em GET nao protege nada.
+ */
+app.use('/admin', exigeSessao('/entrar'));
+app.use('/api/admin', exigeSessaoApi());
+app.use(['/admin', '/api/admin'], exigeCsrf());
 app.use('/api/admin', adminRoutes);
 // Comanda da cozinha: saida para a impressora, com vida propria. Ver o
 // arquivo para por que a impressao em si nao acontece aqui.
@@ -178,6 +220,42 @@ app.use('/api/admin', comandaRoutes);
 // nao um parceiro -- ver a nota sobre a falta de senha em chatRoutes. As rotas
 // do arquivo sao relativas a este prefixo.
 app.use('/api/admin', chatRoutes);
+/*
+ * Usuarios, montado no prefixo que a tela usa.
+ *
+ * Estava em `/api/admin`, e ai as rotas do arquivo -- que sao `/` e
+ * `/:id/...` -- respondiam em `/api/admin` e `/api/admin/123/alternar`, e nao em
+ * `/api/admin/usuarios`, que e' o que o painel chama. A aba de Usuarios dava 404
+ * para todo mundo, inclusive para o administrador. O que escondia o 404 era o
+ * `router.use(exigeAdmin())` do arquivo, que pegava o caminho inteiro antes e
+ * respondia 403 -- e um 403 em `/api/admin/usuarios` parece "voce nao e' admin",
+ * que e' uma resposta plausivel demais para alguem ir investigar.
+ *
+ * Montar no prefixo completo deixa o caminho do arquivo e o caminho da tela
+ * iguais, que e' a unica forma de os dois nao divergirem de novo.
+ */
+app.use('/api/admin/usuarios', usuariosRoutes);
+
+/*
+ * Calendario e estado do sistema, atras da MESMA sessao das rotas acima.
+ *
+ * Estes dois routers trazem o caminho `/api/...` dentro do arquivo, e nao o
+ * prefixo `/api/admin` dos outros -- o caminho nao muda, porque quem chama e' o
+ * JavaScript embutido na tela. O que muda e' o middleware: sem as duas linhas
+ * abaixo, `POST /api/calendar/lembretes/:id/apagar` respondia 200 sem cookie
+ * nenhum, e qualquer aparelho da mesma rede da loja apagava o lembrete de quem
+ * estava trabalhando. Conferido antes da correcao, com pedido sem sessao:
+ * 200 nos quatro verbos de lembrete e nas duas rotas de estado.
+ *
+ * Sao tres linhas para fechar um buraco que estava aberto desde que essas rotas
+ * sairam do painel. A manutencao da fronteira e' o que impede ele de voltar:
+ * qualquer rota nova que caia fora de `/api/admin` precisa de sessao por padrao,
+ * e nao por lembranca.
+ */
+app.use(calendarioRoutes);
+app.use(sistemaRoutes);
+app.use(backupRoutes);
+
 // Marketplace (iFood/99Food). O router traz o webhook publico junto; ver o
 // arquivo para por que ele fica separado das rotas do painel.
 app.use('/', marketplaceRoutes);
@@ -269,34 +347,19 @@ function toStockRow(p: {
 
 /* ------------------------------------------------------- API do dashboard */
 
-/**
- * O sino do topo.
+/*
+ * O sino do topo e a situacao do WhatsApp sairam daqui para
+ * `src/routes/sistemaRoutes.ts`.
  *
- * Fica numa rota propria e nao dentro do `/admin`, porque e' a unica coisa do
- * painel que muda sem a pessoa trocar de aba: o pedido chega pelo WhatsApp, o
- * produto acaba, o canal derruba. Se viesse embutida no HTML, o sino so
- * atualizaria no F5 -- e um aviso que so aparece no F5 nao e' aviso.
+ * A razao de terem saido nao foi tamanho de arquivo. As duas rotas estavam em
+ * `/api/*`, fora do `/api/admin` que o `exigeSessaoApi()` protege, e portanto
+ * respondiam sem sessao nenhuma -- conferido com pedido sem cookie: 200 nas duas.
+ * `/api/notificacoes` devolve o texto dos lembretes, o nome dos produtos zerados
+ * e o estado de cada canal.
  *
- * Os produtos vao por parametro em vez de uma segunda query: a tela ja tem a
- * lista em memoria, e duas leituras do mesmo catalogo num request que a pessoa
- * fez vinte vezes por hora nao tem por que.
+ * Elas continuam no mesmo caminho, porque quem chama e' o JavaScript embutido na
+ * tela. O que as protege agora e' o middleware, no `app.use` deste arquivo.
  */
-app.get('/api/notificacoes', async (_req, res) => {
-    try {
-        const produtos = await prisma.product.findMany();
-        res.json(await montarPainel(isBotOnline(), produtos.map(toStockRow)));
-    } catch (error) {
-        log.error('Falha ao montar painel de notificacoes:', error);
-        // Devolve um painel vazio, e nao 500: o sino que falha ao abrir
-        // esconde o resto da tela, e perder o aviso e' melhor que perder o
-        // acesso ao painel inteiro.
-        res.json({ itens: [], urgentes: 0, total: 0 });
-    }
-});
-
-app.get('/api/bot-status', (_req, res) => {
-    res.json({ online: isBotOnline(), sseClients: getClientCount() });
-});
 
 /**
  * Tem sessao salva no disco?
@@ -377,47 +440,18 @@ app.get('/api/calendar/orders', async (_req, res) => {
 });
 
 /*
- * Lembretes do calendario.
+ * Lembretes do calendario sairam daqui para src/routes/calendarioRoutes.ts.
  *
- * Rotas proprias, e nao uma dentro de `/api/admin`: lembrete e' anotacao da
- * pessoa na tela dela, como o texto do bot e os textos do cardapio -- dado local
- * do painel, nao dado de pedido. E o prefixo diferente evita que um DELETE de
- * lembrete passe perto de um DELETE de pedido.
+ * A razao foi seguranca, e nao tamanho de arquivo. Estas quatro rotas viviam em
+ * /api/calendar/lembretes, fora do /api/admin que o exigeSessaoApi() protege.
+ * Conferido antes da correcao, com um pedido sem cookie nenhum: as quatro
+ * respondiam 200 -- qualquer aparelho da mesma rede da loja lia a anotacao de
+ * quem estava na frente da tela e podia APAGAR.
  *
- * O `mes` e' "AAAA-MM". A validacao fica no servico, que e' quem sabe o que e'
- * um mes valido e o que e' meia-noite local -- a rota so repassa.
- */app.get('/api/calendar/lembretes', async (req, res) => {
-    const mes = typeof req.query.mes === 'string' ? req.query.mes : '';
-    if (!/^\d{4}-\d{2}$/.test(mes)) {
-        return res.status(400).json({ error: 'Informe o mes no formato AAAA-MM.' });
-    }
-    try {
-        res.json(await listarDoMes(mes));
-    } catch (error) {
-        log.error('Erro ao buscar lembretes:', error);
-        res.status(500).json({ error: 'Erro ao buscar lembretes' });
-    }
-});
-
-app.post('/api/calendar/lembretes', async (req, res) => {
-    const b = req.body ?? {};
-    const r = await anotar(b.texto, typeof b.dia === 'string' ? b.dia : undefined);
-    if (falhouAnotar(r)) return res.status(400).json({ error: r.error });
-    res.status(201).json(r.lembrete);
-});
-
-app.post('/api/calendar/lembretes/:id/concluir', async (req, res) => {
-    const r = await alternarConcluido(req.params.id);
-    if (falhouConcluir(r)) return res.status(404).json({ error: r.error });
-    res.json({ feito: r.feito });
-});
-
-app.post('/api/calendar/lembretes/:id/apagar', async (req, res) => {
-    const r = await apagar(req.params.id);
-    if (falhouApagar(r)) return res.status(404).json({ error: r.error });
-    res.json({ ok: true });
-});
-
+ * O prefixo diferente foi de proposito e continua valendo: lembrete e' anotacao
+ * da tela, nao dado de pedido, e um DELETE de lembrete nao deve passar perto de
+ * um DELETE de pedido. O que faltava era a sessao, e ela vem do middleware.
+ */
 app.get('/api/calendar.js', (_req, res) => {
     res.type('application/javascript').send(`
 let currentMonth = new Date().getMonth();
@@ -450,6 +484,18 @@ function esc(v) {
 function dataBr(iso) {
     if (!iso || iso.length < 10) return iso || '';
     return iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4);
+}
+
+/**
+ * Data local em "AAAA-MM-DD", o inverso de dataBr.
+ *
+ * Nao e' toISOString().slice(0, 10): essa e' meia-noite UTC, que no Brasil e'
+ * as 21h do dia anterior. Uma loja que anota lembrete as 22h e' o caso em que
+ * isso vira lembrete no dia errado.
+ */
+function dataIsoLocal(d) {
+    const p = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 }
 
 /**
@@ -591,15 +637,44 @@ window.lembreteSalva = async function (ev) {
     const original = botao ? botao.innerHTML : '';
     if (botao) { botao.disabled = true; botao.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...'; }
 
-    const r = await postJSON('/api/calendar/lembretes', { texto: texto, dia: selectedDate || undefined });
+    const dia = selectedDate || dataIsoLocal(new Date());
+    const r = await postJSON('/api/calendar/lembretes', { texto: texto, dia: selectedDate || undefined }, avisoLembrete(texto, dia));
     if (botao) { botao.disabled = false; botao.innerHTML = original; }
     if (!r.ok) { flash('err', r.data.error || 'Nao foi possivel salvar o lembrete.'); return false; }
 
     campo.value = '';
     await carregaLembretes();
-    flash('ok', 'Lembrete anotado.');
+    flash('ok', avisoLembrete(texto, r.data && r.data.iso ? r.data.iso : dia));
     return false;
 };
+
+/**
+ * O que a pessoa precisa saber depois de anotar.
+ *
+ * O sino so mostra uma semana de lembretes (ver DIAS_DE_ANTECEDENCIA em
+ * notificacoes.ts). Dizer isso no momento da anotacao e' o que impede a pessoa
+ * de anotar "comprar carne" para o dia 14, fechar o Calendario e esperar o
+ * aviso -- e o que faz ela concluir, depois, que o sistema perdeu a anotacao.
+ */
+function avisoLembrete(texto, diaIso) {
+    const dias = Math.round((new Date(diaIso + 'T00:00') - new Date(dataIsoLocal(new Date()) + 'T00:00')) / 86400000);
+    if (dias <= DIAS_DE_ANTECEDENCIA) return 'Lembrete anotado.';
+    return 'Lembrete anotado para ' + dataBr(diaIso) + '. Passada uma semana, ele some do sino e fica so no Calendario.';
+}
+
+/**
+ * A gravacao repetida depois de uma pagina velha muda a lista sem ninguem pedir.
+ *
+ * postJSON refaz o que foi recusado por CSRF e avisa em painel:replay. Sem
+ * esta escuta, o lembrete entraria no banco e a coluna da direita continuaria
+ * mostrando a lista antiga -- o mesmo defeito que motivou a repeticao, so que
+ * agora sem aviso nenhum.
+ */
+document.addEventListener('painel:replay', function (ev) {
+    if (!ev.detail || !ev.detail.ok) return;
+    if (String(ev.detail.url).indexOf('/api/calendar/lembretes') === -1) return;
+    carregaLembretes();
+});
 
 window.lembreteConclui = async function (id) {
     const r = await postJSON('/api/calendar/lembretes/' + encodeURIComponent(id) + '/concluir', {});
@@ -670,10 +745,23 @@ function renderCalendar() {
         const isToday = day === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
         const isSelected = iso === selectedDate;
 
-        const base = 'p-2 min-h-[4.5rem] rounded-lg border cursor-pointer transition flex flex-col gap-0.5 text-left';
+        /*
+         * A celula do dia se ajusta a altura da tela.
+         *
+         * O calendario e' a grade mais alta da aba, e ela empurrava o resto
+         * para fora da dobra. A altura fixa de 4,5 rem funciona na tela de
+         * desenvolvimento e estoura na de 1366x768 do balcao, com a barra do
+         * navegador aberta e o cabecalho ocupando 4 rem.
+         *
+         * A funcao clamp resolve os dois lados de uma vez: o minimo e' o que a
+         * celula precisa para o numero e o ponto caberem, o maximo e' o que ela
+         * tinha antes em monitor grande, e no meio a altura vem da tela. Sem
+         * descer, e sem o dia ficar um quadrado minusculo em tela alta.
+         */
+        const base = 'p-2 min-h-[clamp(2.5rem,7.2vh,4.5rem)] rounded-card border cursor-pointer transition flex flex-col gap-0.5 text-left';
         const tone = count
-            ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40 '
-            : 'border-stone-200 dark:border-stone-700 ';
+            ? 'border-success bg-success-bg '
+            : 'border-line ';
 
         /*
          * O anel e' do SELECIONADO, e o "hoje" e' da data. Sao duas informacoes
@@ -710,7 +798,7 @@ function renderCalendar() {
         /*
          * O dia vai em data-dia, e o clique em um unico listener delegando.
          *
-         * Era onclick="showDayOrders('2026-09-25')", e isso exige dois níveis de
+ * Era onclick="showDayOrders('2026-09-25')", e isso exige dois níveis de
          * escape dentro do template literal do servidor -- \\' para virar \' no
          * JavaScript entregue, porque um \' solto no arquivo TypeScript vira uma
          * aspas no script e fecha a string. Ja quebrou duas vezes nesta sessao,
@@ -787,7 +875,7 @@ window.showDayOrders = function (iso) {    const box = document.getElementById('
 
     selectedDate = iso;
     // A grade e' redesenhada para marcar o anel. Sao 30 celulas: redesenhar e'
-    // mais barato que caçar o elemento velho e trocar classe, e o codigo de
+// mais barato que caçar o elemento velho e trocar classe, e o codigo de
     // marcar fica em um lugar so -- o lugar que desenha o dia.
     renderCalendar();
 
@@ -931,7 +1019,7 @@ app.post('/api/admin/pdv/orders', async (req, res) => {
 
         /*
          * shortfalls sao itens que venderam com saldo insuficiente. A venda foi
-         * concluida de proposito: recusar um pedido no meio do almoço por causa
+ * concluida de proposito: recusar um pedido no meio do almoço por causa
          * de um saldo velho custa mais caro do que vender e avisar. O caixa ve
          * isto na resposta e pode repor na hora.
          */
@@ -1305,7 +1393,7 @@ app.post('/api/admin/products/:id/sku', async (req, res) => {
     }
 });
 
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'produtos');
+const UPLOAD_DIR = DIR_UPLOADS_PRODUTOS;
 const MAX_IMAGE_BYTES = 400_000; // base64: ~300KB de binario
 
 app.post('/api/admin/products/:id/photo', async (req, res) => {
@@ -1990,6 +2078,42 @@ app.get('/admin', async (req, res) => {
                 break;
             }
 
+            /*
+             * Quem tem acesso.
+             *
+             * O corpo so e' montado para administrador -- quem nao e' recebe o
+             * mesmo 403 que receberia pela API. Montar a tela e so esconder o
+             * botao deixaria a lista de e-mails de todo mundo no HTML de quem
+             * nao pode ver a lista.
+             */
+            case 'usuarios': {
+                if (req.sessao!.papel !== 'admin') {
+                    res.status(403).send('Apenas o administrador pode ver quem tem acesso.');
+                    return;
+                }
+                const usuarios = await prisma.user.findMany({
+                    orderBy: [{ papel: 'asc' }, { nome: 'asc' }],
+                    include: { _count: { select: { sessoes: true } } },
+                });
+                body = renderUsuarios({
+                    euId: req.sessao!.userId,
+                    totalAdministradores: usuarios.filter((u) => u.papel === 'admin' && u.ativo).length,
+                    usuarios: usuarios.map((u) => ({
+                        id: u.id,
+                        email: u.email,
+                        nome: u.nome,
+                        papel: u.papel,
+                        ativo: u.ativo,
+                        precisaTrocarSenha: u.precisaTrocarSenha,
+                        bloqueadoAte: u.bloqueadoAte ? u.bloqueadoAte.toISOString() : null,
+                        ultimoLogin: u.ultimoLogin ? u.ultimoLogin.toISOString() : null,
+                        criadaEm: u.criadoEm.toISOString(),
+                        sessoes: u._count.sessoes,
+                    })),
+                });
+                break;
+            }
+
             case 'calendario': {
                 const from = parseDateInput(req.query.from, new Date(new Date().getFullYear(), new Date().getMonth(), 1));
                 const to = parseDateInput(req.query.to, new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0));
@@ -2313,6 +2437,12 @@ app.get('/admin', async (req, res) => {
                 },
                 body,
                 scripts: active === 'whatsapp' ? PAIRING_CLIENT_SCRIPT : undefined,
+                sessao: {
+                    nome: req.sessao!.nome,
+                    email: req.sessao!.email,
+                    papel: req.sessao!.papel,
+                },
+                csrf: csrfDoRequest(req),
             })
         );
     } catch (error) {
@@ -2325,31 +2455,63 @@ app.get('/admin', async (req, res) => {
  * Endereco de escuta.
  *
  * Padrao "0.0.0.0": todas as interfaces, o que permite abrir o painel pelo
- * celular ou por outro computador da loja. E' o que o dono precisa e tambem o
- * que expoe receita, caixa e conversas para qualquer maquina da mesma rede --
- * e o painel ainda nao tem senha, o que era decisao de desenvolvimento.
+ * celular ou por outro computador da loja. E' o que o dono precisa.
+ *
+ * O painel tem senha, o que muda o que este padrao significa. Antes, escutar
+ * em 0.0.0.0 era a mesma coisa que "abrir para qualquer maquina da rede ver
+ * receita". Agora e' "aceitar login de qualquer maquina da rede" -- a fronteira
+ * virou a tela de entrada, e o risco restante e' o da senha ser fraca, nao o de
+ * nao existir.
  *
  * "127.0.0.1" deixa o painel so nesta maquina. Quem usa o PDV no balcao e nao
  * precisa de acesso de fora tem aqui o corte de uma linha no .env.
  */
 const HOST = process.env.HOST?.trim() || '0.0.0.0';
 
-app.listen(PORT, HOST, async () => {
+/*
+ * O servidor HTTP guardado por var.
+ *
+ * `app.listen()` devolve o servidor, e e' ele quem diz quando parou de aceitar
+ * conexao nova. Sem esta referencia, o desligamento so poderia matar o processo,
+ * e matar o processo e' o modo mais brusco de encerrar: quem estava no meio de um
+ * pedido ve a conexao cair sem resposta, e a tela fica girando ate o navegador
+ * desistir.
+ */
+const servidor = app.listen(PORT, HOST, async () => {
     log.info(`Servidor HTTP escutando em ${HOST}:${PORT}`);
     // O endereco que aparece no log e' o que a pessoa digita no navegador. Com
     // 0.0.0.0, mostrar "localhost" mentiria para quem abre de outro aparelho:
     // localhost no celular e' o proprio celular.
     const paraNavegar = HOST === '0.0.0.0' || HOST === '::' ? 'localhost' : HOST;
-    log.info(`Dashboard: http://${paraNavegar}:${PORT}/admin`);
+    log.info(`Dashboard: http://${paraNavegar}:${PORT}/entrar`);
     log.info(`API REST:  http://${paraNavegar}:${PORT}/api/admin`);
     if (HOST === '0.0.0.0' || HOST === '::') {
+        /*
+         * O aviso mudou de assunto: nao e' mais "SEM SENHA".
+         *
+         * Antes ele era o unico aviso de seguranca do boot, e dizia que qualquer
+         * maquina da mesma rede via receita e caixa. Isso deixou de ser verdade
+         * -- agora ha senha. O que continua verdade e' o outro lado: a tela de
+         * entrada e' a fronteira, e o mesmo TOKEN de sessao vale para quem
+         * entra pela rede e para quem entra nesta maquina. Por isso o aviso e'
+         * sobre o que a senha NAO protege, e nao sobre a falta dela.
+         */
         log.warn(
-            'Escutando na rede local SEM SENHA: qualquer maquina da mesma rede que saiba a porta ' +
-                PORT + ' ve o faturamento e pode escrever no sistema. Defina HOST=127.0.0.1 no .env ' +
-                'se o acesso e so desta maquina.'
+            'Escutando na rede local. Quem entrar precisa de e-mail e senha, e a sessao vale ' +
+                'igual para a rede e para esta maquina -- quem installar em Wi-Fi de loja aberta ' +
+                'esta expondo faturamento e caixa. Prefira HOST=127.0.0.1 no .env quando o ' +
+                'acesso for so de dentro.'
         );
     }
     log.info('Iniciando o robo do WhatsApp...');
+
+    // A conta de administrador e' a primeira coisa depois de ouvir a porta: sem
+    // usuario, o painel inteiro responde 401 e a pessoa nao tem por onde entrar.
+    await garanteAdministrador();
+
+    // Sessao vencida e' sessao que sobrou. Limpa no boot e de hora em hora.
+    await limpaSessoes();
+    setInterval(() => void limpaSessoes(), 60 * 60 * 1000).unref();
 
     await loadBotMessages();
     // Espelha o estado de conexao do bot para o painel via SSE.
@@ -2370,6 +2532,17 @@ app.listen(PORT, HOST, async () => {
     log.info(`Backups em: ${backupDir()}`);
 
     /*
+     * A arvore de dados e' criada aqui, no boot, e nao no primeiro pedido.
+     *
+     * A pasta vem de `DELIVERYADMIN_DATA`, que o instalador escreve. Criar logo
+     * deixa o dono vendo que existe log antes do primeiro cliente aparecer -- e
+     * uma pasta que so aparece depois da primeira venda e' pasta que falha sem
+     * aviso quando o disco esta cheio.
+     */
+    criaArvoreDeDados();
+    log.info(`Dados em: ${DATA_DIR}`);
+
+    /*
      * Virada do dia: apaga o que e' de ontem -- mensagens, conversas da
      * lista, backups e log -- e compacta o banco.
      *
@@ -2387,4 +2560,243 @@ app.listen(PORT, HOST, async () => {
     log.info(`Logs em: ${pastaDeLogs()}`);
 
     await initBot(notifyClients);
+});
+
+/* ---------------------------------------------------------------- Desligar */
+
+/**
+ * Desliga o servidor sem deixar nada pela metade.
+ *
+ * POR QUE ISTO EXISTE, E O QUE ACONTECIA SEM ISTO
+ *
+ * "Sair e' so o fim do processo" parece suficiente ate a primeira vez em que a
+ * maquina reinstala no meio do expediente. O processo morre na hora: conexao
+ * SSE cai, o navegador fica recarregando sozinho sem entender, o SQLite abre a
+ * transacao do meio e o proximo boot acha registro pela metade. Num sistema que
+ * vende e baixa estoque, escrita pela metade e' venda fantasma ou oversell.
+ *
+ * A ORDEM IMPORTA, e e' a ordem em que cada coisa deixa de depender da anterior:
+ *
+ *   1. Para de aceitar conexao nova. A partir daqui ninguem comeca um pedido.
+ *   2. Fecha as conexoes SSE avisando. Sem o aviso, a aba do painel fica morta.
+ *   3. Deixa as requisicoes que ja entraram terminarem. E' o que evita a
+ *      transacao pela metade: o pedido que ja entrou no banco sai inteiro.
+ *   4. Backup. Feito DEPOIS de acabar as requisicoes, e por isso e' a copia
+ *      consistente -- o mesmo cuidado do backup do startup em relacao a virada
+ *      do dia. Antes das requisicoes, o arquivo seria o de um pedido no meio.
+ *   5. Fecha o WhatsApp e o banco, que sao as duas conexoes que ficam abertas.
+ *
+ * O TEMPO LIMITE e' o que impede um shutdown infinito. Uma requisicao travada
+ * segura o passo 3 para sempre, e um programa que nao desliga e' um programa
+ * que precisa ser morto a mao -- que e' o que a gente queria evitar.
+ */
+
+/** Quantos segundos cada etapa pode levar antes de o desligamento desistir. */
+const LIMITE_POR_ETAPA_MS = 8000;
+
+/**
+ * Espera uma promessa, mas nunca para sempre.
+ *
+ * Sem isto, uma etapa que trava (um `server.close()` com conexao pendurada, um
+ * socket do WhatsApp que nao responde) segura o processo inteiro, e o Windows
+ * acaba matando o processo a forca depois de dois minutos -- o mesmo resultado
+ * feio que o shutdown existia para evitar.
+ */
+function comTempoLimite(p: Promise<unknown>, ms: number, rotulo: string): Promise<string> {
+    return new Promise((resolve) => {
+        let resolvido = false;
+        const terminar = (r: string) => {
+            if (!resolvido) {
+                resolvido = true;
+                resolve(r);
+            }
+        };
+        setTimeout(() => terminar(`${rotulo}: passou de ${ms / 1000}s, seguindo`), ms).unref();
+        p.then(
+            () => terminar(`${rotulo}: ok`),
+            (e) => terminar(`${rotulo}: falhou (${e})`)
+        );
+    });
+}
+
+/**
+ * A mesma espera, mas respondendo se a promessa ja resolveu.
+ *
+ * Sem isso, o desligamento nao sabe distinguir "a porta fechou em 50 ms" de "a
+ * porta deu timeout", e sem essa distincao ele nao sabe se precisa forcar. Como
+ * `comTempoLimite` so devolve um texto para o log, quem decide precisa de um
+ * sinal que nao passa pelo texto.
+ */
+function fechouDentroDe(p: Promise<unknown>, ms: number): Promise<boolean> {
+    return new Promise((resolve) => {
+        let resolvido = false;
+        const terminar = (v: boolean) => {
+            if (!resolvido) {
+                resolvido = true;
+                resolve(v);
+            }
+        };
+        setTimeout(() => terminar(false), ms).unref();
+        p.then(
+            () => terminar(true),
+            () => terminar(false)
+        );
+    });
+}
+
+let desligando = false;
+
+async function desliga(motivo: string): Promise<void> {
+    if (desligando) return;
+    desligando = true;
+    log.info(`Desligando: ${motivo}`);
+
+    /*
+     * A ordem destes tres passos e' o que separa um desligamento de 1 segundo de um
+     * 17, e a ordem invertida era o erro:
+     *
+     * `server.close()` so resolve quando TODA conexao acaba. A conexao SSE do
+     * painel e' uma delas, e ela nao acaba sozinha -- e' um `text/event-stream`,
+     * que fica aberto por design. Então esperar o close ANTES de fechar o SSE e'
+     * esperar por algo que so fecharia depois: os dois caem no tempo limite de
+     * 8 segundos, o painel fica 8 segundos sem resposta, e o desligamento leva o
+     * dobro do tempo em nada.
+     *
+     * A ordem que funciona: chama o close (a partir daqui ninguem comeca nada),
+     * fecha o SSE, e só entao espera a promessa -- que agora resolve, porque nao
+     * ha mais o que segurar a porta.
+     */
+    const fechouPorta = new Promise<void>((resolve) => {
+        servidor.close(() => resolve());
+    });
+
+    // 2. As telas abertas sao avisadas antes de a conexao cair. Esta e' a etapa
+    // que destrava a 1.
+    const fechadas = fechaClientes('servidor desligando');
+    if (fechadas > 0) log.info(`Conexoes ao vivo fechadas: ${fechadas}`);
+
+    // 3. Deixa o que ja entrou terminar -- e' o que mantem a transacao inteira.
+    const portaFechada = await fechouDentroDe(fechouPorta, LIMITE_POR_ETAPA_MS);
+    log.info(portaFechada ? 'porta HTTP e requisicoes: ok' : `porta HTTP e requisicoes: passou de ${LIMITE_POR_ETAPA_MS / 1000}s, seguindo`);
+
+    /*
+     * O que sobrou e' conexao ociosa, e nao pedido em andamento.
+     *
+     * Medido: mesmo com o SSE fechado na hora, `server.close()` levava os 8
+     * segundos ate o tempo limite. O que segura e' o socket keep-alive do
+     * navegador -- o `res.end()` encerra a RESPOSTA, mas o socket continua de pe
+     * para a proxima requisicao, e `close()` espera ele.
+     *
+     * `closeAllConnections()` existe exatamente para isto e e' o que a propria
+     * documentacao do Node recomenda depois da janela de graca: nada de novo
+     * entra (a porta ja fechou), e o que estava ocioso e' derrubado. Cortar uma
+     * requisicao que ainda esta rodando seria perigoso -- e' a transacao pela
+     * metade que este desligamento existe para evitar -- mas a essa altura a
+     * janela de 8 segundos ja passou, e quem ficou e' ociosidade.
+     */
+    if (!portaFechada) {
+        log.warn('A porta nao fechou no tempo; derrubando conexao ociosa que sobrou.');
+        servidor.closeAllConnections?.();
+        log.info(await comTempoLimite(fechouPorta, 2000, 'porta HTTP apos forc'));
+    }
+
+    // 4. Backup com o sistema quieto: e' a copia que representa o estado real.
+    try {
+        const arquivo = await backupNow();
+        log.info(arquivo ? `Backup final: ${arquivo}` : 'Backup final: nao houve nada a copiar');
+    } catch (e) {
+        log.error('Falha no backup final:', e);
+    }
+
+    // 5. As duas conexoes que ficam abertas mesmo com o HTTP fechado.
+    try {
+        if (await desconectaBot()) log.info('WhatsApp desconectado, sessao preservada');
+    } catch (e) {
+        log.error('Falha ao fechar o socket do WhatsApp:', e);
+    }
+    try {
+        await prisma.$disconnect();
+        log.info('Banco fechado');
+    } catch (e) {
+        log.error('Falha ao fechar o banco:', e);
+    }
+
+    log.info('Desligado.');
+    process.exit(0);
+}
+
+// SIGINT e' o Ctrl+C no terminal. SIGTERM e' o que o Linux manda no `kill` e no
+// logoff, e no Windows chega pelo Ctrl+C tambem.
+process.on('SIGINT', () => void desliga('SIGINT (Ctrl+C)'));
+process.on('SIGTERM', () => void desliga('SIGTERM'));
+
+/*
+ * Desligamento por HTTP, que e' o caminho que funciona NO WINDOWS.
+ *
+ * O motivo de existir: testado nesta maquina, `Stop-Process` no processo do
+ * servidor NAO entrega SIGTERM -- o processo sobreviveu sem executar o handler.
+ * E' o comportamento do Windows, nao um defeito do codigo: o SO encerra com
+ * TerminateProcess, que nao da chance de rodar nada, e o handler de SIGINT so
+ * entra pelo Ctrl+C de um console de verdade. Quem precisa parar o servidor
+ * programaticamente -- o instalador, o launcher, o "reiniciar agora" -- nao tem
+ * console, entao o handler nunca roda.
+ *
+ * A rota fica FORA de `/api/admin` de proposito: ela nao pede sessao nem CSRF,
+ * porque quem chama e' o proprio programa, e nao uma pessoa. O que pede e' o
+ * token, que o launcher gera a cada start e passa por variavel de ambiente --
+ * nunca por arquivo, nunca por URL, e nunca a mesma entre duas execucoes.
+ *
+ * E a unica rota deste arquivo que nao exige `exigeSessao`, entao convem saber
+ * porque: e' a fronteira de controle, e ela e' protegida por segredo em vez de
+ * por login. Se algum dia aparecer outra rota assim, ela precisa do mesmo
+ * cuidado.
+ */
+app.post('/api/servico/desligar', (req, res) => {
+    const esperado = process.env.DELIVERYADMIN_SHUTDOWN_TOKEN ?? '';
+    const recebido = String(req.headers['x-shutdown-token'] ?? '');
+
+    if (!esperado) {
+        res.status(403).json({
+            error: 'Desligamento remoto desativado: a variavel DELIVERYADMIN_SHUTDOWN_TOKEN nao foi definida.',
+        });
+        return;
+    }
+
+    /*
+     * Comparacao de tamanho fixo, como a do CSRF.
+     *
+     * Comparar string direto com `===` devolve falso assim que os tamanhos
+     * diferem, e esse tempo de resposta e' o que permite adivinhar o token byte
+     * a byte. O `timingSafeEqual` exige o mesmo tamanho de entrada, que e'
+     * exatamente o que o comparador de verdade resolve -- e aqui a defesa e'
+     * cheap de fazer.
+     */
+    const a = Buffer.from(recebido);
+    const b = Buffer.from(esperado);
+    const confere = esperado && a.length === b.length && crypto.timingSafeEqual(a, b);
+
+    if (!confere) {
+        log.warn('Desligamento remoto recusado: token invalido');
+        res.status(403).json({ error: 'Token invalido.' });
+        return;
+    }
+
+    /*
+     * So de dentro da maquina.
+     *
+     * O token impede quem nao tem o segredo. Isto impede o caso em que o
+     * segredo vaza -- o valor esta no ambiente do processo, e um `tasklist /v`
+     * de outro usuario da rede o mostra. A Combination das duas e' o que fecha o
+     * caminho; nenhuma sozinha fecha.
+     */
+    const ip = req.socket.remoteAddress ?? '';
+    if (!ip.startsWith('127.') && ip !== '::1' && ip !== '::ffff:127.0.0.1') {
+        log.warn(`Desligamento remoto recusado: veio de ${ip}`);
+        res.status(403).json({ error: 'Desligamento so aceito desta maquina.' });
+        return;
+    }
+
+    res.status(202).json({ ok: true, mensagem: 'Servidor desligando.' });
+    // Deixa a resposta sair antes de o processo comecar a fechar as conexoes.
+    setTimeout(() => void desliga('pedido HTTP local'), 50);
 });

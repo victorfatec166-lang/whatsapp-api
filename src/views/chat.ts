@@ -126,17 +126,17 @@ function conversaItem(c: ResumoConversa): string {
                         <div class="flex items-center gap-2 mt-1">
                             ${
                                 c.assumido
-                                    ? '<span class="badge badge-info text-[10px] px-1.5 py-0.5 rounded">Voce</span>'
-                                    : '<span class="badge badge-neutral text-[10px] px-1.5 py-0.5 rounded">Bot</span>'
+                                    ? '<span class="badge badge-info badge-xs">Voce</span>'
+                                    : '<span class="badge badge-neutral badge-xs">Bot</span>'
                             }
                             ${
                                 c.semTelefone && !c.name
-                                    ? '<span class="badge badge-warn text-[10px] px-1.5 py-0.5 rounded" title="O WhatsApp nao entregou o numero deste cliente">sem numero</span>'
+                                    ? '<span class="badge badge-warn badge-xs" title="O WhatsApp nao entregou o numero deste cliente">sem numero</span>'
                                     : ''
                             }
                             ${
                                 naoLidas
-                                    ? `<span class="badge badge-danger text-[10px] px-1.5 py-0.5 rounded font-bold ml-auto">${c.naoLidas}</span>`
+                                    ? `<span class="badge badge-danger badge-xs font-bold ml-auto">${c.naoLidas}</span>`
                                     : ''
                             }
                         </div>
@@ -184,21 +184,36 @@ export function renderChat(d: ChatData): string {
         </div>`;
 
     return `${avisoOffline}
-        <div class="card overflow-hidden">
-            <div class="grid grid-cols-1 md:grid-cols-[20rem_1fr]">
+        <!--
+            Conversas com altura de tela, e nao 34 rem fixos.
+
+            A lista e' a coluna esquerda e a conversa aberta e' a direita, lado a
+            lado. As duas tinham altura escrita no atributo style, 34 rem e 26
+            rem, o que funciona na tela de desenvolvimento e estoura na de
+            1366x768 -- que e' onde a pessoa atende cliente de pe, com o celular
+            na mao e o tempo curto. A coluna da conversa ainda tinha de caber o
+            cabecalho do contato, a lista de mensagens e a caixa de resposta.
+
+            Agora a regiao que cresce e' so a lista de mensagens, e o limite vem
+            da tela: o card inteiro ocupa o que sobra da altura visivel, e
+            cabecalho e caixa de resposta ficam sempre visiveis. Quem esta
+            escrevendo nao perde de vista o contato nem o botao de enviar.
+        -->
+        <div class="card overflow-hidden flex-1 min-h-0 flex flex-col max-h-[calc(100vh-9rem)]">
+            <div class="grid grid-cols-1 md:grid-cols-[20rem_1fr] flex-1 min-h-0">
                 <!-- Lista -->
-                <div class="border-b md:border-b-0 md:border-r border-line flex flex-col">
-                    <div class="p-3 border-b border-line">
+                <div class="border-b md:border-b-0 md:border-r border-line flex flex-col min-h-0">
+                    <div class="p-3 border-b border-line shrink-0">
                         <input type="search" id="chatBusca" placeholder="Buscar por nome ou telefone"
                                class="input" oninput="chatBuscar(this.value)" autocomplete="off">
                     </div>
-                    <div id="chatLista" class="overflow-y-auto" style="max-height:34rem">
+                    <div id="chatLista" class="flex-1 min-h-0 overflow-y-auto">
 ${d.conversas.length === 0 ? '                        <p class="text-caption text-ink-3 p-4 text-center">Nenhuma conversa ainda. As mensagens do WhatsApp aparecem aqui.</p>' : d.conversas.map(conversaItem).join('\n')}
                     </div>
                 </div>
 
                 <!-- Conversa aberta -->
-                <div id="chatPainel" class="flex flex-col" style="min-height:34rem">
+                <div id="chatPainel" class="flex flex-col min-h-0">
                     <div class="flex-1 flex items-center justify-center p-8 text-center">
                         <div>
                             <i class="fa-solid fa-comments text-3xl text-ink-3 mb-3"></i>
@@ -290,12 +305,12 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                     '<p class="text-caption text-ink-3 truncate">' + esc(c.ultimaMensagem || 'sem mensagens') + '</p>' +
                     '<div class="flex items-center gap-2 mt-1">' +
                     (c.assumido
-                        ? '<span class="badge badge-info text-[10px] px-1.5 py-0.5 rounded">Voce</span>'
-                        : '<span class="badge badge-neutral text-[10px] px-1.5 py-0.5 rounded">Bot</span>') +
+                        ? '<span class="badge badge-info badge-xs">Voce</span>'
+                        : '<span class="badge badge-neutral badge-xs">Bot</span>') +
                     (c.semTelefone && !c.name
-                        ? '<span class="badge badge-warn text-[10px] px-1.5 py-0.5 rounded" title="O WhatsApp nao entregou o numero deste cliente">sem numero</span>'
+                        ? '<span class="badge badge-warn badge-xs" title="O WhatsApp nao entregou o numero deste cliente">sem numero</span>'
                         : '') +
-                    (naoLidas ? '<span class="badge badge-danger text-[10px] px-1.5 py-0.5 rounded font-bold ml-auto">' + c.naoLidas + '</span>' : '') +
+                    (naoLidas ? '<span class="badge badge-danger badge-xs font-bold ml-auto">' + c.naoLidas + '</span>' : '') +
                     '</div></div></div></button>';
             }
 
@@ -341,9 +356,21 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                     var dados = await r.json();
                     if (!dados.conversa) { painel.innerHTML = '<p class="text-caption text-ink-3 p-8 text-center">Conversa nao encontrada.</p>'; return; }
                     chatDesenha(dados);
-                    // Abrir a conversa e' o mesmo que assumir: quem esta lendo ja
-                    // esta atendendo. E o que impede o bot de responder por cima.
-                    await postJSON('/api/admin/chat/' + id + '/assumir');
+                    /*
+                     * Abrir a conversa NAO e' assumir a conversa.
+                     *
+                     * Abrir e' olhar. Assumir e' dizer que um humano esta
+                     * respondendo, e tem uma consequencia que nao aparece na
+                     * tela: botPodeResponder cala o bot no WhatsApp ate
+                     * alguem apertar "Devolver ao bot". Abrir e' o que a pessoa
+                     * faz para LER -- e, no lado do cliente, o resultado era
+                     * "oi" sem resposta nenhuma, com a tela mostrando "Bot
+                     * atendendo" e ninguem entendendo o motivo.
+                     *
+                     * Quem assume e' quem escreve: o onfocus do campo faz
+                     * isso, e essa parte continua igual, porque ai a intencao
+                     * ja e' clara.
+                     */
                     await postJSON('/api/admin/chat/' + id + '/lida');
                     await chatAtualizaLista();
                     // Conversa que chegou sem foto ou sem numero vem de antes de
@@ -373,7 +400,7 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                  * mostrar o "192...@lid", que nao serve para ligar.
                  */
                 var cabecalho =
-                    '<div class="px-4 py-3 border-b border-line flex items-center gap-3">' +
+                    '<div class="px-4 py-3 border-b border-line flex items-center gap-3 shrink-0">' +
                     chatAvatar(c, 'w-10 h-10') +
                     '<div class="min-w-0 flex-1">' +
                     '<p class="text-body font-semibold text-ink truncate">' + esc(chatRotulo(c)) + '</p>' +
@@ -398,14 +425,15 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                     '</div>';
 
                 var blocoPedido = pedido
-                    ? '<div class="px-4 py-2 border-b border-line bg-surface-2 text-caption">' +
-                      '<span class="text-ink-3">Ultimo pedido:</span> ' +
-                      '<span class="text-ink">' + esc(pedido.items) + '</span> &middot; ' +
-                      '<span class="text-ink font-bold">R$ ' + Number(pedido.total).toFixed(2) + '</span> &middot; ' +
-                      '<span class="text-ink-3">' + esc(statusLabel(pedido.status)) + '</span></div>'
+                    ? '<div class="px-4 py-2 border-b border-line bg-surface-2 text-caption shrink-0">' +
+                    '<span class="text-ink-3">Ultimo pedido:</span> ' +
+                    '<span class="text-ink">' + esc(pedido.items) + '</span> &middot; ' +
+                    '<span class="text-ink font-bold">R$ ' + Number(pedido.total).toFixed(2) + '</span> &middot; ' +
+                    '<span class="text-ink-3">' + esc(statusLabel(pedido.status)) + '</span></div>'
                     : '';
 
-                var corpo = '<div id="chatMensagens" class="flex-1 overflow-y-auto p-4 space-y-3" style="max-height:26rem">' +
+
+                var corpo = '<div id="chatMensagens" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">' +
                     (dados.temMais
                         ? '<div class="text-center pb-1"><button type="button" onclick="chatMaisAntigas()" ' +
                           'class="btn btn-ghost btn-sm"><i class="fa-solid fa-chevron-up"></i> Ver mais antigo</button></div>'
@@ -421,18 +449,25 @@ ${d.conversas.length === 0 ? '                        <p class="text-caption tex
                  * que o bot respondeu por cima.
                  */
                 var composer =
-                    '<div class="border-t border-line p-3">' +
+                    '<div class="border-t border-line p-3 shrink-0">' +
                     '<div class="flex items-end gap-2">' +
                     '<textarea id="chatTexto" rows="2" class="input flex-1 resize-none" placeholder="Escreva a resposta..." ' +
                     'onfocus="chatAssume()" onkeydown="chatTecla(event)"></textarea>' +
                     '<button type="button" id="chatEnviar" class="btn btn-primary shrink-0" onclick="chatManda()">' +
                     '<i class="fa-solid fa-paper-plane"></i> Enviar</button>' +
                     '</div>' +
-                    '<p class="text-[11px] text-ink-3 mt-1.5">Enter envia, Shift+Enter quebra linha. ' +
+                    '<p class="text-caption text-ink-3 mt-1.5">Enter envia, Shift+Enter quebra linha. ' +
                     'O bot para de responder nesta conversa assim que o campo recebe foco.</p>' +
                     '</div>';
 
                 var painel = document.getElementById('chatPainel');
+                /*
+                 * O cabecalho e o campo de resposta ganham shrink-0: sem isso o
+                 * flex encolhe o cabecalho do contato quando a conversa e' longa,
+                 * e o nome some -- que e' justamente o que a pessoa precisa ler
+                 * para saber com quem esta falando. A lista e' a unica parte que
+                 * cede espaco.
+                 */
                 painel.innerHTML = cabecalho + blocoPedido + corpo + composer;
                 chatRola();
             }
@@ -624,8 +659,9 @@ ${renderModal({
     bodyHtml: `                <div class="space-y-3 text-body text-ink-2">
                     <p><strong>Bot.</strong> Responde sozinho ate alguem assumir a conversa. Ele cuida do cardapio, do
                     pedido e da consulta de status.</p>
-                    <p><strong>Voce.</strong> Abrir a conversa ou clicar no campo de resposta assume para o cliente:
-                    o bot cala naquela conversa e nao nas outras.</p>
+                    <p><strong>Voce.</strong> Clicar no campo de resposta assume para o cliente: o bot cala
+                    naquela conversa e nao nas outras. So isso -- <em>abrir</em> a conversa nao assume, porque
+                    olhar nao e' responder, e assumir sem querer calava o bot do cliente sem ninguem ver.</p>
                     <p><strong>Devolver ao bot.</strong> O botao na barra da conversa faz o bot voltar a responder.
                     Use quando o cliente nao precisar mais de uma pessoa.</p>
                     <p><strong>Sem resposta dupla.</strong> A conversa fica assumida mesmo se o servidor reiniciar,

@@ -1,18 +1,13 @@
 import { escapeHtml } from './html';
 import { currency } from '../services/stats';
 import type { CustomerRow, CustomersSummary } from '../services/customers';
+import { kpi, faixaKpi } from './ui/card';
 
 function money(n: number): string {
     return escapeHtml(currency(n));
 }
 
-function kpi(label: string, value: string, sub: string, tone: string): string {
-    return `                <div class="kpi">
-                    <p class="kpi-label">${label}</p>
-                    <p class="kpi-value ${tone}">${value}</p>
-                    <p class="kpi-sub">${sub}</p>
-                </div>`;
-}
+
 
 /** Iniciais para o avatar, a partir do nome ou do telefone. */
 function initials(row: CustomerRow): string {
@@ -82,12 +77,12 @@ export function renderCustomers(d: CustomersData): string {
 
     const pct = d.summary.total > 0 ? Math.round((d.summary.repeat / d.summary.total) * 100) : 0;
 
-    return `        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            ${kpi('Clientes', String(d.summary.total), 'com pelo menos um pedido', 'text-accent-strong')}
-            ${kpi('Compradores recorrentes', String(d.summary.repeat), pct + '% do total', 'text-accent-emerald')}
-            ${kpi('Receita da base', money(d.summary.revenue), 'somando todos os clientes', 'text-accent')}
-            ${kpi('Ticket medio', money(d.summary.averageTicket), 'por cliente', 'text-accent-orange')}
-        </div>
+    return `${faixaKpi([
+        kpi('Clientes', String(d.summary.total), 'com pelo menos um pedido'),
+        kpi('Compradores recorrentes', String(d.summary.repeat), pct + '% do total', 'success'),
+        kpi('Receita da base', money(d.summary.revenue), 'somando todos os clientes', 'accent'),
+        kpi('Ticket medio', money(d.summary.averageTicket), 'por cliente', 'warning'),
+    ])}
 
         <div class="card overflow-hidden">
             <div class="p-4 border-b border-line flex flex-wrap items-center justify-between gap-3">

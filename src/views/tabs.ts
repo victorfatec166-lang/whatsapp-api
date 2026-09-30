@@ -2,6 +2,7 @@ import { escapeHtml, tamanhoLegivel } from './html';
 import { currency, statusLabel, type OrderWithProductless } from '../services/stats';
 import type { DashboardStats } from '../services/stats';
 import { renderComandaModal, COMANDA_SCRIPT } from './comandaModal';
+import { kpi, faixaKpi, cardVazio } from './ui/card';
 
 type Product = {
     id: string;
@@ -36,41 +37,53 @@ type KanbanData = {
     totalAguardando: number;
 };
 
-function orderCard(o: OrderWithProductless, next: string | null, tint: string, accent: string, icon: string): string {
+function orderCard(o: OrderWithProductless, next: string | null, cor: string, icon: string): string {
+    /*
+     * O botao de status e' sempre o primario, nas quatro colunas.
+     *
+     * Antes cada coluna tinha a sua cor -- ambar no pendente, laranja na cozinha,
+     * verde na entrega, com `bg-amber-500` e `text-white` escritos a mao. Alem de
+     * ser o mesmo par de cor que o `check:contrast` barra (e que o projeto ja
+     * tinha decidido trocar por token), a cor repetida na tela transformava a
+     * cor da coluna em mais uma coisa a decodificar: quem estava com pressa lia
+     * "laranja" e pensava "esta em preparo" quando o que importava era que o
+     * cartao era acionavel. A cor fica na borda esquerda do cartao, que e' onde
+     * ela informa a etapa; o botao e' um so, e e' o primario.
+     */
     const action = next
-        ? `<button onclick="updateStatus('${escapeHtml(o.id)}', '${next}')"
-                     class="w-full ${tint} hover:brightness-95 text-white text-xs py-1.5 rounded-lg font-medium transition flex items-center justify-center gap-1">
+        ? `<button type="button" data-order-status data-id="${escapeHtml(o.id)}" data-next="${next}"
+                     class="btn btn-primary btn-sm w-full mt-1.5">
                      ${statusLabel(next)} <i class="${icon}"></i>
-           </button>`
+                 </button>`
         : '';
 
     // Venda de balcao nao tem WhatsApp: mostra o canal para nao confundir.
     const channel =
         o.channel === 'pdv'
-            ? '<span class="badge-slate text-[10px] px-1.5 py-0.5 rounded font-bold" title="Venda de frente de caixa">PDV</span>'
+            ? '<span class="badge badge-neutral">PDV</span>'
             : '';
 
     // Comanda da cozinha. Fica ao lado do botao de status, e nao dentro dele:
     // imprimir e avancar o status sao acoes diferentes, e quem monta o pedido
     // as vezes precisa reimprimir sem ter chegado na cozinha ainda.
-    const comanda = `<button type="button" onclick="comandaAbrir('${escapeHtml(o.id)}')"
-                         class="w-full btn btn-ghost text-xs py-1.5 rounded-lg font-medium transition flex items-center justify-center gap-1 mt-1.5"
+    const comanda = `<button type="button" data-comanda="${escapeHtml(o.id)}"
+                         class="btn btn-ghost btn-sm w-full mt-1.5"
                          title="Ver a comanda da cozinha">
                      <i class="fa-solid fa-print"></i> Comanda
                  </button>`;
 
-    return `                        <div class="surface p-3 rounded-xl border card-${tint.replace('bg-', '')} shadow-sm">
-                            <div class="flex justify-between items-start gap-2 font-semibold ink text-sm mb-1">
+    return `                        <div class="bg-sunken border border-line rounded-card p-3 border-l-2" style="border-left-color: var(--${cor})">
+                            <div class="flex justify-between items-start gap-2 font-semibold text-body text-ink mb-1">
                                 <span class="truncate">${escapeHtml(o.clientName || 'Cliente')}</span>
-                                <span class="${accent} shrink-0">${money(o.total)}</span>
+                                <span class="text-accent-strong shrink-0">${money(o.total)}</span>
                             </div>
-                            <p class="text-xs ink-3 mb-2 break-words">${escapeHtml(o.items)}</p>
-                            <p class="text-[11px] ink-3 mb-2 flex items-center gap-2 flex-wrap">
-                                <span><i class="fa-solid fa-clock text-[10px]"></i> ${timeOf(o.createdAt)}</span>
+                            <p class="text-caption text-ink-3 mb-2 break-words">${escapeHtml(o.items)}</p>
+                            <p class="text-caption text-ink-3 mb-1 flex items-center gap-2 flex-wrap">
+                                <span><i class="fa-solid fa-clock text-micro"></i> ${timeOf(o.createdAt)}</span>
                                 ${
                                     o.channel === 'pdv'
-                                        ? `<span title="Pago com ${escapeHtml(o.paymentMethod ?? 'nao informado')}"><i class="fa-solid fa-money-bill-wave text-[10px]"></i> ${escapeHtml(o.paymentMethod ?? 'balcao')}</span>`
-                                        : `<span><i class="fa-solid fa-phone text-[10px]"></i> ${phone(o.clientPhone)}</span>`
+                                        ? `<span title="Pago com ${escapeHtml(o.paymentMethod ?? 'nao informado')}"><i class="fa-solid fa-money-bill-wave text-micro"></i> ${escapeHtml(o.paymentMethod ?? 'balcao')}</span>`
+                                        : `<span><i class="fa-solid fa-phone text-micro"></i> ${phone(o.clientPhone)}</span>`
                                 }
                                 ${channel}
                             </p>
@@ -79,72 +92,95 @@ function orderCard(o: OrderWithProductless, next: string | null, tint: string, a
                         </div>`;
 }
 
+/**
+ * Uma coluna do quadro.
+ *
+ * `next` nulo e' a coluna de chegada -- Concluidos, onde o card e' so leitura.
+ * A coluna e' a unica coisa da tela que rola por dentro: o quadro precisa de
+ * altura propria, porque a altura da tela nao e' a do quadro, e' a de quem
+ * esta vendendo na frente do balcao.
+ */
+function colKanban(
+    title: string,
+    icon: string,
+    items: OrderWithProductless[],
+    badge: string,
+    next: string | null,
+    cor: string,
+    btnIcon: string,
+    empty: string,
+    footnote = ''
+): string {
+    return `                    <div class="card flex flex-col min-h-[16rem]">
+                        <div class="flex items-start justify-between gap-2 card-pad pb-3 border-b border-line">
+                            <div>
+                                <h3 class="text-title flex items-center gap-2"><i class="fa-solid ${icon}"></i> ${title}</h3>
+                                <p class="text-caption text-ink-3">${next ? 'pronto para avancar' : 'encerrados hoje'}</p>
+                            </div>
+                            <span class="badge ${badge}">${items.length}</span>
+                        </div>
+                        <div class="px-5 py-4 space-y-3 flex-1 min-h-0 overflow-y-auto">
+                            ${items.length === 0 ? cardVazio(empty, icon) : ''}
+                            ${items.map((o) => orderCard(o, next, cor, btnIcon)).join('')}
+                        </div>
+                        ${footnote ? `<div class="px-5 pb-4 pt-1 border-t border-line">${footnote}</div>` : ''}
+                    </div>`;
+}
+
 export function renderKanban(d: KanbanData): string {
-    const column = (
-        title: string,
-        icon: string,
-        items: OrderWithProductless[],
-        badge: string,
-        empty: string,
-        footnote = ''
-    ): string => `                    <div class="surface-2 p-4 rounded-2xl shadow-sm border line flex flex-col min-h-[16rem]">
-                        <div class="flex items-center justify-between pb-3 border-b line mb-3">
-                            <h3 class="font-bold ink text-sm flex items-center gap-2">
-                                <i class="${icon}"></i> ${title}
-                            </h3>
-                            <span class="${badge} text-xs px-2 py-0.5 rounded-full font-bold">${items.length}</span>
-                        </div>
-                        <div class="space-y-3 flex-1 overflow-y-auto">
-                            ${items.length === 0 ? `<p class="text-xs ink-3 text-center py-6">${empty}</p>` : ''}
-                            ${items.map((o) => orderCard(o, null, '', '', '')).join('')}
-                        </div>
-                        ${footnote}
-                    </div>`;
+    return `${faixaKpi([
+        kpi('Aguardando', String(d.totalAguardando), 'pedidos que ainda nao entraram no quadro', 'warning'),
+        kpi('No quadro', String(d.pendentes.length + d.preparando.length + d.entrega.length), 'em preparo ou em entrega', 'accent'),
+        kpi('Concluidos', String(d.concluido.length), 'finalizados hoje', 'success'),
+    ])}
 
-    // colunas com acao proprio
-    const withAction = (o: OrderWithProductless, next: string, tint: string, accent: string, icon: string) =>
-        orderCard(o, next, tint, accent, icon);
-
-    const col = (title: string, icon: string, items: OrderWithProductless[], badge: string, next: string | null, tint: string, accent: string, btnIcon: string) => `                    <div class="surface-2 p-4 rounded-2xl shadow-sm border line flex flex-col min-h-[16rem]">
-                        <div class="flex items-center justify-between pb-3 border-b line mb-3">
-                            <h3 class="font-bold ink text-sm flex items-center gap-2"><i class="${icon}"></i> ${title}</h3>
-                            <span class="${badge} text-xs px-2 py-0.5 rounded-full font-bold">${items.length}</span>
-                        </div>
-                        <div class="space-y-3 flex-1 overflow-y-auto">
-                            ${items.length === 0 ? '<p class="text-xs ink-3 text-center py-6">Nenhum pedido</p>' : ''}
-                            ${items.map((o) => (next ? withAction(o, next, tint, accent, btnIcon) : orderCard(o, null, '', '', ''))).join('')}
-                        </div>
-                    </div>`;
-
-    return `        <div class="flex flex-wrap items-center gap-3 mb-5">
-            <div class="surface border line rounded-xl px-4 py-2 text-sm">
-                <span class="ink-3">Aguardando:</span>
-                <span class="font-bold ink ml-1">${d.totalAguardando}</span>
-            </div>
-            <div class="surface border line rounded-xl px-4 py-2 text-sm">
-                <span class="ink-3">No quadro:</span>
-                <span class="font-bold ink ml-1">${d.pendentes.length + d.preparando.length + d.entrega.length + d.concluido.length}</span>
-            </div>
-            <span class="text-xs ink-3">Clique no botao do card para avancar o status. O cliente recebe a mensagem automaticamente.</span>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            ${col('Pendentes', 'fa-solid fa-clock accent-amber', d.pendentes, 'badge-amber', 'preparando', 'bg-amber-500', 'accent-amber-strong', 'fa-arrow-right')}
-            ${col('Na Cozinha', 'fa-solid fa-fire-burner accent-orange', d.preparando, 'badge-orange', 'entrega', 'bg-orange-500', 'accent-orange', 'fa-arrow-right')}
-            ${col('Em Entrega', 'fa-solid fa-motorcycle accent-emerald', d.entrega, 'badge-emerald', 'concluido', 'bg-emerald-600', 'accent-emerald', 'fa-check')}
-            ${column('Concluidos Hoje', 'fa-solid fa-circle-check ink-3', d.concluido, 'badge-slate', 'Nenhum pedido concluido hoje', d.ocultosConcluidos > 0
-                ? `<p class="text-[11px] ink-3 text-center pt-3 mt-1 border-t line">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+            ${colKanban('Pendentes', 'fa-clock', d.pendentes, 'badge-warn', 'preparando', 'warning', 'fa-arrow-right', 'Nenhum pedido aguardando')}
+            ${colKanban('Na cozinha', 'fa-fire-burner', d.preparando, 'badge-warn', 'entrega', 'warning', 'fa-arrow-right', 'Nenhum pedido em preparo')}
+            ${colKanban('Em entrega', 'fa-motorcycle', d.entrega, 'badge-success', 'concluido', 'success', 'fa-check', 'Nenhuma entrega em andamento')}
+            ${colKanban('Concluidos', 'fa-circle-check', d.concluido, 'badge-neutral', null, 'neutral-ink', '', 'Nenhum pedido concluido hoje', d.ocultosConcluidos > 0
+                ? `<p class="text-caption text-ink-3 pt-3">
                        <i class="fa-solid fa-clock-rotate-left"></i>
-                       ${d.ocultosConcluidos} concluído${d.ocultosConcluidos > 1 ? 's' : ''} de dias anteriores fora${d.ocultosConcluidos > 1 ? 'm' : ''} desta coluna.
-                       Continuam no histórico e nos relatórios.
+                       ${d.ocultosConcluidos} concluído${d.ocultosConcluidos > 1 ? 's' : ''} de dias anteriores fora${d.ocultosConcluidos > 1 ? 'm' : ''} desta coluna. Continuam no histórico.
                    </p>`
                 : '')}
         </div>
 
+        <p class="text-caption text-ink-3 mt-4">
+            <i class="fa-solid fa-circle-info"></i>
+            O botao do card avança o status e avisa o cliente no WhatsApp.
+        </p>
+
         <script>
-            async function updateStatus(orderId, newStatus) {
+            /*
+             * Delegacao, e nao onclick com o id dentro.
+             *
+             * Um id de pedido escrito dentro de um atributo onclick e' uma string
+             * montada no HTML: se o id vier com aspa, ou o nome do cliente vier
+             * num onclick vizinho, o bloco de script inteiro para de fazer
+             * sentido e a pagina perde TODOS os ouvintes de uma vez -- o botao
+             * visivel continua ali, e nao responde. Ja aconteceu nesta tela.
+             *
+             * O id viaja em data-id, que e' dado, nao codigo, e nao tem como
+             * quebrar o resto do bloco. O listener e' um so, no document, e
+             * registrado ANTES dos guards: um throw no meio do registro deixaria
+             * o resto da pagina sem script.
+             */
+            document.addEventListener('click', function (ev) {
+                var alvo = ev.target;
+                if (!alvo || !alvo.closest) return;
+
+                var status = alvo.closest('[data-order-status]');
+                if (status) { avancaStatus(status.dataset.id, status.dataset.next); return; }
+
+                var comanda = alvo.closest('[data-comanda]');
+                if (comanda && window.comandaAbrir) comandaAbrir(comanda.dataset.comanda);
+            });
+
+            async function avancaStatus(orderId, newStatus) {
+                if (!orderId || !newStatus) return;
                 try {
-                    const r = await postJSON('/admin/order/' + encodeURIComponent(orderId) + '/status', { status: newStatus });
+                    var r = await postJSON('/admin/order/' + encodeURIComponent(orderId) + '/status', { status: newStatus });
                     if (!r.ok) { flash('err', r.data.error || 'Erro ao atualizar pedido'); return; }
                     location.reload();
                 } catch (e) { flash('err', 'Erro de conexao'); }
@@ -205,169 +241,174 @@ export function renderConfig(c: ConfigData): string {
     const dados = c.dados;
     const ultimo = dados.ultimoBackup;
 
-    return `        <form onsubmit="return saveConfig(event)" class="space-y-5 max-w-4xl" id="cfgForm">
-            <div class="card">
-                <div class="card-pad pb-3">
-                    <h2 class="text-title flex items-center gap-2">
-                        <i class="fa-solid fa-store text-accent"></i> Negocio
-                    </h2>
-                    <p class="text-caption text-ink-3">Aparece no nome da aba, no topo do painel e no rodape do cardapio do WhatsApp</p>
-                </div>
-                <div class="px-5 pb-5">
-                    <div class="max-w-md">
-                        <label class="label" for="cfg-businessName">Nome do negocio <span class="text-accent" title="Obrigatorio">*</span></label>
-                        <input id="cfg-businessName" type="text" name="businessName" value="${escapeHtml(c.businessName)}"
-                               maxlength="60" required class="input" placeholder="Como o cliente ve o nome">
-                        <p class="text-caption text-ink-3 mt-1">
-                            Vai impresso no cabecalho da comanda da impressora. Nao pode ficar vazio.
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-pad pb-3">
-                    <h2 class="text-title flex items-center gap-2">
-                        <i class="fa-solid fa-clock text-accent"></i> Agenda do caixa
-                    </h2>
-                    <p class="text-caption text-ink-3">
-                        Abre e fecha o turno sozinho. O fechamento automatico nao conta o dinheiro da gaveta:
-                        registra o valor esperado e deixa a conferencia para depois.
+    /*
+     * Duas colunas, e nao tres blocos empilhados.
+     *
+     * Negocio, agenda do caixa e armazenamento ocupavam a altura toda de uma
+     * vez, e o formulario de configuracao -- que e' o que se abre para mudar
+     * alguma coisa -- ficava abaixo da dobra. Quem queria ajustar a taxa de
+     * entrega tinha de descer a pagina inteira.
+     *
+     * Com a agenda e o armazenamento lado a lado, os dois blocos que tem texto
+     * longo dividem a altura, e o formulario de negocio fica no topo, onde a
+     * leitura comeca. Em tela estreita as colunas viram uma e a ordem continua
+     * a mesma, que e' a ordem de uso: o que se ajusta todo dia primeiro.
+     */
+    return `        <form onsubmit="return saveConfig(event)" id="cfgForm" class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+            <div class="card card-pad">
+                <h3 class="text-title flex items-center gap-2">
+                    <i class="fa-solid fa-store text-accent"></i> Negocio
+                </h3>
+                <p class="text-caption text-ink-3 mb-4">Aparece no nome da aba, no topo do painel e no rodape do cardapio do WhatsApp</p>
+                <div>
+                    <label class="label" for="cfg-businessName">Nome do negocio <span class="text-accent" title="Obrigatorio">*</span></label>
+                    <input id="cfg-businessName" type="text" name="businessName" value="${escapeHtml(c.businessName)}"
+                           maxlength="60" required class="input" placeholder="Como o cliente ve o nome">
+                    <p class="text-caption text-ink-3 mt-1">
+                        Vai impresso no cabecalho da comanda da impressora. Nao pode ficar vazio.
                     </p>
                 </div>
-                <div class="px-5 pb-5 space-y-4">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
-                        <div>
-                            <label class="label" for="cfg-cashAutoOpen">Abre as</label>
-                            <input id="cfg-cashAutoOpen" type="time" name="cashAutoOpen" value="${escapeHtml(c.cashAutoOpen)}" class="input">
-                            <p class="text-caption text-ink-3 mt-1">Vazio = desativado</p>
-                        </div>
-                        <div>
-                            <label class="label" for="cfg-cashAutoClose">Fecha as</label>
-                            <input id="cfg-cashAutoClose" type="time" name="cashAutoClose" value="${escapeHtml(c.cashAutoClose)}" class="input">
-                            <p class="text-caption text-ink-3 mt-1">Vazio = desativado</p>
-                        </div>
-                    </div>
-
-                    <div class="max-w-md">
-                        <label class="label" for="cfg-cashDefaultFloat">Fundo de troco</label>
-                        <div class="flex items-center gap-2">
-                            <span class="text-body text-ink-3 shrink-0" aria-hidden="true">R$</span>
-                            <input id="cfg-cashDefaultFloat" type="number" name="cashDefaultFloat" step="0.01" min="0"
-                                   inputmode="decimal" value="${escapeHtml(c.cashDefaultFloat)}" class="input">
-                        </div>
-                        <p class="text-caption text-ink-3 mt-1">
-                            A abertura so fica ativa com este valor preenchido: um fundo estimado contaminaria a
-                            diferenca de caixa de todo fechamento.
-                        </p>
-                    </div>
-
-                    <!--
-                        O estado da agenda, derivado dos tres campos acima.
-
-                        Este bloco repete a regra que o agendador usa, e repete de
-                        proposito: a tela mostra o que vai acontecer ANTES de
-                        salvar, e nao depois de tentar. Antes ele era um
-                        paragrafo fixo, que continuava verdade depois de o campo
-                        virar outra coisa -- o pior tipo de texto de tela.
-
-                        A versao inicial vem do servidor (que chamou a mesma
-                        funcao); o script abaixo recalcula a cada tecla.
-                    -->
-                    <div id="cfgAgenda" class="flex items-start gap-2 text-caption border rounded-card p-3 max-w-2xl ${agendaAtiva ? 'bg-surface-2 line text-ink-2' : 'bg-surface-2 line text-ink-2'}">
-                        <i class="fa-solid ${agendaAtiva ? 'fa-circle-check' : 'fa-circle-info'} ${agendaAtiva ? 'text-green-600' : 'text-accent'} mt-0.5 shrink-0"></i>
-                        <span id="cfgAgendaTexto">${escapeHtml(c.agenda.resumo)}</span>
-                    </div>
-
-                    <div class="flex items-start gap-2 text-caption text-ink-2 bg-surface-2 border line rounded-card p-3 max-w-2xl">
-                        <i class="fa-solid fa-circle-info text-accent mt-0.5 shrink-0"></i>
-                        <span>
-                            Para fechar depois da meia-noite, use um horario menor que o de abertura
-                            (ex.: abre 22:00, fecha 00:30).
-                        </span>
-                    </div>
-                </div>
             </div>
 
-            <div class="card">
+            <div class="card card-pad">
+                <h3 class="text-title flex items-center gap-2">
+                    <i class="fa-solid fa-clock text-accent"></i> Agenda do caixa
+                </h3>
+                <p class="text-caption text-ink-3 mb-4">
+                    Abre e fecha o turno sozinho. O fechamento automatico nao conta o dinheiro da gaveta:
+                    registra o valor esperado e deixa a conferencia para depois.
+                </p>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="label" for="cfg-cashAutoOpen">Abre as</label>
+                        <input id="cfg-cashAutoOpen" type="time" name="cashAutoOpen" value="${escapeHtml(c.cashAutoOpen)}" class="input">
+                        <p class="text-caption text-ink-3 mt-1">Vazio = desativado</p>
+                    </div>
+                    <div>
+                        <label class="label" for="cfg-cashAutoClose">Fecha as</label>
+                        <input id="cfg-cashAutoClose" type="time" name="cashAutoClose" value="${escapeHtml(c.cashAutoClose)}" class="input">
+                        <p class="text-caption text-ink-3 mt-1">Vazio = desativado</p>
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <label class="label" for="cfg-cashDefaultFloat">Fundo de troco</label>
+                    <div class="flex items-center gap-2">
+                        <span class="text-body text-ink-3 shrink-0" aria-hidden="true">R$</span>
+                        <input id="cfg-cashDefaultFloat" type="number" name="cashDefaultFloat" step="0.01" min="0"
+                               inputmode="decimal" value="${escapeHtml(c.cashDefaultFloat)}" class="input">
+                    </div>
+                    <p class="text-caption text-ink-3 mt-1">
+                        A abertura so fica ativa com este valor preenchido: um fundo estimado contaminaria a
+                        diferenca de caixa de todo fechamento.
+                    </p>
+                </div>
+
+                <!--
+                    O estado da agenda, derivado dos tres campos acima.
+
+                    Este bloco repete a regra que o agendador usa, e repete de
+                    proposito: a tela mostra o que vai acontecer ANTES de
+                    salvar, e nao depois de tentar. Antes ele era um
+                    paragrafo fixo, que continuava verdade depois de o campo
+                    virar outra coisa -- o pior tipo de texto de tela.
+
+                    A versao inicial vem do servidor (que chamou a mesma
+                    funcao); o script abaixo recalcula a cada tecla.
+                -->
+                <div id="cfgAgenda" class="flex items-start gap-2 text-caption border border-line rounded-card p-3 mt-3 bg-surface-2 text-ink-2">
+                    <i class="fa-solid ${agendaAtiva ? 'fa-circle-check text-accent-emerald' : 'fa-circle-info text-accent'} mt-0.5 shrink-0"></i>
+                    <span id="cfgAgendaTexto">${escapeHtml(c.agenda.resumo)}</span>
+                </div>
+
+                <p class="text-caption text-ink-3 mt-2">
+                    Para fechar depois da meia-noite, use um horario menor que o de abertura (ex.: abre 22:00, fecha 00:30).
+                </p>
+            </div>
+
+            <div class="card xl:col-span-2">
                 <div class="card-pad pb-3">
-                    <h2 class="text-title flex items-center gap-2">
+                    <h3 class="text-title flex items-center gap-2">
                         <i class="fa-solid fa-hard-drive text-accent"></i> Dados e armazenamento
-                    </h2>
+                    </h3>
                     <p class="text-caption text-ink-3">
                         Onde o sistema guarda o que ele guarda. Os numeros sao medidos agora, a cada visita a esta tela.
                     </p>
                 </div>
-                <div class="px-5 pb-5 space-y-4">
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div class="surface border line rounded-xl px-4 py-3">
-                            <p class="text-caption text-ink-3">Banco de dados</p>
-                            <p class="text-xl font-bold ink mt-0.5">${tamanhoLegivel(dados.bancoBytes)}</p>
-                            <p class="text-[11px] text-ink-3 mt-0.5">${dados.bancoArquivos.length > 0 ? escapeHtml(dados.bancoArquivos.map((f) => f.nome).join(', ')) : 'arquivo nao encontrado'}</p>
-                        </div>
-                        <div class="surface border line rounded-xl px-4 py-3">
-                            <p class="text-caption text-ink-3">Backups</p>
-                            <p class="text-xl font-bold ink mt-0.5">${tamanhoLegivel(dados.backupBytes)}</p>
-                            <p class="text-[11px] text-ink-3 mt-0.5">${dados.backupQuantidade} ${dados.backupQuantidade === 1 ? 'copia' : 'copias'}</p>
-                        </div>
-                        <div class="surface border line rounded-xl px-4 py-3">
-                            <p class="text-caption text-ink-3">Sessao do WhatsApp</p>
-                            <p class="text-xl font-bold ink mt-0.5">${tamanhoLegivel(dados.sessaoBytes)}</p>
-                            <p class="text-[11px] text-ink-3 mt-0.5">${dados.sessaoArquivos} arquivos</p>
-                        </div>
-                        <div class="surface border line rounded-xl px-4 py-3">
-                            <p class="text-caption text-ink-3">Logs</p>
-                            <p class="text-xl font-bold ink mt-0.5">${tamanhoLegivel(dados.logBytes)}</p>
-                            <p class="text-[11px] text-ink-3 mt-0.5">${dados.logQuantidade} ${dados.logQuantidade === 1 ? 'dia' : 'dias'}</p>
-                        </div>
-                    </div>
+                <div class="px-5 pb-5">
+                    ${faixaKpi([
+                        kpi(
+                            'Banco de dados',
+                            escapeHtml(tamanhoLegivel(dados.bancoBytes)),
+                            dados.bancoArquivos.length > 0
+                                ? escapeHtml(dados.bancoArquivos.map((f) => f.nome).join(', '))
+                                : 'arquivo nao encontrado'
+                        ),
+                        kpi(
+                            'Backups',
+                            escapeHtml(tamanhoLegivel(dados.backupBytes)),
+                            `${dados.backupQuantidade} ${dados.backupQuantidade === 1 ? 'copia' : 'copias'}`
+                        ),
+                        kpi('Sessao do WhatsApp', escapeHtml(tamanhoLegivel(dados.sessaoBytes)), `${dados.sessaoArquivos} arquivos`),
+                        kpi('Logs', escapeHtml(tamanhoLegivel(dados.logBytes)), `${dados.logQuantidade} ${dados.logQuantidade === 1 ? 'dia' : 'dias'}`),
+                    ], 4)}
 
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
-                        <div class="surface border line rounded-xl px-4 py-3">
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                        <div class="bg-surface-2 border border-line rounded-card p-3">
                             <p class="text-caption text-ink-3">Mensagens hoje</p>
-                            <p class="text-xl font-bold ink mt-0.5">${dados.mensagensHoje}</p>
+                            <p class="kpi-value">${dados.mensagensHoje}</p>
+                            <p class="kpi-sub">guardadas ate a virada do dia</p>
                         </div>
-                        <div class="surface border line rounded-xl px-4 py-3">
+                        <div class="bg-surface-2 border border-line rounded-card p-3">
                             <p class="text-caption text-ink-3">Pedidos hoje</p>
-                            <p class="text-xl font-bold ink mt-0.5">${dados.pedidosHoje}</p>
+                            <p class="kpi-value">${dados.pedidosHoje}</p>
+                            <p class="kpi-sub">no historico</p>
                         </div>
-                        <div class="surface border line rounded-xl px-4 py-3">
+                        <div class="bg-surface-2 border border-line rounded-card p-3">
                             <p class="text-caption text-ink-3">Conversas na lista</p>
-                            <p class="text-xl font-bold ink mt-0.5">${dados.conversasAtivas}</p>
+                            <p class="kpi-value">${dados.conversasAtivas}</p>
+                            <p class="kpi-sub">com janela aberta</p>
                         </div>
                     </div>
 
-                    <div class="max-w-2xl space-y-2 text-caption text-ink-2">
-                        <div class="flex items-start gap-2 bg-surface-2 border line rounded-card p-3">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 text-caption text-ink-2">
+                        <div class="flex items-start gap-2 bg-surface-2 border border-line rounded-card p-3">
                             <i class="fa-solid fa-broom text-accent mt-0.5 shrink-0"></i>
-                            <div>
-                                <p class="font-medium ink">O que o sistema esquece</p>
+                            <div class="min-w-0">
+                                <p class="font-medium text-ink">O que o sistema esquece</p>
                                 <p class="mt-0.5">${escapeHtml(dados.retencao)}</p>
                                 <p class="text-ink-3 mt-1">Proxima virada: ${escapeHtml(dados.proximaVirada.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}</p>
                             </div>
                         </div>
 
-                        <div class="flex items-start gap-2 bg-surface-2 border line rounded-card p-3">
+                        <div class="flex items-start gap-2 bg-surface-2 border border-line rounded-card p-3">
                             <i class="fa-solid fa-clock-rotate-left text-accent mt-0.5 shrink-0"></i>
-                            <div>
-                                <p class="font-medium ink">Ultimo backup</p>
+                            <div class="min-w-0 flex-1">
+                                <p class="font-medium text-ink">Ultimo backup</p>
                                 ${
                                     ultimo
                                         ? `<p class="mt-0.5">${escapeHtml(ultimo.arquivo)} &middot; ${escapeHtml(ultimo.quando.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}</p>`
                                         : '<p class="mt-0.5">Nenhuma copia ainda. A primeira e' + ' feita quando o servidor sobe.</p>'
                                 }
                                 <p class="text-ink-3 mt-1 break-all">Pasta: ${escapeHtml(dados.pastaBackup)}</p>
+                                <div class="flex items-center gap-2 mt-3 flex-wrap">
+                                    <button type="button" id="btnBackupAgora" onclick="fazBackupAgora()"
+                                        class="btn btn-secondary btn-sm">
+                                        <i class="fa-solid fa-camera-retro"></i> Fazer agora
+                                    </button>
+                                    <span id="backupAviso" class="text-caption text-ink-3"></span>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="flex items-start gap-2 rounded-card p-3 ${dados.exposicao.aberta ? 'bg-amber-50 border border-amber-200 text-ink-2' : 'bg-surface-2 border line text-ink-2'}">
-                            <i class="fa-solid ${dados.exposicao.aberta ? 'fa-triangle-exclamation text-amber-600' : 'fa-lock text-green-600'} mt-0.5 shrink-0"></i>
-                            <div>
-                                <p class="font-medium ink">
+                        <div class="flex items-start gap-2 rounded-card p-3 border ${dados.exposicao.aberta ? 'bg-warning-bg border-accent-orange text-ink-2' : 'bg-surface-2 border-line text-ink-2'}">
+                            <i class="fa-solid ${dados.exposicao.aberta ? 'fa-triangle-exclamation text-accent-orange' : 'fa-lock text-accent-emerald'} mt-0.5 shrink-0"></i>
+                            <div class="min-w-0">
+                                <p class="font-medium text-ink">
                                     ${dados.exposicao.aberta ? 'O painel esta aberto para a rede local' : 'O painel so responde nesta maquina'}
                                 </p>
                                 <p class="mt-0.5">
-                                    Escuta em <span class="font-mono text-[11px]">${escapeHtml(dados.exposicao.host)}</span>${
+                                    Escuta em <span class="font-mono">${escapeHtml(dados.exposicao.host)}</span>${
                                         dados.exposicao.aberta
                                             ? ', entao qualquer computador da mesma rede que saiba a porta chega no faturamento, no caixa e nas conversas -- e o painel ainda nao tem senha.'
                                             : '. Quem so usa nesta maquina nao alcanca o painel de fora.'
@@ -375,7 +416,7 @@ export function renderConfig(c: ConfigData): string {
                                 </p>
                                 ${
                                     dados.exposicao.aberta
-                                        ? '<p class="text-ink-3 mt-1">Para fechar: defina <span class="font-mono text-[11px]">HOST=127.0.0.1</span> no arquivo .env e reinicie o servidor.</p>'
+                                        ? '<p class="text-ink-3 mt-1">Para fechar: defina <span class="font-mono">HOST=127.0.0.1</span> no arquivo .env e reinicie o servidor.</p>'
                                         : ''
                                 }
                             </div>
@@ -384,7 +425,7 @@ export function renderConfig(c: ConfigData): string {
                 </div>
             </div>
 
-            <div class="flex items-center gap-2">
+            <div class="xl:col-span-2 flex items-center gap-2">
                 <button type="submit" class="btn btn-primary">
                     <i class="fa-solid fa-save"></i> Salvar
                 </button>
@@ -393,6 +434,96 @@ export function renderConfig(c: ConfigData): string {
         </form>
 
         <script>
+            /*
+             * Faz uma copia do banco na hora.
+             *
+             * Antes disto o backup rodava sozinho, de seis em seis horas, e o dono
+             * nao tinha como pedir um nem como ver o que existia. Um backup que a
+             * pessoa nao sabe se existe e' o mesmo que nao existir, e o pior
+             * momento para descobrir e' depois de precisar dele.
+             *
+             * O botao se trava durante a chamada e o aviso vai dizendo o que
+             * aconteceu, em vez de sumir sozinho: quem aperta "Fazer agora" antes
+             * de fechar o caixa e' a pessoa decidindo fazer uma copia de
+             * seguranca, e a tela precisa confirmar que a copia foi feita.
+             */
+            function fazBackupAgora() {
+                var botao = document.getElementById('btnBackupAgora');
+                var aviso = document.getElementById('backupAviso');
+                if (!botao || !aviso) return;
+                if (botao.disabled) return;
+
+                botao.disabled = true;
+                aviso.textContent = 'Copiando...';
+                aviso.className = 'text-caption text-ink-3';
+
+                postJSON('/api/admin/backup', {}).then(function (r) {
+                    if (!r.ok) {
+                        aviso.textContent = r.data.error || 'Nao foi possivel fazer a copia.';
+                        aviso.className = 'text-caption text-accent-red';
+                        botao.disabled = false;
+                        return;
+                    }
+                    /*
+                     * A rota responde 202 antes de gravar, entao o "copiando" ainda
+                     * esta acontecendo quando a resposta chega. Espera o servidor
+                     * dizer que terminou, e so entao confirma.
+                     */
+                    esperaBackup();
+                }).catch(function () {
+                    aviso.textContent = 'Nao foi possivel falar com o servidor.';
+                    aviso.className = 'text-caption text-accent-red';
+                    botao.disabled = false;
+                });
+            }
+
+            /** Pergunta de tempos em tempos ate a copia aparecer na lista. */
+            function esperaBackup(tentativa) {
+                var aviso = document.getElementById('backupAviso');
+                var botao = document.getElementById('btnBackupAgora');
+                if (!aviso || !botao) return;
+
+                var n = tentativa || 0;
+                var desistir = function () {
+                    if (n >= 20) finaliza('A copia nao apareceu. Olhe o log.', false);
+                    else setTimeout(function () { esperaBackup(n + 1); }, 1500);
+                };
+
+                postJSON('/api/admin/backup/listar', {}).then(function (r) {
+                    if (!r.ok) return desistir();
+                    var lista = r.data.copias || [];
+                    if (lista.length > 0) {
+                        var quando = new Date(lista[0].quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+                        return finaliza('Copia de ' + quando + ' pronta (' + tamanhoLegivelJs(lista[0].bytes) + ').', true);
+                    }
+                    /*
+                     * Nada ainda. Nao desiste na primeira: a gravacao de um banco
+                     * grande leva alguns segundos, e desistir no primeiro silencio
+                     * daria "falhou" para um backup que estava indo bem. O teto de
+                     * 20 tentativas existe para o outro extremo: um servidor
+                     * travado nao pode deixar o botao girando a noite inteira.
+                     */
+                    desistir();
+                }).catch(desistir);
+            }
+
+            function finaliza(mensagem, deuCerto) {
+                var aviso = document.getElementById('backupAviso');
+                var botao = document.getElementById('btnBackupAgora');
+                if (aviso) {
+                    aviso.textContent = mensagem;
+                    aviso.className = 'text-caption ' + (deuCerto ? 'text-accent-emerald' : 'text-accent-red');
+                }
+                if (botao) botao.disabled = false;
+            }
+
+            /** "336 KB", "1,2 MB". */
+            function tamanhoLegivelJs(bytes) {
+                if (!bytes) return '0 KB';
+                if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+                return (bytes / (1024 * 1024)).toFixed(1).replace('.', ',') + ' MB';
+            }
+
             /*
              * O estado da agenda, calculado enquanto a pessoa digita.
              *
@@ -498,10 +629,10 @@ export function renderCalendar(d: CalendarData): string {
      * pedidos pareciam quatro telas diferentes em vez de uma.
      */
     return `        <div class="max-w-6xl">
-            <div class="flex flex-wrap items-center gap-3 mb-5">
-                <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Pedidos no periodo:</span> <span class="font-bold ink ml-1">${d.totalOrders}</span></div>
-                <div class="surface border line rounded-xl px-4 py-2 text-sm"><span class="ink-3">Media por dia:</span> <span class="font-bold ink ml-1">${(d.totalOrders / Math.max(1, d.daysInPeriod)).toFixed(1).replace('.', ',')}</span></div>
-            </div>
+            ${faixaKpi([
+                kpi('Pedidos no periodo', String(d.totalOrders), `de ${d.daysInPeriod} dia(s) em vista`),
+                kpi('Media por dia', (d.totalOrders / Math.max(1, d.daysInPeriod)).toFixed(1).replace('.', ','), 'ritmo do periodo'),
+            ], 2)}
 
             <!--
                 Duas colunas: calendario na esquerda, lembretes na direita.
@@ -524,7 +655,7 @@ export function renderCalendar(d: CalendarData): string {
             <div class="card">
                 <div class="card-pad flex flex-wrap items-center justify-between gap-3">
                     <div class="flex items-center gap-2">
-                        <span class="text-[11px] uppercase tracking-wide ink-3">Em vista</span>
+                        <span class="text-micro uppercase text-ink-3">Em vista</span>
                         <!--
                             Mes e ano sao seletores, e nao so setas.
 
@@ -555,28 +686,28 @@ export function renderCalendar(d: CalendarData): string {
                 </div>
 
                 <div class="px-5 pb-5">
-                    <div class="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-bold ink-3 uppercase">
+                    <div class="grid grid-cols-7 gap-1 mb-2 text-center text-caption font-semibold text-ink-3 uppercase">
                         <div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
                     </div>
                     <div class="grid grid-cols-7 gap-1" id="calendarGrid"></div>
-                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-[11px] ink-3">
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-caption text-ink-3">
                         <span class="flex items-center gap-1.5">
-                            <span class="w-3 h-3 rounded border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"></span>
+                            <span class="w-3 h-3 rounded-sm border border-success bg-success-bg"></span>
                             Dia com pedido
                         </span>
                         <span class="flex items-center gap-1.5">
-                            <span class="w-3 h-3 rounded border-2 border-accent"></span>
+                            <span class="w-3 h-3 rounded-sm border-2 border-accent"></span>
                             Dia selecionado
                         </span>
                         <span class="flex items-center gap-1.5">
-                            <span class="w-3 h-3 rounded border border-amber-500"></span>
+                            <span class="w-3 h-3 rounded-sm border border-accent-orange"></span>
                             Hoje
                         </span>
                     </div>
                 </div>
             </div>
 
-            <div class="card">
+            <div class="card flex flex-col overflow-hidden">
                 <div class="card-pad pb-2">
                     <!--
                         O titulo do painel NOMEIA o dia.
@@ -589,14 +720,15 @@ export function renderCalendar(d: CalendarData): string {
                         "25". A pessoa sabe do dia so porque lembrou -- e a
                         selecao some assim que a grade e' redesenhada.
                     -->
-                    <h3 class="font-bold ink" id="dayOrdersTitle">Pedidos do dia selecionado</h3>
-                    <div id="diaForaDaVista" class="hidden mt-1 text-caption accent-orange"></div>
+                    <h3 class="text-title" id="dayOrdersTitle">Pedidos do dia selecionado</h3>
+                    <div id="diaForaDaVista" class="hidden mt-1 text-caption text-accent-orange"></div>
                 </div>
-                <div class="px-5 pb-5">
-                    <div id="dayOrders"><p class="ink-3 text-sm">Clique em um dia no calendario para ver os pedidos.</p></div>
+                <div class="px-5 pb-5 min-h-0 flex-1 overflow-y-auto">
+                    <div id="dayOrders">${cardVazio('Clique em um dia no calendario para ver os pedidos.', 'fa-calendar-day')}</div>
                 </div>
             </div>
             </div>
+
 
             <!--
                 Lembretes do mes.
@@ -610,28 +742,33 @@ export function renderCalendar(d: CalendarData): string {
                 E o aviso some quando a selecao chega, pelo mesmo motivo: texto
                 que continua verdadeiro depois da mudanca e' pior do que texto
                 ausente.
+
+                O teto do cartao vem da altura da tela, e a lista e' a parte que
+                cede espaco. A conta e' o cabecalho, o respiro do <main> e a
+                faixa de numeros -- o que vem antes do cartao. Um max-height em
+                rem aqui dava valor negativo em tela baixa, e a lista sumia
+                inteira: era o que sumia quando a pessoa anotava lembrete.
             -->
-            <div class="card">
-                <div class="card-pad pb-2">
-                    <h3 class="font-bold ink flex items-center gap-2">
-                        <i class="fa-solid fa-bell accent-amber"></i> Lembretes
+            <div class="card flex flex-col overflow-hidden max-h-[calc(100vh-13rem)]">
+                <div class="card-pad pb-2 shrink-0">
+                    <h3 class="text-title flex items-center gap-2">
+                        <i class="fa-solid fa-bell text-accent"></i> Lembretes
                     </h3>
                     <p class="text-caption text-ink-3">O que precisa ser feito em cada dia</p>
                 </div>
-                <div class="px-5 pb-5">
+                <div class="px-5 pb-5 min-h-0 flex-1 overflow-y-auto">
                     <form id="lembreteForm" onsubmit="return lembreteSalva(event)" class="space-y-2">
                         <label class="label" for="lembreteTexto">Novo lembrete</label>
                         <textarea id="lembreteTexto" rows="2" maxlength="160" class="input" placeholder="Ligar para o fornecedor de pao"></textarea>
-                        <p class="text-[11px] text-ink-3" id="lembretePara">Vai para hoje. Clique em um dia no calendario para escolher outro.</p>
+                        <p class="text-caption text-ink-3" id="lembretePara">Vai para hoje. Clique em um dia no calendario para escolher outro.</p>
                         <button type="submit" class="btn btn-primary w-full">
                             <i class="fa-solid fa-plus"></i> Anotar
                         </button>
                     </form>
                     <div id="lembreteLista" class="mt-4 space-y-2">
-                        <p class="ink-3 text-sm">Nenhum lembrete neste mes.</p>
+                        <p class="text-body text-ink-3">Nenhum lembrete neste mes.</p>
                     </div>
                 </div>
-            </div>
             </div>
         </div>
 
@@ -646,85 +783,108 @@ export function renderStats(s: DashboardStats): string {
     const maxProd = Math.max(...s.topProducts.map((p) => p.qty), 1);
     const maxDay = Math.max(...s.revenueByDay.map((d) => d.revenue), 1);
 
-    const card = (label: string, value: string, sub: string, tone: string) => `                <div class="surface border line rounded-2xl p-4 shadow-sm">
-                    <p class="text-xs font-semibold ink-3 uppercase tracking-wide">${label}</p>
-                    <p class="text-2xl font-extrabold ${tone} mt-1">${value}</p>
-                    <p class="text-xs ink-3 mt-1">${sub}</p>
-                </div>`;
+    /*
+     * Tres faixas de numero e quatro graficos.
+     *
+     * As faixas usaram durante muito tempo um cartao proprio, escrito a mao
+     * (`surface border line rounded-2xl p-4 shadow-sm` mais `text-xs uppercase`),
+     * que era o mesmo numero com outro desenho. Agora vem do mesmo lugar que a
+     * Home: um bloco so, e o que muda entre as telas e' o conteudo.
+     *
+     * Sao tres faixas e nao uma com nove cartoes. Nove numeros juntos sao uma
+     * parede, e a parede nao tem ordem de leitura: quem abre a tela precisa
+     * saber qual dos nove e' o que veio primeiro. Separado em receita, operacao e
+     * ajuste, cada faixa responde a uma pergunta -- quanto entrou, o que esta
+     * rolando, o que saiu do bolso -- e a ordem das faixas e' essa ordem.
+     */
+    return `${faixaKpi([
+        kpi('Receita hoje', money(s.today.revenue), `${s.today.orders} pedido(s) hoje`, 'accent'),
+        kpi('Receita 7 dias', money(s.week.revenue), `${s.week.orders} pedido(s)`, 'accent'),
+        kpi('Receita 30 dias', money(s.month.revenue), `${s.month.orders} pedido(s)`, 'success'),
+        kpi('Ticket medio', money(s.averageTicket), `${s.allTime.orders} pedido(s) no total`, 'warning'),
+    ])}
 
-    return `        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            ${card('Receita hoje', money(s.today.revenue), s.today.orders + ' pedido(s) hoje', 'accent-amber-strong')}
-            ${card('Receita 7 dias', money(s.week.revenue), s.week.orders + ' pedido(s)', 'accent-amber')}
-            ${card('Receita 30 dias', money(s.month.revenue), s.month.orders + ' pedido(s)', 'accent-emerald')}
-            ${card('Ticket medio', money(s.averageTicket), s.allTime.orders + ' pedido(s) no total', 'accent-orange')}
-        </div>
+        ${faixaKpi([
+            kpi('Pedidos pendentes', String(s.byStatus.pendente ?? 0), 'aguardando preparacao', 'warning'),
+            kpi('Em producao', String((s.byStatus.preparando ?? 0) + (s.byStatus.entrega ?? 0)), 'preparando + em entrega', 'warning'),
+            kpi('Concluidos', String(s.byStatus.concluido ?? 0), 'finalizados', 'success'),
+        ])}
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-            ${card('Pedidos pendentes', String(s.byStatus.pendente ?? 0), 'aguardando preparacao', 'accent-amber')}
-            ${card('Em producao', String((s.byStatus.preparando ?? 0) + (s.byStatus.entrega ?? 0)), 'preparando + em entrega', 'accent-orange')}
-            ${card('Concluidos', String(s.byStatus.concluido ?? 0), 'finalizados', 'accent-emerald')}
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-            ${card('Descontos hoje', money(s.todayAdjustments.discounts), 'concedidos no PDV', 'accent-red')}
-            ${card('Gorjetas hoje', money(s.todayAdjustments.tips), 'repassadas a equipe', 'accent-emerald')}
-            ${card(
+        ${faixaKpi([
+            kpi('Descontos hoje', money(s.todayAdjustments.discounts), 'concedidos no PDV', 'danger'),
+            kpi('Gorjetas hoje', money(s.todayAdjustments.tips), 'repassadas a equipe', 'success'),
+            kpi(
                 s.byChannel.length ? s.byChannel[0].label : 'PDV / Balcao',
                 s.byChannel.length ? String(s.byChannel[0].orders) + ' pedidos' : '0',
-                s.byChannel.length ? money(s.byChannel[0].revenue) : 'sem dados',
-                'ink'
-            )}
-        </div>
+                s.byChannel.length ? money(s.byChannel[0].revenue) : 'sem dados'
+            ),
+        ])}
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <div class="surface border line rounded-2xl p-5 shadow-sm">
-                <h3 class="font-bold ink mb-1">Mais vendidos</h3>
-                <p class="text-xs ink-3 mb-4">Quantidade de unidades por item</p>
-                ${s.topProducts.length === 0 ? '<p class="text-sm ink-3 py-4">Sem dados ainda.</p>' : ''}
-                ${s.topProducts.map((p) => `                <div class="mb-3">
-                    <div class="flex justify-between text-sm mb-1">
-                        <span class="ink truncate">${escapeHtml(p.name)}</span>
-                        <span class="ink-3 shrink-0 ml-2">${p.qty} un.</span>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="card">
+                <div class="card-pad pb-2">
+                    <h3 class="text-title">Mais vendidos</h3>
+                    <p class="text-caption text-ink-3">Quantidade de unidades por item</p>
+                </div>
+                <div class="px-5 pb-5">
+                    ${s.topProducts.length === 0 ? cardVazio('Sem dados ainda.', 'fa-chart-simple') : ''}
+                    ${s.topProducts.map((p) => `                <div class="mb-3">
+                    <div class="flex justify-between text-body mb-1">
+                        <span class="text-ink truncate">${escapeHtml(p.name)}</span>
+                        <span class="text-caption text-ink-3 shrink-0 ml-2">${p.qty} un.</span>
                     </div>
                     <div class="bar-track h-2"><div class="bar-fill" style="width:${Math.round((p.qty / maxProd) * 100)}%"></div></div>
                 </div>`).join('')}
+                </div>
             </div>
 
-            <div class="surface border line rounded-2xl p-5 shadow-sm">
-                <h3 class="font-bold ink mb-1">Faturamento por dia</h3>
-                <p class="text-xs ink-3 mb-4">Ultimos ${s.revenueByDay.length} dia(s) com pedidos</p>
-                ${s.revenueByDay.length === 0 ? '<p class="text-sm ink-3 py-4">Sem dados ainda.</p>' : ''}
-                <div class="flex items-end gap-2 h-40">
-                    ${s.revenueByDay.map((d) => `                    <div class="flex-1 flex flex-col items-center gap-1" title="${d.label}: ${money(d.revenue)} (${d.orders} pedidos)">
+            <div class="card">
+                <div class="card-pad pb-2">
+                    <h3 class="text-title">Faturamento por dia</h3>
+                    <p class="text-caption text-ink-3">Ultimos ${s.revenueByDay.length} dia(s) com pedidos</p>
+                </div>
+                <div class="px-5 pb-5">
+                    ${s.revenueByDay.length === 0 ? cardVazio('Sem dados ainda.', 'fa-chart-column') : ''}
+                    <div class="flex items-end gap-2 h-40">
+                        ${s.revenueByDay.map((d) => `                    <div class="flex-1 flex flex-col items-center gap-1" title="${d.label}: ${money(d.revenue)} (${d.orders} pedidos)">
                         <div class="w-full bar-track flex items-end" style="height:100%">
                             <div class="bar-fill-emerald w-full" style="height:${Math.round((d.revenue / maxDay) * 100)}%"></div>
                         </div>
-                        <span class="text-[10px] ink-3">${escapeHtml(d.label)}</span>
+                        <span class="text-micro text-ink-3">${escapeHtml(d.label)}</span>
                     </div>`).join('')}
+                    </div>
                 </div>
             </div>
 
-            <div class="surface border line rounded-2xl p-5 shadow-sm">
-                <h3 class="font-bold ink mb-1">Pedidos por hora</h3>
-                <p class="text-xs ink-3 mb-4">${s.busiestHour ? 'Pico as ' + String(s.busiestHour.hour).padStart(2, '0') + 'h' : 'Sem dados'}</p>
-                <div class="flex items-end gap-1 h-32">
-                    ${s.byHour.map((h) => `                    <div class="flex-1 bar-track flex items-end" style="height:100%" title="${String(h.hour).padStart(2, '0')}h: ${h.orders} pedido(s)">
+            <div class="card">
+                <div class="card-pad pb-2">
+                    <h3 class="text-title">Pedidos por hora</h3>
+                    <p class="text-caption text-ink-3">${s.busiestHour ? 'Pico as ' + String(s.busiestHour.hour).padStart(2, '0') + 'h' : 'Sem dados'}</p>
+                </div>
+                <div class="px-5 pb-5">
+                    <div class="flex items-end gap-1 h-32">
+                        ${s.byHour.map((h) => `                    <div class="flex-1 bar-track flex items-end" style="height:100%" title="${String(h.hour).padStart(2, '0')}h: ${h.orders} pedido(s)">
                         <div class="bar-fill-orange w-full" style="height:${Math.round((h.orders / maxHour) * 100)}%"></div>
                     </div>`).join('')}
+                    </div>
+                    <div class="flex justify-between text-micro text-ink-3 mt-1"><span>00h</span><span>12h</span><span>23h</span></div>
                 </div>
-                <div class="flex justify-between text-[10px] ink-3 mt-1"><span>00h</span><span>12h</span><span>23h</span></div>
             </div>
 
-            <div class="surface border line rounded-2xl p-5 shadow-sm">
-                <h3 class="font-bold ink mb-1">Pedidos por dia da semana</h3>
-                <p class="text-xs ink-3 mb-4">Distribuicao da semana</p>
-                ${s.byDayOfWeek.map((d) => `                <div class="mb-2">
-                    <div class="flex justify-between text-sm mb-1">
-                        <span class="ink">${d.label}</span>
-                        <span class="ink-3">${d.orders} pedido(s)</span>
+            <div class="card">
+                <div class="card-pad pb-2">
+                    <h3 class="text-title">Pedidos por dia da semana</h3>
+                    <p class="text-caption text-ink-3">Distribuicao da semana</p>
+                </div>
+                <div class="px-5 pb-5">
+                    ${s.byDayOfWeek.map((d) => `                <div class="mb-2">
+                    <div class="flex justify-between text-body mb-1">
+                        <span class="text-ink">${d.label}</span>
+                        <span class="text-caption text-ink-3">${d.orders} pedido(s)</span>
                     </div>
                     <div class="bar-track h-2"><div class="bar-fill-slate" style="width:${Math.round((d.orders / maxDow) * 100)}%"></div></div>
                 </div>`).join('')}
+                </div>
             </div>
         </div>`;
 }
@@ -901,12 +1061,12 @@ function campoBot(f: CampoBot, e: EstadoMensagem): string {
                             </div>`
         : '';
 
-    return `                    <div class="surface-2 border line rounded-xl p-4" data-campo="${escapeHtml(f.key)}">
+    return `                    <div class="bg-surface-2 border border-line rounded-card p-4" data-campo="${escapeHtml(f.key)}">
                         <div class="flex items-start justify-between gap-3 mb-1.5">
                             <label class="label mb-0" for="${id}">${escapeHtml(f.label)}</label>
                             <span class="flex items-center gap-2 shrink-0">
-                                <span data-selo="${escapeHtml(f.key)}" class="badge ${e?.editado ? 'badge-amber' : 'badge-neutral'}">${e?.editado ? 'Editada' : 'Padrao'}</span>
-                                <button type="button" data-restaurar="${escapeHtml(f.key)}" class="btn btn-ghost btn-sm ${e?.editado ? '' : 'hidden'}" title="Voltar ao texto padrao">
+                                <span data-selo="${escapeHtml(f.key)}" class="badge ${e?.editado ? 'badge-warn' : 'badge-neutral'}">${e?.editado ? 'Editada' : 'Padrao'}</span>
+                                <button type="button" data-restaurar="${escapeHtml(f.key)}" class="btn btn-ghost btn-sm ${e?.editado ? '' : 'hidden'}" title="Voltar este texto ao padrao">
                                     <i class="fa-solid fa-rotate-left"></i> Padrao
                                 </button>
                             </span>
@@ -920,28 +1080,33 @@ function campoBot(f: CampoBot, e: EstadoMensagem): string {
 export function renderBot(d: BotData): string {
     const editadas = TODOS_OS_CAMPOS.filter((f) => d.mensagens[f.key]?.editado).length;
 
-    return `        <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-            <p class="text-sm text-ink-3 max-w-2xl">
+    /*
+     * Aqui dentro ja nao ha botao de "voltar tudo ao padrao".
+     *
+     * Ele subiu para o topo da aba, no WhatsApp, onde aparece sempre. Repetido
+     * aqui dentro, ele so aparecia com a secao aberta -- e a secao abre
+     * recolhida, entao o botao que resolve "o bot esta falando estranho" era
+     * justamente o que ninguem via.
+     *
+     * O que fica aqui e' o contador, que faz sentido neste nivel: quantas das
+     * mensagens DESTA tela estao editadas.
+     */
+    return `        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <p class="text-body text-ink-3 max-w-2xl">
                 O que o bot responde. O campo vazio usa o texto padrao.
             </p>
-            <div class="flex items-center gap-2">
-                <span class="badge ${editadas > 0 ? 'badge-amber' : 'badge-neutral'}" data-contador>
-                    ${editadas === 0 ? 'Tudo no padrao' : editadas + ' de ' + TODOS_OS_CAMPOS.length + ' editadas'}
-                </span>
-                <button type="button" onclick="msgRestaurarTodas()" class="btn btn-ghost btn-sm ${editadas > 0 ? '' : 'hidden'}" data-restaurar-todas
-                        title="Apagar todas as edicoes e voltar ao texto que vem com o programa">
-                    <i class="fa-solid fa-rotate-left"></i> Voltar tudo ao padrao
-                </button>
-            </div>
+            <span class="badge ${editadas > 0 ? 'badge-warn' : 'badge-neutral'}" data-contador>
+                ${editadas === 0 ? 'Tudo no padrao' : editadas + ' de ' + TODOS_OS_CAMPOS.length + ' editadas'}
+            </span>
         </div>
 
         <form onsubmit="return saveBotMessages(event)" class="space-y-6 max-w-4xl" data-form-mensagens>
 ${GRUPOS_BOT.map(
     (g) => `            <details class="card" ${g.campos.some((f) => d.mensagens[f.key]?.editado) ? 'open' : ''}>
-                <summary class="cursor-pointer px-5 py-4 flex items-center gap-2 select-none">
-                    <h3 class="text-title">${escapeHtml(g.titulo)}</h3>
+                <summary class="cursor-pointer text-title flex items-center gap-2 select-none card-pad">
+                    ${escapeHtml(g.titulo)}
                     <span class="text-caption text-ink-3 truncate hidden sm:inline">${escapeHtml(g.descricao)}</span>
-                    <i class="fa-solid fa-chevron-down ml-auto text-ink-3 text-xs shrink-0"></i>
+                    <i class="fa-solid fa-chevron-down ml-auto text-caption text-ink-3 shrink-0"></i>
                 </summary>
                 <div class="px-5 pb-5 space-y-4">
 ${g.campos.map((f) => campoBot(f, d.mensagens[f.key])).join('\n')}
@@ -1040,16 +1205,34 @@ ${g.campos.map((f) => campoBot(f, d.mensagens[f.key])).join('\n')}
             }
 
             async function msgRestaurarTodas() {
+                /*
+                 * A janela de confirmacao, e nao o confirm do navegador.
+                 *
+                 * O confirm do sistema e' a unica janela do painel que nao
+                 * parece com o resto: fundo cinza do sistema operacional, botao
+                 * "OK" sem nome e o titulo "localhost:3000 diz". E esta e' a
+                 * acao que apaga trabalho digitado sem volta -- o pior lugar
+                 * para um dialogo com aparencia de aviso de antivirus.
+                 *
+                 * A frase nomeia o que vai acontecer e diz que nao tem volta,
+                 * porque "tem certeza?" nao responde a pergunta que a pessoa
+                 * tem: "eu perco o que escrevi?". O botao diz "Descartar", e nao
+                 * "Confirmar" -- o botao e' a ultima leitura antes do clique.
+                 *
+                 * E o foco vai para CANCELAR, que vem do confirmThen: quem
+                 * apertar Enter sem ler nao perde o trabalho.
+                 */
                 confirmThen(
-                    'Todas as mensagens editadas voltam ao texto que vem com o programa. Nao tem como desfazer: ' +
-                        'o que foi digitado aqui e perdido.',
+                    'Todos os textos que voce alterado serao apagados e o bot volta a falar do jeito que veio com o programa. ' +
+                        'O que foi digitado aqui nao tem como recuperar depois.',
                     async function () {
                         var r = await postJSON('/admin/bot-messages/restaurar-todas', {});
                         if (!r.ok) { flash('err', r.data.error || 'Erro ao restaurar'); return; }
-                        flash('ok', 'Mensagens de volta ao padrao.');
-                        setTimeout(function () { window.location.reload(); }, 700);
+                        var quantas = r.data.restauradas || 0;
+                        flash('ok', quantas === 1 ? '1 texto voltou ao padrao.' : quantas + ' textos voltaram ao padrao.');
+                        setTimeout(function () { window.location.reload(); }, 900);
                     },
-                    { titulo: 'Apagar todas as edicoes', confirmar: 'Apagar tudo' }
+                    { titulo: 'Descartar as alteracoes?', confirmar: 'Descartar', cancelar: 'Manter' }
                 );
             }
 

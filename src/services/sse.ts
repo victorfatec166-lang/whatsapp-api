@@ -55,3 +55,30 @@ export function getClientCount(): number {
     prune();
     return clients.length;
 }
+
+/**
+ * Encerra todas as conexoes SSE, avisando antes.
+ *
+ * O `res.end()` puro fecha a conexao sem dizer nada, e o painel fica com a aba
+ * aberta mostrando "atualizando..." ate o navegador desistir sozinho -- que sao
+ * trinta segundos de tela morta numa hora em que a pessoa nao sabe o que
+ * aconteceu. Mandar um evento `encerrando` deixa o JavaScript da tela recarregar
+ * por conta propria, e o que a pessoa ve e' o painel de novo, nao um aviso de
+ * erro.
+ *
+ * Devolve quantas conexoes foram fechadas, para o log do desligamento dizer.
+ */
+export function fechaClientes(motivo: string): number {
+    prune();
+    const total = clients.length;
+    for (const client of clients) {
+        try {
+            client.write(`event: encerrando\ndata: ${JSON.stringify({ motivo })}\n\n`);
+            client.end();
+        } catch {
+            // cliente ja morto: fechar e' o que queríamos mesmo
+        }
+    }
+    clients = [];
+    return total;
+}

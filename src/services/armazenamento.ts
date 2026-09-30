@@ -4,6 +4,7 @@ import { prisma } from '../database/prisma';
 import { inicioDoDia } from './retencao';
 import { backupDir } from './backup';
 import { pastaDeLogs } from './logger';
+import { DIR_SESSAO_WHATSAPP } from './paths';
 
 /**
  * Onde estao os dados, quanto ocupam, e o que o sistema guarda.
@@ -108,8 +109,7 @@ const ehLog = (n: string) => n.startsWith('app-') && n.endsWith('.log');
 function pastaDaSessao(): string {
     const doAmbiente = process.env.BAILEYS_AUTH_DIR?.trim();
     if (doAmbiente) return path.resolve(doAmbiente);
-    // `bot.ts` resolve a partir de `dist/`, que e' um nivel abaixo da raiz.
-    return path.resolve(__dirname, '..', '..', 'auth_info_baileys');
+    return DIR_SESSAO_WHATSAPP;
 }
 
 /** O que o sistema responde hoje sobre armazenamento, dados e exposicao. */

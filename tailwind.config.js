@@ -51,6 +51,24 @@ module.exports = {
                     DEFAULT: token('chip-bg'),
                     ink: token('chip-ink'),
                 },
+
+                /*
+                 * Fundos e inks semanticos, pelo nome do token.
+                 *
+                 * `.badge-*` (abaixo) ja resolve o caso comum: rotulo pequeno,
+                 * fundo e texto do mesmo par. O que faltava era o bloco de
+                 * AVISO -- a faixa dentro de um cartao que precisa de fundo
+                 * colorido e texto corrido por cima. Sem estes nomes, esse bloco
+                 * era escrito com a cor crua do Tailwind (`bg-amber-50`,
+                 * `text-green-600`), que so existe no tema claro: no escuro o
+                 * `amber-50` continuava sendo creme, e o aviso ficava com
+                 * fundo de dia e texto de noite.
+                 */
+                'success-bg': token('success-bg'),
+                'warning-bg': token('warning-bg'),
+                'danger-bg': token('danger-bg'),
+                'info-bg': token('info-bg'),
+                'neutral-bg': token('neutral-bg'),
                 'badge-amber': { bg: token('warn-bg'), ink: token('warn-ink') },
                 'badge-emerald': { bg: token('success-bg'), ink: token('success-ink') },
                 'badge-orange': { bg: token('warning-bg'), ink: token('warning-ink') },

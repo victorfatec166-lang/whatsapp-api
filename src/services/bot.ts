@@ -501,16 +501,8 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
         if (type !== 'notify') return;
 
         /*
-         * O bot roda FORA de uma requisicao: quem chamou foi o WhatsApp, nao uma
-         * pessoa com sessao. Sem `comoLoja` aqui, a primeira consulta do
-         * atendimento -- gravar a mensagem no historico -- estouraria e o cliente
-         * ficaria sem resposta.
-         *
-         * A loja e' a do AMBIENTE, e nao uma que o cliente possa escolher: o
-         * agente local atende uma loja por vez, e e' a `.env` que diz qual. E'
-         * por isso que a loja do webhook do marketplace e' descoberta pela
-         * assinatura e esta nao e' -- aqui o par (numero do WhatsApp, loja) foi
-         * ligado na maquina, e nao pela internet.
+         * Mensagens do WhatsApp rodam fora de requisicao HTTP;
+         * `comoLoja` injeta o tenant do ambiente para persistir no banco.
          */
         await comoLoja(lojaDoBoot(), async () => {
             for (const msg of messages) {

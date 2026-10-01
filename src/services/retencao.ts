@@ -76,14 +76,8 @@ function tamanhoDe(caminho: string | null): number {
 }
 
 /**
- * Pode rodar quantas vezes quiser: o corte e' sempre a meia-noite de hoje, entao
- * a segunda chamada no mesmo dia nao acha nada e devolve zero em tudo.
- *
- * A poda e' POR LOJA, e nao uma vez so. Numa maquina de um dono, "a loja" e' uma
- * e o comportamento e' o de sempre; na nuvem, sem o laco, a mensagem de ontem da
- * loja B sobreviveria a virada do dia -- e o arquivo do backup, que e' copia do
- * banco inteiro, levaria junto. A loja desativada fica de fora de proposito: quem
- * cancelou a assinatura continua com o historico dele.
+ * Executa a poda idempotente de mensagens e historico anterior a meia-noite.
+ * Itera por todas as lojas ativas individualmente para isolar a limpeza.
  */
 export async function podarDiaAnterior(agora: Date = new Date()): Promise<PodaResultado> {
     const corte = inicioDoDia(agora);

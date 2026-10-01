@@ -144,21 +144,8 @@ export function normalizar(corpo: unknown, mapa: Map<string, string>): PedidoNor
 }
 
 /**
- * De que loja e' este pedido?
- *
- * O webhook e' a unica entrada do sistema que chega SEM sessao: quem chama e' o
- * iFood, nao uma pessoa. E' por isso que ela precisa descobrir a loja sozinha --
- * e a assinatura e' o que faz isso.
- *
- * Cada loja tem o SEU token de webhook, e o HMAC e' deterministico: o mesmo corpo
- * com o token de outra loja da outra assinatura. Entao a loja do pedido e' a conta
- * cujo token confere com a assinatura recebida. Nao e' adivinhacao nem backdoor:
- * sem o token da loja B nao ha assinatura que passe contra o token da loja A.
- *
- * Esta e' a UNICA consulta do sistema que atravessa lojas de proposito, e e' a
- * lista de contas -- nao dado de venda. Por isso usa o cliente cru: no momento em
- * que ela roda, a loja AINDA NAO FOI DESCOBERTA, e e' por isso que o filtro de
- * loja nao pode estar no caminho.
+ * Identifica a loja pelo segredo HMAC do webhook antes de iniciar o contexto.
+ * Busca nas contas ativas sem filtro de tenant previo pois a origem e' externa.
  */
 async function lojaDoPedido(
     channel: Canal,
@@ -195,10 +182,8 @@ export async function receberPedido(
     if (!loja) {
         return { aceito: false, motivo: 'assinatura invalida' };
     }
-    // Daqui para frente vale a loja: toda consulta do pedido sai com o filtro
-    // certo, sem ninguem pedir. A loja volta na resposta porque o dono precisa
-    // saber de qual loja veio o pedido -- com o painel unico, a pergunta "de onde
-    // foi este?" e' a primeira que ele faz quando um pedido chega errado.
+    // Processa pedido no contexto da loja autenticada via HMAC
+    // e retorna a identificacao para auditoria.
     const r = await comoLoja(loja, () => processaPedido(channel, corpo));
     return { ...(r as object), loja } as RespostaWebhook;
 }

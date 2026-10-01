@@ -27,11 +27,8 @@ test.after(async () => {
 });
 
 /*
- * A loja que o teste compara. Os dois calculos tem de olhar para o MESMO conjunto
- * de pedidos, e `computeStatsSql` exige uma loja -- entao a leitura em memoria
- * filtra pela mesma. Sem este filtro a comparacao seria injusta assim que existisse
- * uma segunda loja no banco: o SQL somaria uma loja e a memoria somaria as duas,
- * e o teste acusaria divergencia num sistema que esta' certo.
+ * Compara o calculo SQL com o calculo em memoria para o mesmo tenant;
+ * garante que a agregacao isola os pedidos da loja informada.
  */
 const LOJA = process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
 

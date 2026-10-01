@@ -28,23 +28,13 @@ const NOME_DO_PRODUTO = 'DeliveryAdmin';
 import { lojaDoBoot } from '../services/loja';
 const log = logDoModulo('authRoutes');
 
-/**
- * ESTE ARQUIVO USA O CLIENTE CRU, E NAO O COM LOJA.
- *
- * Tudo aqui acontece ANTES de existir loja: e' a sessao que carrega a loja, e a
- * sessao ainda nao foi criada quando a tela abre. O `prismaComLoja` estouraria em
- * `user.count()` -- e a tela de entrada simplesmente nao abriria, que e' como o
- * painel inteiro fica fora do ar por causa de uma tela que antecede o login.
- *
- * A excecao e' a criacao da conta, que recebe a loja do boot: uma conta sem loja
- * nao existe, e `user.create` no cliente cru e' o unico jeito de dizer qual e'.
+/*
+ * ESTE ARQUIVO USA O CLIENTE CRU. Tudo aqui acontece ANTES de existir loja -- e' a
+ * sessao que carrega a loja -- entao o `prismaComLoja` estouraria e a tela de entrada
+ * nao abriria. A excecao e' a criacao da conta, que recebe a loja do boot.
  */
 
-/**
- * Unico endpoint onde a senha pode ser testada ate o fim: por isso o limite por
- * IP aqui, em cima do lockout por conta que mora no servico. O CSRF vem de um
- * cookie de uso unico criado aqui, e nao da sessao -- ela ainda nao existe.
- */
+/** Senha testavel ate o fim: por isso o limite por IP aqui, e o CSRF vem de um cookie de uso unico, nao da sessao. */
 const router = Router();
 
 const NOME_CSRF_LOGIN = 'da_csrf_entrada';
@@ -94,19 +84,9 @@ router.get('/entrar', async (req, res) => {
     }
 
     /*
-     * O nome aqui e' o do PRODUTO, e nao o da loja, por dois motivos.
-     *
-     * O primeiro e' tecnico e nao tem como contornar: esta rota roda sem sessao,
-     * e sem sessao nao ha loja -- a loja vem da sessao. Ler o `Config` da loja
-     * aqui e' a consulta sem loja que a extensao recusa, e a tela de login
-     * simplesmente nao abriria.
-     *
-     * O segundo e' de privacidade, e e' o que faz a escolha correta e nao uma
-     *Limitacao: antes de autenticar, a tela nao tem como saber de quem e' a conta
-     * que esta entrando. Mostrar ali o nome da loja seria responder a pergunta
-     * "quem usa este sistema?" para qualquer visitante.
-     *
-     * O nome da loja aparece no painel, depois que a sessao existe.
+     * O nome e' do PRODUTO, e nao da loja: esta rota roda sem sessao, e sem sessao
+     * nao ha loja. E antes de autenticar a tela nao tem como saber de quem e' a
+     * conta que esta entrando -- o nome da loja aparece no painel, depois.
      */
     res.send(
         renderLogin({

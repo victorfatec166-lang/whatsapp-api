@@ -5,16 +5,8 @@ import { comoLoja, exigeLoja, lojaAtual } from './loja';
 const log = logDoModulo('botMessages');
 
 /**
- * Cache dos textos do bot.
- *
- * Vive em modulo proprio para que servico sem ligacao com a conexao do WhatsApp
- * (o renderizador do cardapio, em dailyMenu.ts) leia os textos sem criar ciclo.
- *
- * UM CACHE POR LOJA, e nao um so. O texto que o cliente recebe e' o da loja que o
- * editou: num cache unico, a loja B responderia ao cliente com a saudacao escrita
- * pela loja A -- e o dono nem teria como ver isso, porque a tela dele esta certa.
- * Por isso a chave do mapa e' a loja, e o `getBotMessage` le a loja do contexto em
- * vez de receber parametro.
+ * Cache em memoria dos textos do bot indexado por loja.
+ * Evita ciclo com dailyMenu e impede mistura de mensagens entre lojas.
  */
 
 const cachePorLoja = new Map<string, Record<string, string>>();
@@ -100,10 +92,8 @@ export async function salvarMensagem(key: string, texto: string): Promise<void> 
         return;
     }
     /*
-     * O `id` do BotMessage E' a loja, entao ele aparece nos dois lados do upsert.
-     * Sem isso no `create`, a linha nasceria sem dono e a chave estrangeira
-     * recusaria -- e a recusao viria do banco, com a mensagem que o Prisma
-     * escreve sobre FK, que nao diz nada sobre loja.
+     * O `id` do BotMessage e' a loja (tenantId) no modelo composto com key.
+     * Necessario no create do upsert para atender a chave estrangeira.
      */
     await prisma.botMessage.upsert({
         where: { id_key: { id: exigeLoja(), key } },

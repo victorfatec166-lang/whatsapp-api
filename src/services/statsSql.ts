@@ -43,17 +43,8 @@ const HORA_LOCAL = `strftime('%H', "createdAt"/1000, 'unixepoch', 'localtime')`;
 const DOW_LOCAL = `strftime('%w', "createdAt"/1000, 'unixepoch', 'localtime')`;
 
 /**
- * A loja entra em TODA consulta deste arquivo, e na mao.
- *
- * SQL cru nao passa pelo interceptor do Prisma: a extensao de `prisma-com-loja.ts`
- * so alcança `$allModels`, e `$queryRawUnsafe` nao tem model. As oito consultas
- * daqui eram o unico lugar do sistema que somava dinheiro sem filtro de loja --
- * o Faturamento mostrava a receita de todas as lojas juntas, com a cara de "sua",
- * e sem erro em lugar nenhum. E' o pior defeito que um SaaS pode ter.
- *
- * Por isso a loja e' lida uma vez, na entrada, e nao interpolada em oito
- * templates: `exigeLoja()` estoura quando a chamada veio sem requisicao, e um
- * parametro `?` impede que a string de SQL algum fique sem o filtro.
+ * Agregacoes em SQL cru para faturamento. ExigeLoja e' passado explicitamente
+ * como parametro bind em cada query para manter isolamento multi-tenant.
  */
 export async function computeStatsSql(): Promise<DashboardStats> {
     const LOJA = exigeLoja();

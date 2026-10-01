@@ -1,24 +1,6 @@
 /*
- * A prova de que duas lojas nao se enxergam.
- *
- * Este e' o teste que decide se a base multi-tenant presta. Sem ele, a extensao
- * do Prisma pode estar injetando a loja, ou nao injetando, ou injetando no
- * lugar errado -- e nada no resto da suite denuncia: cada loja, sozinha, funciona
- * perfeitamente. O vazamento so aparece com DUAS lojas, que e' exatamente o
- * cenario que nao existe enquanto o sistema roda na maquina de um dono so.
- *
- * Sao tres provas, e cada uma pega um jeito diferente de errar:
- *
- *   1. LEITURA. A loja A nao ve o produto da loja B, mesmo buscando pelo nome
- *      exato. Se a extensao falhasse em injetar o `where`, isto veria os dois.
- *   2. ESCRITA. O que a loja A grava nasce com a loja A, mesmo sem pedir: e' a
- *      garantia de que um produto nao fica orfao para sempre.
- *   3. RECUSA. Uma consulta FEITA FORA de uma requisicao estoura, em vez de
- *      passar sem filtro. E' o que impede o proximo developer de escrever uma
- *      rota nova que vazou sem perceber -- o vazamento calado e' o pior tipo.
- *
- * Por que nao ha mock aqui: o Prisma extension e' o que esta sob teste, e um
- * mock dela testaria o mock. O banco e' o de desenvolvimento.
+ * Valida o isolamento multi-tenant do Prisma com duas lojas em paralelo:
+ * leitura isolada, escrita com tenant automatico e recusa estrita fora de contexto.
  */
 
 import test from 'node:test';
@@ -106,12 +88,8 @@ test('2. escrita: o que a loja grava nasce com a loja, sem pedir', async () => {
 });
 
 test('3. fora de uma requisicao, a consulta ESTOURA em vez de vazar', async () => {
-    // Sem isto, o proximo codigo novo roda sem loja e devolve a tabela inteira.
-    // O teste falha e a falha e' o aviso.
-    //
-    // E' `throws` e nao `rejects` porque o erro nasce no acesso a propriedade do
-    // proxy -- sincrono, no ponto em que o codigo da chamada e' avaliado. Um
-    // `rejects` passaria sem checar, porque a excecao subiria antes do assert.
+    // Erro sincrono disparado no proxy do cliente quando chamado sem loja;
+    // throws valida a excecao antes da resolucao da query.
     assert.throws(
         () => prismaComLoja.product.findMany({}),
         /sem loja/i,

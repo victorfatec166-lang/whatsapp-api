@@ -14,8 +14,6 @@
     "postinstall": "node scripts/postinstall.mjs",
     "watch:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --watch",
     "check:contrast": "node scripts/check-contrast.js",
-    "installer": "powershell -ExecutionPolicy Bypass -NoProfile -File installer/montar.ps1",
-    "installer:rapido": "powershell -ExecutionPolicy Bypass -NoProfile -File installer/compilar-instalador.ps1",
     "check:js": "node scripts/check-js.js",
     "check:ui": "node scripts/check-ui.js",
     "check:comentarios": "node scripts/check-comentarios.js",

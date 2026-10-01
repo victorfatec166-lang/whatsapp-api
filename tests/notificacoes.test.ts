@@ -23,10 +23,8 @@ const prisma = prismaComLoja;
 const LOJA = process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
 
 /*
- * O painel de notificacoes le lembrete e produto com o cliente da loja, entao o
- * arquivo inteiro roda dentro de uma. O embrulho e' no `test` porque sao dezenas de
- * chamadas: o que este arquivo exercita e' a regra de agrupamento, e a loja e' a
- * condicao para ela rodar.
+ * Notificacoes consultam produtos e lembretes com tenant ativo;
+ * o embrulho em nodeTest garante a execucao sob o contexto da loja.
  */
 const test = ((nome: string, fn: (t: never) => unknown) =>
     nodeTest(nome, (t: never) => comoLoja(LOJA, () => fn(t)))) as typeof nodeTest;

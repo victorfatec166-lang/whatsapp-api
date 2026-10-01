@@ -37,7 +37,15 @@ process.on('uncaughtException', (erro) => {
 const URL_DO_PAINEL = (process.env.DELIVERYADMIN_URL || 'http://localhost:3000/admin').trim();
 
 const PARTA_CANAL = 'persist:canal';
-const LARGURA_BARRA = 56;
+const LARGURA_BARRA = 58;
+
+/*
+ * Medido no Electron: a faixa do Windows fica ACIMA da area web, nao sobre ela
+ * (`getContentBounds().y - getBounds().y = 31`). O `ALTURA_TITULO` que existia aqui
+ * virava tarja de verdade -- 38px de fundo entre o topo e o painel. Antes do `y: 0`
+ * o cabecalho do SaaS nao encostava no topo da janela.
+ */
+const ALTURA_TITULO = 38;
 
 /*
  * Os destinos da barra. Cada um abre no centro, um por vez.
@@ -56,8 +64,37 @@ const LARGURA_BARRA = 56;
  *   o 140, entao o aviso e' mentira.
  */
 const CANAIS = {
-    ifood: { rotulo: 'iFood', url: process.env.IFOOD_PAINEL || 'https://merchant.ifood.com.br/' },
-    nfood: { rotulo: '99Food', url: process.env.NINETYNINE_PAINEL || 'https://merchant.99food.com.br/' },
+    /*
+     * `parceiros.ifood.com.br` e' o painel do RESTAURANTE, e e' o que o dono precisa.
+     * `merchant.ifood.com.br` foi a porta antiga e hoje responde 302 para o site do
+     * cliente final -- quem usava a URL antiga via o iFood de quem COMPRA, e nao o
+     * painel da loja. O sistema e' para restaurante, entao o destino e' o de parceiro.
+     */
+    ifood: {
+        rotulo: 'iFood',
+        url: process.env.IFOOD_PAINEL || 'https://parceiros.ifood.com.br/',
+        /*
+         * O painel do parceiro autentica em `autenticacao.ifood.com.br` e devolve para
+         * o painel em subdomain proprio. Sem estas entradas na familia, o
+         * `will-navigate` barra a propria navegacao do iFood e manda o dono para o
+         * Chrome -- onde ele nao esta logado e o cliente nao enxerga a sessao.
+         */
+        dominios: ['parceiros.ifood.com.br', 'ifood.com.br'],
+    },
+    /*
+     * O 99Food nao tem um "merchant" proprio: o login acontece em
+     * `page.didiglobal.com` (a pagina de login da DiDi) e devolve para
+     * `merchant.99app.com`, que e' onde o restaurante ve os pedidos. Os dois precisam
+     * estar na familia: barrar a pagina de login deixaria o painel pedindo senha
+     * para sempre, e e' a razao de o 99Food "voltar para o Chrome".
+     */
+    nfood: {
+        rotulo: '99Food',
+        url:
+            process.env.NINETYNINE_PAINEL ||
+            'https://page.didiglobal.com/pc-login-page/4.0.1/index.html?source=200108&appid=200108&role=13&country_id=76&theme=yellow&lang=pt-BR',
+        dominios: ['didiglobal.com', '99app.com', '99food.com.br'],
+    },
     whatsapp: {
         rotulo: 'WhatsApp Web',
         url: 'https://web.whatsapp.com/',
@@ -118,18 +155,34 @@ function webPreferencesSeguras(extra = {}) {
  * permissoes do cliente -- e `webview` fica bloqueado por ser a porta classica de
  * escapar do sandbox.
  *
- * `permitir` diz quais origens podem ocupar a view. O painel permite so a propria; os
- * canais vao para o navegador, porque eles abrem login e subdomain em outro lugar e
- * barrar isso deixaria o painel do iFood inutilizavel.
+ * `permitir` diz quais origens podem ocupar a view. O painel permite so a propria.
+ *
+ * `dentroDaView` e' o que mantem o iFood e o 99Food ABRINDO NO CLIENTE: o login deles
+ * acontece em `autenticacao.ifood.com.br` e `99app.com`, que sao paginas de terceiro
+ * -- e a regra antiga mandava qualquer popup para o Chrome. O dono acabava logando no
+ * navegador do sistema, numa sessao que o cliente nao enxerga, e voltava para um
+ * painel que continuava pedindo login. Por isso um popup da MESMA familia agora
+ * ocupa a propria view, e so o que e' mesmo de fora da familia vai para o navegador.
  */
-function trancarView(view, permitir) {
+function trancarView(view, permitir, dentroDaView = () => false) {
     view.webContents.setWindowOpenHandler(({ url }) => {
+        if (dentroDaView(url)) {
+            void view.webContents.loadURL(url);
+            return { action: 'deny' };
+        }
         abrirExterno(url);
         return { action: 'deny' };
     });
 
     view.webContents.on('will-navigate', (event, url) => {
         if (permitir(url)) return;
+        // Um redirecionamento da propria pagina para fora da familia nao e' page load
+        // popup: e' a propria tela mudando de endereco. Sem isto, o `preventDefault`
+        // cancela a mudanca e a pessoa fica presa numa pagina que ja nao existe.
+        if (dentroDaView(url) || view.webContents.isLoading()) {
+            void view.webContents.loadURL(url);
+            return;
+        }
         event.preventDefault();
         abrirExterno(url);
     });
@@ -150,6 +203,11 @@ function criarPainel() {
     trancarView(viewPainel, origemPermitida);
     viewPainel.setVisible(true);
 
+    /*
+     * Sem faixa de arrasto aqui: a barra de titulo do Windows e' que faz o arrasto, e
+     * `titleBarOverlay` a pinta sem esconder. A tentativa de recriar o arrasto com uma
+     * view transparente custou um topo branco e nao sobreviveu ao `setBackgroundColor`.
+     */
     janela.contentView.addChildView(viewBarra);
     janela.contentView.addChildView(viewPainel);
 }
@@ -162,6 +220,10 @@ function criarPainel() {
  * iFood e' uma aplicacao de tela cheia -- numa faixa estreita ela aperta a coluna de
  * pedidos e fica inutilizavel. Por isso a barra TROCA o que aparece no centro, em vez
  * de espremer painel e canal lado a lado.
+ *
+ * Criar a view NAO e' o que trava o cliente: `loadURL` devolve de imediato e a tela
+ * ja aparece. O travamento vem de esperar `did-finish-load`, e nenhuma view e' criada
+ * no boot -- entao o boot e' rapido.
  */
 const viewsCanal = new Map();
 
@@ -190,9 +252,12 @@ function mostrarCanal(canal) {
         });
         if (alvo.userAgent) view.webContents.setUserAgent(alvo.userAgent);
         view.webContents.loadURL(alvo.url);
-        // So a propria origem ocupa a view: login e subdomain sao popup, e vao para
-        // o navegador de verdade em vez de trocarem a view por baixo da pessoa.
-        trancarView(view, (url) => mesmaFamilia(url, alvo));
+        // Login e redirect do mesmo destino ocupam a view; o resto vai para o Chrome.
+        trancarView(
+            view,
+            (url) => mesmaFamilia(url, alvo),
+            (url) => mesmaFamilia(url, alvo)
+        );
         view.setBounds(centro());
         janela.contentView.addChildView(view);
         viewsCanal.set(canal, view);
@@ -205,7 +270,19 @@ function mostrarCanal(canal) {
     avisarBarra();
 }
 
-/** Verdadeiro quando a URL pertence ao destino, no dominio base ou num subdominio dele. */
+/*
+ * A faixa de arrasto que existia aqui foi REMOVIDA de proposito.
+ *
+ * Duas razoes, e a segunda e' a que custou tempo: uma `WebContentsView` transparent
+ * exige `setBackgroundColor('#00000000')` -- `background: transparent` no CSS deixa o
+ * body transparente mas a VIEW continua branca opaca, e o resultado e' uma faixa
+ * branca sobre o topo. Pior: `titleBarStyle: 'hidden'` mata o arrasto nativo, e
+ * reconstituir arrasto em cima de conteudo remoto e' fragil.
+ *
+ * A barra de titulo do Windows e' o arrasto. Ela ja funciona, ja e' nativa e ja
+ * tem o botao de fechar certo. Esconder a barra custou o arrasto e devolveu o branco;
+ * ficar com ela resolve os dois de uma vez.
+ */
 function mesmaFamilia(url, alvo) {
     try {
         const alvoUrl = new URL(alvo.url);
@@ -218,10 +295,15 @@ function mesmaFamilia(url, alvo) {
     }
 }
 
-/** O centro e' tudo que sobra a direita da barra. */
+/** O centro e' tudo que sobra a direita da barra. Sem folga no topo: ve `ALTURA_TITULO`. */
 function centro() {
     const b = janela.getContentBounds();
-    return { x: LARGURA_BARRA, y: 0, width: b.width - LARGURA_BARRA, height: b.height };
+    return {
+        x: LARGURA_BARRA,
+        y: 0,
+        width: b.width - LARGURA_BARRA,
+        height: b.height,
+    };
 }
 
 /**
@@ -291,12 +373,32 @@ function criarJanela() {
         height: 900,
         minWidth: 1024,
         minHeight: 700,
-        backgroundColor: '#0b1220',
+        backgroundColor: '#090d16',
         title: 'DeliveryAdmin',
+        icon: path.join(__dirname, 'deliveryadmin.ico'),
+        autoHideMenuBar: true,
+        /*
+         * A barra do Windows FICA, e e' ela que faz o arrasto.
+         *
+         * `titleBarStyle: 'hidden'` foi tentado para o topo ficar escuro, e custou
+         * dois defeitos: matou o arrasto (a janela so se movia por uma regiao de 58px
+         * na lateral, fina demais para acertar) e deixou o topo branco, porque a
+         * correcao caseira -- uma view transparente em cima -- exige
+         * `setBackgroundColor('#00000000')` e volta a aparecer branca se faltar.
+         *
+         * `titleBarOverlay` PODE ser combinado com a barra visivel: ele pinta so a
+         * faixa dos botoes, no nosso azul, e o arrasto nativo continua valendo. E'
+         * o que resolve a aparencia sem perder o que a barra faz.
+         */
+        titleBarOverlay: {
+            color: '#090d16',
+            symbolColor: '#94a3b8',
+            height: ALTURA_TITULO,
+        },
         show: false,
         webPreferences: webPreferencesSeguras(),
     });
-
+    janela.setMenuBarVisibility(false);
     criarPainel();
     arrange();
 

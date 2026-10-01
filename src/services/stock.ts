@@ -220,10 +220,8 @@ export async function decrementStock(
         if (saldoAntes === undefined) continue; // produto sem controle de estoque
 
         /*
-         * A loja entra no `WHERE` do proprio UPDATE. A baixa e' atomica porque o
-         * decremento roda dentro da consulta, e esse SQL cru nao passa pelo
-         * interceptor do Prisma -- sem este filtro, um `productId` vindo de outra
-         * loja derrubaria o saldo dela e o teste nao diria nada.
+         * Baixa atomica via SQL cru exige tenantId explicito no WHERE,
+         * pois executeRawUnsafe nao passa pelos interceptors do Prisma.
          */
         await tx.$executeRawUnsafe(
             'UPDATE "Product" SET "stock" = MAX(0, "stock" - ?) WHERE "id" = ? AND "tenantId" = ?',

@@ -132,16 +132,8 @@ router.post('/:id/trocar-papel', soAdmin, async (req, res) => {
  */
 router.post('/:id/encerrar-sessoes', soAdmin, async (req, res) => {
     /*
-     * O filtro da loja e' explicito, e nao herdado, por dois motivos.
-     *
-     * `Sessao` nao tem `tenantId` -- a sessao e' global, indexada pelo hash do
-     * token -- entao ela fica de fora da injecao automatica e um `deleteMany` sem
-     * filtro apagaria as sessoes de TODO MUNDO.
-     *
-     * E `soAdmin` nao ajuda: ele diz "e' administrador", nao "e' administrador
-     * desta loja". Um admin da loja A que passasse o id de um usuario da loja B
-     * encerrava as sessoes alheias, sem erro e sem rastro. Por isso o alvo e'
-     * procurado dentro da loja antes de apagar.
+     * `Sessao` nao tem `tenantId` (e' indexada por hash de token);
+     * buscar o usuario na loja antes evita encerrar sessoes de outras lojas.
      */
     const alvo = await prisma.user.findFirst({
         where: { id: req.params.id, tenantId: exigeLoja() },

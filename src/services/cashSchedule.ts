@@ -47,13 +47,8 @@ export type ScheduleOutcome =
     | { action: 'pulou-turno-vazio' };
 
 /**
- * Decide e executa a acao da agenda para este instante. Idempotente: pode
- * rodar a cada 30s sem duplicar turno, porque startShift recusa quando ja
- * existe um aberto e so fechamos o que esta aberto.
- *
- * A loja entra como parametro, e nao vem do contexto: este e' um agendador, nao
- * uma requisicao, e ele roda uma vez por loja -- o horario de abertura e o turno
- * sao coisas da loja, nao do sistema.
+ * Executa a acao idempotente da agenda de caixa para o instante informado.
+ * Recebe a loja como parametro por rodar em agendador assincrono fora de requisicao.
  */
 export async function runScheduleTick(loja: string, now = new Date()): Promise<ScheduleOutcome> {
     return comoLoja(loja, () => agendaDaLoja(now));

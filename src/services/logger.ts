@@ -116,11 +116,8 @@ export const log = pino(
  */
 export function logDoModulo(modulo: string) {
     /*
-     * Um `Error` passado como segundo argumento sumia do log: `Error` nao tem
-     * propriedade enumeravel, entao o espalhamento virava `{}` e o registro ficava
-     * so com a mensagem -- "Erro ao carregar painel" e nada do que falhou. Varios
-     * pontos do sistema chamam assim, e um 500 sem pista e' o que trava a
-     * diagnose: a pessoa ve "Erro interno" na tela e o log nao diz nada.
+     * Instancias de `Error` nao possuem propriedades enumeraveis no spread;
+     * extrair message e stack garante diagnostico detalhado em erros 500.
      */
     const comContexto = (dados: unknown) => {
         if (!dados || typeof dados !== 'object') return {};

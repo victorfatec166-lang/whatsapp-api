@@ -35,13 +35,8 @@ const prisma = prismaComLoja;
 const LOJA = process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
 
 /*
- * A poda passou a ser POR LOJA -- uma volta por tenant ativo, e nao um DELETE
- * global -- entao todo este arquivo roda dentro de uma loja. Sem este embrulho as
- * fixtures nasceriam sem dono (`Argument tenant is missing`) e a prova de que a
- * poda e' por loja viraria um teste que falha na montagem.
- *
- * E' um embrulho em `test`, e nao um `comoLoja` em cada chamada, porque o que o
- * arquivo exercita e' a regra da meia-noite; a loja e' a condicao para ela rodar.
+ * Poda e fixtures exigem tenantId ativo em toda gravacao;
+ * o embrulho em nodeTest executa a suite inteira comoLoja(LOJA).
  */
 const test = ((nome: string, fn: (t: never) => unknown) =>
     nodeTest(nome, (t: never) => comoLoja(LOJA, () => fn(t)))) as typeof nodeTest;

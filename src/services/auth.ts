@@ -173,14 +173,8 @@ export async function sessaoDoRequest(req: Request): Promise<Sessao | null> {
         nome: linha.user.nome,
         papel: linha.user.papel,
         /*
-         * A loja vem AQUI, e nao de um cookie ou de um subdomain.
-         *
-         * Ler a loja do proprio usuario e' o que impede o acesso cruzado na
-         * pratica: a pessoa nao escolhe a loja, ela entra e a loja dela e' a que
-         * a sessao carrega. Um parametro na URL ("?loja=padaria") permitiria
-         * trocar de loja so mudando a barra de endereco -- e a loja alheia leria
-         * a propria loja com o cookie alheio, o que e' a forma mais facil de
-         * vazar dado em SaaS.
+         * A loja e' vinculada ao registro do usuario na sessao;
+         * nao vem de parametro na URL para evitar vazamento cruzado.
          */
         tenantId: linha.user.tenantId,
         precisaTrocarSenha: linha.user.precisaTrocarSenha,
@@ -497,14 +491,8 @@ export async function recuperaComCodigo(email: string, codigo: string, senhaNova
 export const ADMIN_PADRAO = 'admin@localhost';
 
 /**
- * Senha gerada e nao pedida: nao existe tela antes de existir usuario, e
- * admin/admin e' a senha que todo mundo tenta primeiro. Aparece UMA vez no log
- * e a conta nasce para troca obrigatoria. Roda em todo boot; se ha usuario, sai.
- *
- * Este e' o PRIMEIRO ponto do sistema que precisa de uma loja, e ele cria a
- * propria: o boot nao tem requisicao e nao tem sessao, entao nao tem de onde
- * tirar o tenant. A loja nasce daqui, com o id do ambiente -- "local" enquanto
- * roda na propria maquina, e o subdominio quando existir o cadastro.
+ * Garante tenant padrao e gera senha inicial do administrador no primeiro boot.
+ * A senha inicial e' impressa uma unica vez e exige troca no login.
  */
 export async function garanteAdministrador(): Promise<void> {
     const LOJA_DO_BOOT = lojaDoBoot();

@@ -6,17 +6,19 @@
 <title>Barra</title>
 <style>
     /*
-     * A barra e' CHROME, e nao parte do painel. Por isso ela vive aqui, num arquivo
-     * local: o painel vem da nuvem e muda quando a nuvem mudar, e uma barra injetada
-     * no HTML dele desapareceria no primeiro F5 -- ou voltaria diferente.
-     *
-     * Sem fonte externa e sem CDN: uma barra que depende de CDN nao abre offline.
+     * Barra lateral desktop nativa do Electron (WebContentsView).
+     * 100% offline, com SVG inline, microinteracoes e tooltips nativas.
      */
     :root {
-        --fundo: #0b1220;
+        --fundo: #090d16;
+        --borda: rgba(255, 255, 255, 0.07);
         --tinta: #94a3b8;
-        --tinta-viva: #f8fafc;
-        --ativo: #2563eb;
+        --tinta-hover: #f1f5f9;
+        --painel-cor: #3b82f6;
+        --ifood-cor: #ea1d2c;
+        --nfood-cor: #f59e0b;
+        --zap-cor: #22c55e;
+        --perigo-cor: #f87171;
     }
 
     * { box-sizing: border-box; }
@@ -25,7 +27,7 @@
         margin: 0;
         height: 100%;
         background: var(--fundo);
-        font: 500 10px/1.2 system-ui, "Segoe UI", sans-serif;
+        font: 500 11px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         -webkit-user-select: none;
         user-select: none;
         overflow: hidden;
@@ -36,53 +38,178 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 6px;
-        padding: 10px 0;
+        gap: 8px;
+        padding: 10px 0 10px;
+        border-right: 1px solid var(--borda);
+    }
+
+    /* Sem faixa de arrasto nesta barra: a do Windows arrasta a janela e fica ACIMA
+       da area web, entao uma regiao de arrasto aqui dentro so competiria com o
+       hover dos botoes. O topo do app encosta na borda de verdade da janela. */
+
+    .brand {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(99, 102, 241, 0.12));
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        color: #93c5fd;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+        -webkit-app-region: no-drag;
+    }
+
+    .brand svg {
+        width: 22px;
+        height: 22px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
     }
 
     .item {
+        position: relative;
         width: 44px;
-        height: 40px;
+        height: 44px;
         display: grid;
         place-items: center;
-        border: 0;
-        border-radius: 8px;
+        border: 1px solid transparent;
+        border-radius: 12px;
         background: transparent;
         color: var(--tinta);
         cursor: pointer;
+        transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+        outline: none;
+        -webkit-app-region: no-drag;
     }
 
-    .item:hover { background: #172033; color: var(--tinta-viva); }
-    .item[aria-pressed="true"] { background: var(--ativo); color: #fff; }
-    .item svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+    .item svg {
+        width: 21px;
+        height: 21px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: transform 0.18s ease;
+    }
 
-    /* Separador antes do grupo de baixo: recarregar e sair nao sao navegacao. */
+    .item:hover svg {
+        transform: scale(1.08);
+    }
+
+    .item:focus-visible {
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+    }
+
+    /* Tooltip flutuante */
+    .item::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        left: calc(100% + 10px);
+        top: 50%;
+        transform: translateY(-50%) translateX(-4px);
+        background: #1e293b;
+        color: #f8fafc;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.2px;
+        padding: 5px 9px;
+        border-radius: 7px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease, transform 0.15s ease;
+        z-index: 999;
+    }
+
+    .item:hover::after {
+        opacity: 1;
+        transform: translateY(-50%) translateX(0);
+    }
+
+    /* Pílula lateral do item ativo */
+    .item[aria-pressed="true"]::before {
+        content: '';
+        position: absolute;
+        left: -8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 4px;
+        height: 22px;
+        border-radius: 0 4px 4px 0;
+    }
+
+    /* Painel */
+    #painel:hover { background: rgba(59, 130, 246, 0.12); color: #93c5fd; border-color: rgba(59, 130, 246, 0.25); }
+    #painel[aria-pressed="true"] { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border-color: var(--painel-cor); }
+    #painel[aria-pressed="true"]::before { background: var(--painel-cor); box-shadow: 0 0 8px var(--painel-cor); }
+
+    /* iFood */
+    #ifood:hover { background: rgba(234, 29, 44, 0.12); color: #f87171; border-color: rgba(234, 29, 44, 0.25); }
+    #ifood[aria-pressed="true"] { background: rgba(234, 29, 44, 0.2); color: #ff6b6b; border-color: var(--ifood-cor); }
+    #ifood[aria-pressed="true"]::before { background: var(--ifood-cor); box-shadow: 0 0 8px var(--ifood-cor); }
+
+    /* 99Food */
+    #nfood:hover { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.25); }
+    #nfood[aria-pressed="true"] { background: rgba(245, 158, 11, 0.2); color: #fcd34d; border-color: var(--nfood-cor); }
+    #nfood[aria-pressed="true"]::before { background: var(--nfood-cor); box-shadow: 0 0 8px var(--nfood-cor); }
+
+    /* WhatsApp */
+    /* Silhueta preenchida: o telefone vira recorte dentro da bolha e nao se le
+       como traco. Por isso a excecao ao `fill: none` herdado de `.item svg`. */
+    #whatsapp svg { fill: currentColor; stroke: none; }
+    #whatsapp:hover { background: rgba(34, 197, 94, 0.12); color: #4ade80; border-color: rgba(34, 197, 94, 0.25); }
+    #whatsapp[aria-pressed="true"] { background: rgba(34, 197, 94, 0.2); color: #86efac; border-color: var(--zap-cor); }
+    #whatsapp[aria-pressed="true"]::before { background: var(--zap-cor); box-shadow: 0 0 8px var(--zap-cor); }
+
+    /* Recarregar */
+    #recarregar:hover { background: rgba(255, 255, 255, 0.08); color: var(--tinta-hover); border-color: rgba(255, 255, 255, 0.15); }
+    #recarregar:hover svg { transform: rotate(50deg); }
+
+    /* Sair */
+    #sair:hover { background: rgba(239, 68, 68, 0.14); color: var(--perigo-cor); border-color: rgba(239, 68, 68, 0.3); }
+
     .folga { flex: 1; }
-    .divisor { width: 28px; height: 1px; background: #1e293b; margin: 4px 0; }
+    .divisor { width: 32px; height: 1px; background: var(--borda); margin: 4px 0; }
 </style>
 </head>
 <body>
 <nav>
-    <button class="item" id="painel" title="Painel" aria-label="Painel">
-        <svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/></svg>
+    <div class="brand" title="DeliveryAdmin" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+    </div>
+
+    <button class="item" id="painel" data-tooltip="Painel Geral" aria-label="Painel" aria-pressed="true">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
     </button>
-    <button class="item" id="ifood" title="iFood" aria-label="Abrir o painel do iFood" aria-pressed="false">
-        <svg viewBox="0 0 24 24"><path d="M6 3v18M6 4h9l-2.5 3L15 10H6M9 13h9l-2.5 3L18 19H9"/></svg>
+    <button class="item" id="ifood" data-tooltip="iFood Merchant" aria-label="Abrir o painel do iFood" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M5 8h14l-1.5 12.5a2 2 0 0 1-2 1.5H8.5a2 2 0 0 1-2-1.5L5 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/><path d="M9.5 13.5c1.5 1.5 3.5 1.5 5 0"/></svg>
     </button>
-    <button class="item" id="nfood" title="99Food" aria-label="Abrir o painel do 99Food" aria-pressed="false">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9 16V9h4a2 2 0 0 1 0 4H9"/></svg>
+    <button class="item" id="nfood" data-tooltip="99Food Restaurante" aria-label="Abrir o painel do 99Food" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M3 18h18"/><path d="M4 18a8 8 0 0 1 16 0"/><circle cx="12" cy="8.5" r="1.6"/><path d="M10.5 21h3"/></svg>
     </button>
-    <button class="item" id="whatsapp" title="WhatsApp Web" aria-label="Abrir o WhatsApp Web" aria-pressed="false">
-        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.7-1.2A9 9 0 1 0 12 3z"/><path d="M9 8.5c0 4 2.5 6.5 6.5 6.5"/></svg>
+    <button class="item" id="whatsapp" data-tooltip="WhatsApp Web" aria-label="Abrir o WhatsApp Web" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+            <path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5.1-1.3A10 10 0 1 0 12 2zm5.5 14.1c-.2.6-1.2 1.2-1.7 1.2-.5.1-1 .1-1.6-.1-.4-.1-.9-.3-1.5-.6-2.6-1.1-4.3-3.7-4.4-3.9-.1-.2-1-1.4-1-2.6s.6-1.8.9-2.1c.2-.2.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.5-.3.3c-.1.1-.2.3-.1.5.1.2.6 1 1.3 1.6.9.8 1.6 1 1.8 1.1.2.1.4.1.5-.1l.7-.8c.2-.2.3-.2.5-.1l2 1c.2.1.4.2.4.3.1.2.1.7-.1 1.3z"/>
+        </svg>
     </button>
 
     <div class="folga"></div>
     <div class="divisor"></div>
-    <button class="item" id="recarregar" title="Recarregar" aria-label="Recarregar">
-        <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/></svg>
+
+    <button class="item" id="recarregar" data-tooltip="Recarregar" aria-label="Recarregar">
+        <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
     </button>
-    <button class="item" id="sair" title="Sair" aria-label="Sair">
-        <svg viewBox="0 0 24 24"><path d="M10 4H5v16h5"/><path d="M15 8l4 4-4 4M19 12H9"/></svg>
+    <button class="item" id="sair" data-tooltip="Fechar App" aria-label="Sair">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
     </button>
 </nav>
 <script src="rail.js"></script>

@@ -1,0 +1,7 @@
+{
+  "name": "deliveryadmin-cliente",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Moldura de desktop do painel. O painel e' o servidor; isto e' a janela que abre ele.",
+  "main": "main.js"
+}

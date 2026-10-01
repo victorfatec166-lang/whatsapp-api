@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'">
+<title>Barra</title>
+<style>
+    /*
+     * A barra e' CHROME, e nao parte do painel. Por isso ela vive aqui, num arquivo
+     * local: o painel vem da nuvem e muda quando a nuvem mudar, e uma barra injetada
+     * no HTML dele desapareceria no primeiro F5 -- ou voltaria diferente.
+     *
+     * Sem fonte externa e sem CDN: uma barra que depende de CDN nao abre offline.
+     */
+    :root {
+        --fundo: #0b1220;
+        --tinta: #94a3b8;
+        --tinta-viva: #f8fafc;
+        --ativo: #2563eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+        margin: 0;
+        height: 100%;
+        background: var(--fundo);
+        font: 500 10px/1.2 system-ui, "Segoe UI", sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+        overflow: hidden;
+    }
+
+    nav {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 0;
+    }
+
+    .item {
+        width: 44px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--tinta);
+        cursor: pointer;
+    }
+
+    .item:hover { background: #172033; color: var(--tinta-viva); }
+    .item[aria-pressed="true"] { background: var(--ativo); color: #fff; }
+    .item svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+
+    /* Separador antes do grupo de baixo: recarregar e sair nao sao navegacao. */
+    .folga { flex: 1; }
+    .divisor { width: 28px; height: 1px; background: #1e293b; margin: 4px 0; }
+</style>
+</head>
+<body>
+<nav>
+    <button class="item" id="painel" title="Painel" aria-label="Painel">
+        <svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/></svg>
+    </button>
+    <button class="item" id="ifood" title="iFood" aria-label="Abrir o painel do iFood" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M6 3v18M6 4h9l-2.5 3L15 10H6M9 13h9l-2.5 3L18 19H9"/></svg>
+    </button>
+    <button class="item" id="nfood" title="99Food" aria-label="Abrir o painel do 99Food" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9 16V9h4a2 2 0 0 1 0 4H9"/></svg>
+    </button>
+    <button class="item" id="whatsapp" title="WhatsApp Web" aria-label="Abrir o WhatsApp Web" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.7-1.2A9 9 0 1 0 12 3z"/><path d="M9 8.5c0 4 2.5 6.5 6.5 6.5"/></svg>
+    </button>
+
+    <div class="folga"></div>
+    <div class="divisor"></div>
+    <button class="item" id="recarregar" title="Recarregar" aria-label="Recarregar">
+        <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/></svg>
+    </button>
+    <button class="item" id="sair" title="Sair" aria-label="Sair">
+        <svg viewBox="0 0 24 24"><path d="M10 4H5v16h5"/><path d="M15 8l4 4-4 4M19 12H9"/></svg>
+    </button>
+</nav>
+<script src="rail.js"></script>
+</body>
+</html>

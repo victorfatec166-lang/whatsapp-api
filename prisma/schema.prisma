@@ -1,15 +1,14 @@
 datasource db {
-  provider = "sqlite"
-  // Caminho ABSOLUTO, e nao "./dev.db".
+  // Postgres, e nao mais SQLite.
   //
-  // O Prisma resolve caminho relativo a partir deste arquivo do schema -- que, na
-  // versao instalada, fica dentro de `C:\Program Files`, uma pasta que o usuario
-  // comum nao pode escrever. O caminho relativo punha o banco dentro do programa,
-  // e a primeira atualizacao levava junto.
+  // O SQLite servia enquanto o sistema rodava na maquina do dono, com o banco num
+  // arquivo dentro de %APPDATA%. Na nuvem o arquivo nao sobrevive ao deploy, e o
+  // Render nao monta disco no plano gratuito: o banco tem que estar fora.
   //
-  // Em desenvolvimento, o `.env` continua apontando para `prisma/dev.db`, que e'
-  // o mesmo arquivo de sempre. Quem instala tem o caminho completo escrito pelo
-  // instalador, e este valor e' o que nao depende de onde o programa mora.
+  // As migrations antigas sao de SQLite e nao rodam aqui. O caminho do banco
+  // passou a ser so a DATABASE_URL do ambiente -- no Render ela vem do painel,
+  // apontando para o Postgres gerenciado.
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

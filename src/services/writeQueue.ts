@@ -1,7 +1,7 @@
 /**
- * Fila de escrita. O SQLite aceita uma gravacao por vez: disputa vira espera ou
- * "database is locked" (medido: 16 escritas juntas, 8 timeout), e a solucao e' nao
- * disputar. So a porta de entrada: a atomicidade continua sendo do $transaction.
+ * Fila de escrita. Disputa de gravacao vira espera ou timeout (medido: 16 escritas
+ * juntas, 8 estouraram), e a solucao e' nao disputar. So a porta de entrada: a
+ * atomicidade continua sendo do $transaction.
  */
 
 type Tarefa<T> = () => Promise<T>;

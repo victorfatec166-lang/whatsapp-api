@@ -62,22 +62,40 @@ function prisma(args) {
     });
 }
 
-/** O .env existe e tem DATABASE_URL? */
+/**
+ * A configuracao esta no ambiente, e nao precisa estar num arquivo.
+ *
+ * Na maquina do dono a configuracao vem do `.env`; na nuvem (Render) ela vem das
+ * variaveis de ambiente do painel, e o arquivo NAO existe. Exigir o arquivo
+ * fazia o deploy terminar com "Nao achei o .env" mesmo com a `DATABASE_URL`
+ * cadastrada -- o script olhava o lugar errado e recusava um deploy pronto.
+ *
+ * O que importa e' `DATABASE_URL`: e' ela que o Prisma le, e sem ela nao ha
+ * schema nem sistema. O aviso abaixo serve para quem esta na maquina e ainda nao
+ * criou o arquivo, e some sozinho quando a variavel existe.
+ */
 function envPronto() {
+    if (process.env.DATABASE_URL) return true;
+
     const caminho = resolve(RAIZ, '.env');
-    if (!existsSync(caminho)) {
-        erro('Nao achei o arquivo .env nesta pasta.');
+    if (existsSync(caminho)) {
+        erro('O .env existe, mas nao tem DATABASE_URL, ou a variavel nao chegou ao processo.');
         console.log('');
-        console.log('Ele guarda a configuracao desta maquina e nao entra no git, entao nao vem junto.');
-        console.log('Crie a partir do modelo:');
-        console.log('');
-        console.log('    copy .env.example .env');
-        console.log('');
-        console.log('Depois, se for usar o Marketplace, abra o .env e descomente a linha CHANNEL_SECRET,');
-        console.log('trocando pelo valor gerado pelo comando que esta comentado la dentro.');
+        console.log('Confira a linha DATABASE_URL no .env, e o restart do servidor depois de editar.');
         return false;
     }
-    return true;
+
+    erro('Nao achei a variavel DATABASE_URL.');
+    console.log('');
+    console.log('Na maquina, crie o arquivo:');
+    console.log('');
+    console.log('    copy .env.example .env');
+    console.log('');
+    console.log('Na nuvem (Render), cadastre DATABASE_URL em Environment Variables, no painel do servico.');
+    console.log('As duas respostas servem: o Prisma le a variavel, e nao o arquivo.');
+    console.log('');
+    console.log('Se for usar o Marketplace, cadastre tambem CHANNEL_SECRET, com um valor aleatorio longo.');
+    return false;
 }
 
 function confereBuild() {

@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import { montarPainel, DIAS_DE_ANTECEDENCIA } from '../src/services/notificacoes';
 import { prismaComLoja } from '../src/database/prisma-com-loja';
 import { comoLoja } from '../src/services/loja';
+import { garanteLojaDoTeste } from './lib/garante-loja';
 
 const prisma = prismaComLoja;
 
@@ -29,6 +30,15 @@ const LOJA = process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
 const test = ((nome: string, fn: (t: never) => unknown) =>
     nodeTest(nome, (t: never) => comoLoja(LOJA, () => fn(t)))) as typeof nodeTest;
 Object.assign(test, nodeTest);
+
+/*
+ * A loja tem que existir antes: no Postgres a chave estrangeira aponta para
+ * Tenant. `before` e' o lugar -- `await` no topo do arquivo nao compila, porque o
+ * tsx gera CommonScript.
+ */
+nodeTest.before(async () => {
+    await garanteLojaDoTeste();
+});
 
 /** Data local em "AAAA-MM-DD", o fuso de quem olha a tela. */
 function diasDaFrente(n: number): Date {

@@ -220,11 +220,12 @@ export async function decrementStock(
         if (saldoAntes === undefined) continue; // produto sem controle de estoque
 
         /*
-         * Baixa atomica via SQL cru exige tenantId explicito no WHERE,
-         * pois executeRawUnsafe nao passa pelos interceptors do Prisma.
+         * `GREATEST` e nao `MAX` de dois argumentos: no Postgres o `MAX` e' agregacao,
+         * exige `GROUP BY` e devolve uma linha. O `tenantId` explicito substitui o
+         * interceptor, que nao passa por `executeRawUnsafe`.
          */
         await tx.$executeRawUnsafe(
-            'UPDATE "Product" SET "stock" = MAX(0, "stock" - ?) WHERE "id" = ? AND "tenantId" = ?',
+            'UPDATE "Product" SET "stock" = GREATEST(0, "stock" - $1) WHERE "id" = $2 AND "tenantId" = $3',
             qty,
             productId,
             exigeLoja()
@@ -262,8 +263,8 @@ export async function registerSale(
 ): Promise<{ ok: boolean; shortfalls: Shortfall[]; error?: string }> {
     try {
         // Mesma fila de createOrderWithStock: uma gravacao por vez evita
-        // disputa de lock no SQLite. Quem chama isso sem criar pedido e' o
-        // acerto de caixa e o ajuste manual.
+        // disputa de lock. Quem chama isso sem criar pedido e' o acerto de caixa
+        // e o ajuste manual.
         const shortfalls = await emFila(() =>
             prisma.$transaction(
                 (tx) => decrementStock(tx as unknown as StockTx, items, source, note),

@@ -12,8 +12,8 @@
 
 /*
  * Backups e logs nao passam pelo Prisma, e nome de arquivo errado nao da erro:
- * so para de apagar. Ja `--test-concurrency=1` existe porque a virada chama
- * `VACUUM` e tranca o `dev.db` que os quatro arquivos de teste dividem.
+ * so para de apagar. `--test-concurrency=1` existe porque os arquivos de teste
+ * dividem o mesmo banco e a poda apaga em todo mundo.
  */
 
 import test from 'node:test';
@@ -27,6 +27,7 @@ import { podarBackupsDoDia, backupDir } from '../src/services/backup';
 import { podarLogsDoDia, pastaDeLogs } from '../src/services/logger';
 import { prismaComLoja } from '../src/database/prisma-com-loja';
 import { comoLoja } from '../src/services/loja';
+import { garanteLojaDoTeste } from './lib/garante-loja';
 import nodeTest from 'node:test';
 
 const prisma = prismaComLoja;
@@ -43,6 +44,15 @@ const test = ((nome: string, fn: (t: never) => unknown) =>
 // `after`, `before` e `mock` sao propriedades da propria funcao; sem esta copia o
 // embrulho perderia o `test.after` que limpa a base no fim do arquivo.
 Object.assign(test, nodeTest);
+
+/*
+ * A loja tem que existir antes: no Postgres a chave estrangeira aponta para
+ * Tenant. `before` e' o lugar -- `await` no topo do arquivo nao compila, porque o
+ * tsx gera CommonScript.
+ */
+nodeTest.before(async () => {
+    await garanteLojaDoTeste();
+});
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -286,27 +296,32 @@ test('backup de ontem sai, o de hoje fica, e o dump avulso nao e' + ' tocado', (
     const pasta = backupDir();
     fs.mkdirSync(pasta, { recursive: true });
 
+    /*
+     * A extensao e' `.sql`: a copia passou a ser o dump do `pg_dump`, que e' texto.
+     * Um backup que o sistema nao reconhece e' pior que nenhum -- a rotacao pararia
+     * de limpar e a pasta cresceria sem ninguem perceber.
+     */
     const nomes = [
-        'backup-1999-12-31_1830.db', // antes de hoje: sai
-        'backup-1999-11-20_0600.db', // muito antes: sai
-        'backup-2000-01-01_0005.db', // hoje, de madrugada: fica
-        'backup-2000-01-01_2359.db', // hoje, agora: fica
+        'backup-1999-12-31_1830.sql', // antes de hoje: sai
+        'backup-1999-11-20_0600.sql', // muito antes: sai
+        'backup-2000-01-01_0005.sql', // hoje, de madrugada: fica
+        'backup-2000-01-01_2359.sql', // hoje, agora: fica
         // Dump manual de manutencao. Nao e' copia do sistema, entao nenhuma
         // regra de rotacao pode encostar nele -- foi exatamente o que a regra
-        // anterior, que casava com qualquer ".db", faria.
-        'pre-drop-colunas-20260928-172125.db',
+        // anterior, que casava com qualquer arquivo, faria.
+        'pre-drop-colunas-20260928-172125.sql',
     ];
     for (const f of nomes) fs.writeFileSync(path.join(pasta, f), 'x');
 
     try {
         const removidos = podarBackupsDoDia(hoje);
         assert.equal(removidos, 2, 'as duas de antes de hoje sairam');
-        assert.equal(fs.existsSync(path.join(pasta, 'backup-1999-12-31_1830.db')), false);
-        assert.equal(fs.existsSync(path.join(pasta, 'backup-1999-11-20_0600.db')), false);
-        assert.equal(fs.existsSync(path.join(pasta, 'backup-2000-01-01_0005.db')), true, 'o de hoje fica');
-        assert.equal(fs.existsSync(path.join(pasta, 'backup-2000-01-01_2359.db')), true, 'o de hoje fica');
+        assert.equal(fs.existsSync(path.join(pasta, 'backup-1999-12-31_1830.sql')), false);
+        assert.equal(fs.existsSync(path.join(pasta, 'backup-1999-11-20_0600.sql')), false);
+        assert.equal(fs.existsSync(path.join(pasta, 'backup-2000-01-01_0005.sql')), true, 'o de hoje fica');
+        assert.equal(fs.existsSync(path.join(pasta, 'backup-2000-01-01_2359.sql')), true, 'o de hoje fica');
         assert.equal(
-            fs.existsSync(path.join(pasta, 'pre-drop-colunas-20260928-172125.db')),
+            fs.existsSync(path.join(pasta, 'pre-drop-colunas-20260928-172125.sql')),
             true,
             'dump manual nao e' + ' backup do sistema'
         );

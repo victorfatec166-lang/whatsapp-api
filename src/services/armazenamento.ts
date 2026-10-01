@@ -21,7 +21,7 @@ export type Exposicao = {
 };
 
 export type ResumoArmazenamento = {
-    /** Tamanho do .db e dos arquivos que o SQLite mantem abertos. */
+    /** Tamanho do banco, e dos backups que o sistema guarda em disco. */
     bancoBytes: number;
     bancoArquivos: { nome: string; bytes: number }[];
     /** Total das copias de backup na pasta. */
@@ -94,29 +94,21 @@ export async function resumoArmazenamento(agora: Date = new Date()): Promise<Res
     const pastaSessao = pastaDaSessao();
 
     /*
-     * O caminho do .db vem do proprio SQLite, e nao de `path.join`: o
-     * DATABASE_URL e' relativo a pasta do schema, e um join erraria justamente
-     * quando o banco esta em outro disco.
+     * O tamanho vem do proprio Postgres (pg_database_size), e nao de `stat` num
+     * arquivo: no banco gerenciado nao ha arquivo local. Sem este numero, a tela
+     * mostraria zero e a pessoa acharia que o banco sumiu.
      */
-    let caminhoBanco: string | null = null;
+    let bancoBytes: number | null = null;
     try {
-        const linhas = await prisma.$queryRawUnsafe<{ file: string | null }[]>(`PRAGMA database_list`);
-        caminhoBanco = linhas.find((l) => l.file)?.file ?? null;
+        const linhas = await prisma.$queryRawUnsafe<{ bytes: bigint | number }[]>(
+            `SELECT pg_database_size(current_database()) AS bytes`
+        );
+        bancoBytes = linhas[0] ? Number(linhas[0].bytes) : null;
     } catch {
-        // Sem caminho, a secao mostra zeros em vez de mentir com um palpite.
-        caminhoBanco = null;
+        bancoBytes = null;
     }
 
-    const bancoArquivos = caminhoBanco
-        ? [
-              { nome: path.basename(caminhoBanco), bytes: tamanhoDe(caminhoBanco) },
-              // O WAL e o SHM sao o que o SQLite mantem aberto. Eles nao
-              // encolhem sozinhos depois de escritas -- e sao a razao de um
-              // disco encher sem que ninguem tenha criado nada.
-              { nome: `${path.basename(caminhoBanco)}-wal`, bytes: tamanhoDe(`${caminhoBanco}-wal`) },
-              { nome: `${path.basename(caminhoBanco)}-shm`, bytes: tamanhoDe(`${caminhoBanco}-shm`) },
-          ]
-        : [];
+    const bancoArquivos = bancoBytes === null ? [] : [{ nome: 'banco (Postgres)', bytes: bancoBytes }];
 
     const [mensagensHoje, conversasAtivas, pedidosHoje] = await Promise.all([
         prisma.message.count({ where: { sentAt: { gte: inicio } } }),

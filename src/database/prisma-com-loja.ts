@@ -154,7 +154,7 @@ export const prismaComLoja: typeof base = new Proxy({} as any, {
     get(_alvo, membro) {
         /*
          * Tudo que comeca com `$` vai para o cliente cru: SQL sem model, transacao e ciclo
-         * de vida -- o backup e o VACUUM rodam no boot e nao tem loja. O `bind` evita o
+         * de vida -- o backup roda no boot e nao tem loja. O `bind` evita o
          * Prisma ler um simbolo com o `this` trocado e voltar para este proxy.
          */
         if (typeof membro !== 'string' || membro.startsWith('$')) {

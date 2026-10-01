@@ -38,19 +38,21 @@ export type CreatedOrder = {
 };
 
 /**
- * Trava de escrita do SQLite: nao e' falha de negocio, e' concorrencia, e repetir
- * resolve. Erro de dado ou disco nao entra nesta lista -- insistir nao conserta e
- * segura a fila.
+ * Concorrencia de escrita: no Postgres ela aparece como deadlock ou espera de
+ * lock vencida. Nao e' falha de negocio, e' disputa, e repetir resolve. Erro de
+ * dado ou disco nao entra nesta lista -- insistir nao conserta e segura a fila.
  */
 function ehBancoTrancado(error: unknown): boolean {
     const msg = error instanceof Error ? error.message : String(error);
-    return /database is locked|SQLITE_BUSY|write conflict|timed out|timeout/i.test(msg);
+    return /deadlock|lock timeout|could not obtain lock|write conflict|database is locked|SQLITE_BUSY|timed out|timeout/i.test(
+        msg
+    );
 }
 
 /**
  * Cria o pedido e baixa o estoque no mesmo commit. `deductions` vem de priceCart ja
- * resolvido nos componentes. So retentamos travamento: "database is locked" e' sinal
- * de "tente de novo em um instante"; erro de dado ou disco sobe na hora.
+ * resolvido nos componentes. So retentamos travamento: deadlock e' sinal de "tente
+ * de novo em um instante"; erro de dado ou disco sobe na hora.
  */
 export async function createOrderWithStock(
     data: NewOrder,
@@ -59,7 +61,7 @@ export async function createOrderWithStock(
 ): Promise<CreatedOrder> {
     // A gravacao entra na fila antes de abrir transacao. E' aqui que o
     //imestamp de concorrencia morre: enquanto uma venda escreve, as outras
-    // esperam, em vez de disputar o lock do SQLite e voltar com timeout.
+    // esperam, em vez de disputar a gravacao e estourar o timeout.
     return emFila(() => criarComRetry(data, deductions, source));
 }
 

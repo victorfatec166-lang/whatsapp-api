@@ -2269,7 +2269,7 @@ const servidor = app.listen(PORT, HOST, async () => {
     // turno abre ou fecha sozinho, para a tela atualizar sem recarregar.
     startCashScheduler(() => notifyClients());
 
-    // Backup no startup e a cada 6h: o negocio inteiro cabe num arquivo SQLite.
+    // Backup no startup e a cada 6h: sem ele nao ha de onde reconstruir o negocio.
     // Aguardado de proposito -- a virada do dia abaixo escreve no banco, e e' o
     // backup do startup que ainda tem o dia anterior, se a poda aprender errado.
     await startBackupScheduler();

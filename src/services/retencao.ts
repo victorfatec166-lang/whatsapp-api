@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { prisma as prismaGlobal } from '../database/prisma';
 import { comoLoja } from './loja';
@@ -10,15 +9,12 @@ const log = logDoModulo('retencao');
 
 /**
  * Regra: vale para o dia de hoje. Corte na meia-noite, e nao "24 horas atras", porque
- * e' idempotente. O DELETE vai pela fila das gravacoes (fora dela e' "database is
- * locked") e o VACUUM existe porque apagar linha no SQLite nao devolve espaco ao disco.
+ * e' idempotente. O DELETE vai pela fila das gravacoes. Nao ha mais VACUUM: quem
+ * devolve espaco ao disco e' a plataforma do Postgres gerenciado.
  */
 
 /** De quanto em quanto tempo procurar por mensagens para apagar. */
 const TICK_MS = 15 * 60_000;
-
-/** Acima deste tamanho o VACUUM e' pulado. Ver a nota do arquivo. */
-const LIMITE_VACUUM_BYTES = 50 * 1024 * 1024;
 
 export type PodaResultado = {
     /** A meia-noite que separou ontem de hoje. */
@@ -30,7 +26,7 @@ export type PodaResultado = {
     conversasAssumidas: number;
     backupsRemovidos: number;
     logsRemovidos: number;
-    /** O arquivo do banco encolheu? */
+    /** Sempre falso: quem compacta o Postgres gerenciado e' a plataforma. */
     compactou: boolean;
 };
 
@@ -52,30 +48,6 @@ export function carimboDoDia(d: Date): string {
 }
 
 /**
- * Pergunta ao motor em vez de reimplementar a resolucao do DATABASE_URL: o
- * Prisma resolve relativo a pasta do schema, e um path.join aqui erraria justo
- * no caso que importa -- banco em outro disco.
- */
-async function caminhoDoBanco(): Promise<string | null> {
-    try {
-        const linhas = await prisma.$queryRawUnsafe<{ file: string | null }[]>(`PRAGMA database_list`);
-        const principal = linhas.find((l) => l.file);
-        return principal?.file ?? null;
-    } catch {
-        return null;
-    }
-}
-
-function tamanhoDe(caminho: string | null): number {
-    if (!caminho) return 0;
-    try {
-        return fs.statSync(caminho).size;
-    } catch {
-        return 0;
-    }
-}
-
-/**
  * Executa a poda idempotente de mensagens e historico anterior a meia-noite.
  * Itera por todas as lojas ativas individualmente para isolar a limpeza.
  */
@@ -93,32 +65,15 @@ export async function podarDiaAnterior(agora: Date = new Date()): Promise<PodaRe
     }
 
     /*
-     * Fora da fila: sao disco, e o SQLite nao participa. O backup e' o que mais
-     * importa -- e' copia integral do banco, entao continuaria sendo onde a
-     * mensagem de ontem sobrevive depois da poda ter apagado todo o resto.
+     * Poda de disco, fora da fila: sao arquivos, e o Postgres nao participa. O
+     * backup e' o que mais importa -- e' copia do banco, entao continua sendo onde
+     * a mensagem de ontem sobrevive depois da poda ter apagado o resto.
      */
-    const caminhoAntes = await caminhoDoBanco();
-    const tamanhoAntes = tamanhoDe(caminhoAntes);
-
     const backupsRemovidos = podarBackupsDoDia(hoje);
     const logsRemovidos = podarLogsDoDia(hoje).length;
 
     const mexeuEmAlgo =
         total.mensagens + total.conversas + total.preservadas + backupsRemovidos + logsRemovidos > 0;
-
-    let compactou = false;
-    if (caminhoAntes && tamanhoAntes > 0 && tamanhoAntes <= LIMITE_VACUUM_BYTES) {
-        await emFila(async () => {
-            try {
-                await prisma.$executeRawUnsafe(`VACUUM`);
-                compactou = true;
-            } catch (error) {
-                // Banco travado por outro processo: pular a compactacao e' o
-                // resultado aceitavel. As mensagens continuam apagadas.
-                log.debug('VACUUM pulado:', { erro: String(error) });
-            }
-        });
-    }
 
     return {
         corte,
@@ -127,7 +82,8 @@ export async function podarDiaAnterior(agora: Date = new Date()): Promise<PodaRe
         conversasAssumidas: total.preservadas,
         backupsRemovidos,
         logsRemovidos,
-        compactou,
+        // Quem devolve espaco ao disco e' a plataforma do Postgres gerenciado.
+        compactou: false,
     };
 }
 

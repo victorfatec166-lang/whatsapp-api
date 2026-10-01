@@ -1,5 +1,5 @@
 /*
- * Este e' o teste que permite trocar "somar em JavaScript" por "somar no SQLite"
+ * Este e' o teste que permite trocar "somar em JavaScript" por "somar no banco"
  * sem mexer em um centavo do Faturamento. Sem ele a troca e' uma aposta: os dois
  * caminhos parecem iguais na leitura e divergem no primeiro pedido com data torta.
  */
@@ -113,9 +113,9 @@ test('o dia do grafico e' + ' o dia local, nao o dia em UTC', async () => {
 
 test('as datas do SQL sao as mesmas do JavaScript, no mesmo fuso', async () => {
     /*
-     * Este e' o teste do `/1000`: assim o SQLite devolve 1969 para tudo, e a data
-     * continua sendo uma data -- nenhuma verificacao de "tem data" reclama e o
-     * Faturamento inteiro vira 1969. Aqui a comparacao e' com o mesmo registro.
+     * Epoch mal convertido virava data ou 1969, e nenhuma verificacao de "tem data"
+     * reclamava. Com `createdAt` como TIMESTAMP o risco some, mas a comparacao
+     * continua de valor: um dia antes de 2000 significa que a data entrou como numero.
      */
     const sql = await comoLoja(LOJA, () => computeStatsSql());
     const inicioDoBanco = new Date(2000, 0, 1).getTime();
@@ -138,7 +138,7 @@ test('o total do SQL confere com a soma crua da tabela', async () => {
      * estivessem errados, o total ainda teria de bater com o `SUM` cru.
      */
     const [cru] = await prisma.$queryRawUnsafe<{ receita: unknown; n: unknown }[]>(
-        `SELECT COALESCE(SUM(total), 0) AS receita, COUNT(*) AS n FROM "Order" WHERE "tenantId" = ?`,
+        `SELECT COALESCE(SUM(total), 0) AS receita, COUNT(*) AS n FROM "Order" WHERE "tenantId" = $1`,
         LOJA
     );
     const sql = await comoLoja(LOJA, () => computeStatsSql());

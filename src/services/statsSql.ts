@@ -1,7 +1,7 @@
 /*
  * As mesmas metricas de `computeStats`, calculadas pelo banco. NADA E TRUNCADO:
- * truncar a lista faria o Faturamento mostrar menos dinheiro que o real. E
- * `createdAt` e' epoch em MILISSEGUNDOS: o strftime pede createdAt/1000, 'unixepoch'.
+ * truncar a lista faria o Faturamento mostrar menos dinheiro que o real. A data e'
+ * formatada pelo `to_char`, no fuso do servidor.
  */
 
 import { prismaComLoja as prisma } from '../database/prisma-com-loja';
@@ -23,7 +23,7 @@ function addDays(d: Date, days: number): Date {
     return x;
 }
 
-/** SQLite devolve inteiro como BigInt; o resto do codigo trabalha com number. */
+/** COUNT e SUM no Postgres voltam como BigInt; o resto do codigo usa number. */
 function n(v: unknown): number {
     if (typeof v === 'bigint') return Number(v);
     if (typeof v === 'number') return v;
@@ -35,12 +35,12 @@ function arredonda(v: number): number {
 }
 
 /*
- * A coluna de data, no formato que o SQLite entende e que casa com o fuso do
- * dono. Este trecho e' o unico lugar do arquivo que fala de data em SQL.
+ * A coluna de data, no formato do Postgres e no fuso do dono. O `EXTRACT(DOW)`
+ * comeca na segunda e o `strftime` antigo comecava no domingo: dai a soma de 1.
  */
-const DIA_LOCAL = `strftime('%Y-%m-%d', "createdAt"/1000, 'unixepoch', 'localtime')`;
-const HORA_LOCAL = `strftime('%H', "createdAt"/1000, 'unixepoch', 'localtime')`;
-const DOW_LOCAL = `strftime('%w', "createdAt"/1000, 'unixepoch', 'localtime')`;
+const DIA_LOCAL = `to_char("createdAt", 'YYYY-MM-DD')`;
+const HORA_LOCAL = `to_char("createdAt", 'HH24')`;
+const DOW_LOCAL = `(EXTRACT(DOW FROM "createdAt")::int + 6) % 7`;
 
 /**
  * Agregacoes em SQL cru para faturamento. ExigeLoja e' passado explicitamente
@@ -66,19 +66,19 @@ export async function computeStatsSql(): Promise<DashboardStats> {
         // Uma linha so, com as tres janelas e o total, em vez de uma varredura
         // em JavaScript sobre tudo.
         /*
-         * A data vai como OBJETO Date, nunca como texto: `toISOString()` devolve UTC
-         * e o limite do dia e' local, e comparar epoch em ms com essa string e'
-         * comparar milissegundos com texto -- o sintoma era receita de hoje em R$ 0,00.
+         * Placeholders `$1`, `$2`... e nao `?`: o `?` e' do SQLite, e no Postgres
+         * ele nao vira bind. O `unsafe` fica porque o Prisma nao infere o tipo de
+         * uma agregacao, mas a loja e' parametro, nunca texto na string.
          */
         prisma.$queryRawUnsafe<{ periodo: string; receita: unknown; n: unknown }[]>(
             `SELECT periodo, COALESCE(SUM(total), 0) AS receita, COUNT(*) AS n FROM (
-                 SELECT total, 'hoje'   AS periodo FROM "Order" WHERE "tenantId" = ? AND "createdAt" >= ?
+                 SELECT total, 'hoje'   AS periodo FROM "Order" WHERE "tenantId" = $1 AND "createdAt" >= $2
                  UNION ALL
-                 SELECT total, 'semana' AS periodo FROM "Order" WHERE "tenantId" = ? AND "createdAt" >= ?
+                 SELECT total, 'semana' AS periodo FROM "Order" WHERE "tenantId" = $3 AND "createdAt" >= $4
                  UNION ALL
-                 SELECT total, 'mes'    AS periodo FROM "Order" WHERE "tenantId" = ? AND "createdAt" >= ?
+                 SELECT total, 'mes'    AS periodo FROM "Order" WHERE "tenantId" = $5 AND "createdAt" >= $6
                  UNION ALL
-                 SELECT total, 'tudo'   AS periodo FROM "Order" WHERE "tenantId" = ?
+                 SELECT total, 'tudo'   AS periodo FROM "Order" WHERE "tenantId" = $7
              ) GROUP BY periodo`,
             LOJA,
             inicioHoje,
@@ -89,41 +89,41 @@ export async function computeStatsSql(): Promise<DashboardStats> {
             LOJA
         ),
         prisma.$queryRawUnsafe<{ status: string; n: unknown }[]>(
-            `SELECT status, COUNT(*) AS n FROM "Order" WHERE "tenantId" = ? GROUP BY status`,
+            `SELECT status, COUNT(*) AS n FROM "Order" WHERE "tenantId" = $1 GROUP BY status`,
             LOJA
         ),
         prisma.$queryRawUnsafe<{ canal: string; n: unknown; receita: unknown }[]>(
             `SELECT channel AS canal, COUNT(*) AS n, COALESCE(SUM(total), 0) AS receita
-             FROM "Order" WHERE "tenantId" = ? GROUP BY channel`,
+             FROM "Order" WHERE "tenantId" = $1 GROUP BY canal`,
             LOJA
         ),
         prisma.$queryRawUnsafe<{ hora: string; n: unknown }[]>(
-            `SELECT ${HORA_LOCAL} AS hora, COUNT(*) AS n FROM "Order" WHERE "tenantId" = ? GROUP BY hora`,
+            `SELECT ${HORA_LOCAL} AS hora, COUNT(*) AS n FROM "Order" WHERE "tenantId" = $1 GROUP BY hora`,
             LOJA
         ),
         prisma.$queryRawUnsafe<{ dow: string; n: unknown; receita: unknown }[]>(
             `SELECT ${DOW_LOCAL} AS dow, COUNT(*) AS n, COALESCE(SUM(total), 0) AS receita
-             FROM "Order" WHERE "tenantId" = ? GROUP BY dow`,
+             FROM "Order" WHERE "tenantId" = $1 GROUP BY dow`,
             LOJA
         ),
         prisma.$queryRawUnsafe<{ dia: string; receita: unknown; n: unknown }[]>(
             `SELECT ${DIA_LOCAL} AS dia, COALESCE(SUM(total), 0) AS receita, COUNT(*) AS n
-             FROM "Order" WHERE "tenantId" = ? GROUP BY dia ORDER BY dia DESC LIMIT 14`,
+             FROM "Order" WHERE "tenantId" = $1 GROUP BY dia ORDER BY dia DESC LIMIT 14`,
             LOJA
         ),
         prisma.$queryRawUnsafe<{ descontos: unknown; gorjetas: unknown }[]>(
             `SELECT COALESCE(SUM(discount), 0) AS descontos, COALESCE(SUM(tip), 0) AS gorjetas
-             FROM "Order" WHERE "tenantId" = ? AND "createdAt" >= ?`,
+             FROM "Order" WHERE "tenantId" = $1 AND "createdAt" >= $2`,
             LOJA,
             inicioHoje
         ),
         /*
-         * As DUAS colunas de que o "mais vendidos" precisa, e nada mais.
-         * `json_each` nao serve: `items` e' texto "2x Coxinha [Bacon]", nao JSON, e
-         * extrair quantidade e nome em SQL seria uma segunda regra de preco.
+         * As DUAS colunas de que o "mais vendidos" precisa, e nada mais. O items
+         * e' texto "2x Coxinha [Bacon]", nao JSON, entao extrair quantidade e nome
+         * em SQL seria uma segunda regra de preco.
          */
         prisma.$queryRawUnsafe<{ items: string; total: unknown }[]>(
-            `SELECT items, total FROM "Order" WHERE "tenantId" = ?`,
+            `SELECT items, total FROM "Order" WHERE "tenantId" = $1`,
             LOJA
         ),
     ]);

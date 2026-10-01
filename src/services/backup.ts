@@ -1,14 +1,17 @@
-import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile as execFileCallback } from 'child_process';
+import { promisify } from 'util';
 import { logDoModulo } from './logger';
 import { DIR_BACKUPS as DIR_BACKUPS_CENTRAL } from './paths';
+
+const execFile = promisify(execFileCallback);
 const log = logDoModulo('backup');
 
 /**
- * Backup do banco: o negocio inteiro cabe num SQLite, e nao ha de onde reconstruir
- * se ele some -- unica falha do sistema sem conserto por logica, so por copia. E'
- * VACUUM INTO e nao "copiar o arquivo": com Write-ahead Log a copia sairia truncada.
+ * Backup do banco: o negocio inteiro cabe num Postgres, e nao ha de onde reconstruir
+ * se ele some. E' o `pg_dump` e nao "ler tabela por tabela": a copia precisa sair
+ * consistente com o servidor no ar.
  */
 
 const BACKUP_DIR = DIR_BACKUPS_CENTRAL;
@@ -33,14 +36,14 @@ function carimbo(): string {
 
 /**
  * As copias do sistema, mais novas primeiro.
- * O filtro e' `backup-*.db`, e nao `*.db`: um dump manual do dono nao pode ser
+ * O filtro e' `backup-*.sql`, e nao `*.sql`: um dump manual do dono nao pode ser
  * apagado por uma regra de rotacao.
  */
 function copias(): string[] {
     try {
         return fs
             .readdirSync(BACKUP_DIR)
-            .filter((f) => f.startsWith('backup-') && f.endsWith('.db'))
+            .filter((f) => f.startsWith('backup-') && f.endsWith('.sql'))
             // O carimbo no nome ordena por data, sem precisar abrir cada arquivo.
             .sort()
             .reverse();
@@ -127,29 +130,35 @@ export function podarBackupsDoDia(hoje: string): number {
 }
 
 /**
- * Grava uma copia consistente do banco. Devolve o caminho, ou null se nao
- * deu certo: uma falha de backup nao pode derrubar o servidor.
+ * Grava uma copia consistente. Devolve o caminho, ou null se nao deu certo: uma
+ * falha de backup nao pode derrubar o servidor. O Render nao traz o `pg_dump`, e
+ * sem ele o backup diario do Postgres gerenciado e' a segunda camada.
  */
 export async function backupNow(): Promise<string | null> {
     try {
         fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
-        const destino = path.join(BACKUP_DIR, `backup-${carimbo()}.db`);
-        // Destino tem que sumir antes: o VACUUM INTO falha se o arquivo ja
-        // existir, e dois backups no mesmo minuto colidiram.
+        const destino = path.join(BACKUP_DIR, `backup-${carimbo()}.sql`);
         if (fs.existsSync(destino)) fs.unlinkSync(destino);
 
-        // caminho como string SQL, com aspa simples escapada: o nome do
-        // arquivo vem do relogio e nao tem aspa, mas a string concatena com
-        // literais que poderia mudar depois.
-        await prisma.$executeRawUnsafe(`VACUUM INTO '${destino.replace(/'/g, "''")}'`);
+        const url = process.env.DATABASE_URL ?? '';
+        if (!url) {
+            log.warn('backup pulado: DATABASE_URL nao esta definida');
+            return null;
+        }
+
+        const { stdout } = await execFile('pg_dump', ['--no-owner', '--no-acl', '--dbname', url], {
+            maxBuffer: 256 * 1024 * 1024,
+        });
+
+        fs.writeFileSync(destino, stdout, 'utf8');
 
         const kb = Math.round(fs.statSync(destino).size / 1024);
         log.info(`copia gravada: ${destino} (${kb} KB)`);
         podar();
         return destino;
     } catch (error) {
-        log.error('falhou:', error);
+        log.error('falhou:', { erro: String(error).split('\n')[0] });
         return null;
     }
 }
@@ -159,7 +168,7 @@ let timer: NodeJS.Timeout | null = null;
 /**
  * Uma copia no startup e outra a cada seis horas; a primeira evita a janela sem
  * backup nenhum. Devolve a Promise, e nao `void`: a virada do dia escreve logo
- * depois, e um VACUUM INTO no meio do DELETE ja grava a copia sem o dia anterior.
+ * depois, e o dump meio no meio do DELETE sairia sem o dia anterior.
  */
 export function startBackupScheduler(): Promise<void> {
     if (timer) return Promise.resolve();

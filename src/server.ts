@@ -94,11 +94,19 @@ import { limitador as limitePorJanela } from './services/rateLimit';
 import { exigeLoja, lojaDoBoot } from './services/loja';
 import { prisma } from './database/prisma';
 import { publicaLoja } from './middleware/publica-loja';
+import { cabecalhosDeSeguranca } from './middleware/cabecalhos-seguranca';
 import { DIR_UPLOADS, DIR_UPLOADS_PRODUTOS, DATA_DIR, criaArvoreDeDados } from './services/paths';
 const log = logDoModulo('server');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+/*
+ * Antes de qualquer rota e antes de qualquer parser: um header ausente nao
+ * depende do caminho, e o parser nao devolve nada em resposta a ele.
+ */
+app.use(cabecalhosDeSeguranca);
+
 
 /*
  * Limite de escrita: 30 requisicoes por 10s, calibrado contra a rajada mais longa
@@ -128,17 +136,15 @@ app.use(
 
 /* O raw acima so vale para o webhook; este json e' o parser geral e por isso vem depois. */
 app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true }));
+/*
+ * O `limit` do urlencoded tambem e' preciso: o alcance real e' o login e o webhook, e o
+ * login fica fora do `limiteEscrita`, que so cobre `/api/admin`.
+ */
+app.use(express.urlencoded({ extended: true, limit: '64kb' }));
 
 /*
- * Publica a loja da requisicao. Precisa vir AQUI, antes de qualquer rota, e
- * precisa vir antes do `exigeSessao` porque e' ele que le a sessao: o que
- * publica a loja e' justamente a sessao, entao quem monta a loja nao pode ser o
- * mesmo que exige sessao -- seria circular.
- *
- * A leitura e' repetida (aqui e no `exigeSessao`), e o cache nao vale: a sessao
- * pode ter sido revogada no caminho, e um cache de sessao seria o jeito mais
- * facil de deixar alguem dentro depois de revocation.
+ * Publica a loja antes de qualquer rota com base na sessao.
+ * A leitura e' direta sem cache para refletir revogacoes de sessao de imediato.
  */
 app.use(publicaLoja);
 
@@ -2257,10 +2263,8 @@ counters: {
                     pdv: products.length,
                     kanban: orders.filter((o) => o.status !== 'concluido').length,
                     estoque: products.filter((p) => p.trackStock && p.stock <= p.minStock).length,
-                    // As conversas nao lidas foram parar no item do WhatsApp: a tela
-                    // delas saiu da barra, mas o bot continua atende e o contador
-                    // perdura. Sem ele, um dono com tres mensagens esperando nao tem
-                    // onde ver isso no painel.
+                    // Conversas nao lidas sao sinalizadas no item do WhatsApp
+                    // para manter visibilidade sem precisar da aba separada.
                     whatsapp: await totalNaoLidas(),
                 },
                 body,
@@ -2322,10 +2326,8 @@ const servidor = app.listen(PORT, HOST, async () => {
     await limpaSessoes();
     setInterval(() => void limpaSessoes(), 60 * 60 * 1000).unref();
 
-    // Os textos do bot sao da loja, e o cache e' por loja. Este agente local
-    // atende uma loja por vez -- a mesma que `garanteAdministrador` criou -- entao
-    // so a dela entra no cache. Carregar todas seria trabalho que nenhuma leitura
-    // aqui vai pedir.
+    // Textos do bot e cache sao segmentados por loja;
+    // no boot local, carrega apenas as mensagens da loja ativa.
     await loadBotMessages(lojaDoBoot());
     // Espelha o estado de conexao do bot para o painel via SSE.
     onConnectionChange((state) => notifyConnection(JSON.stringify(state)));

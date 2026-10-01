@@ -21,6 +21,7 @@ import { conferirAssinatura, normalizar } from '../src/services/webhook';
 import { stockStatus, summarize, needsMinStock } from '../src/services/stock';
 import { validarConfig, estadoAgendaCaixa, falhouValidacao } from '../src/services/config';
 import { tamanhoLegivel } from '../src/views/html';
+import { seguroInterno } from '../src/views/login';
 import type { StockRow } from '../src/services/stock';
 
 /* ------------------------------------------------------------------ itens */
@@ -592,4 +593,38 @@ test('tamanhoLegivel: o numero de disco que o dono le', () => {
     // "NaN KB" nem um tracinho que levanta outra pergunta.
     assert.equal(tamanhoLegivel(NaN), '0 B');
     assert.equal(tamanhoLegivel(-1), '0 B');
+});
+
+/*
+ * O teste normaliza o resultado como o navegador normaliza, porque e' assim que o
+ * `/\evil.com` vira `//evil.com` e a defesa antiga passava.
+ */
+test('seguroInterno: destino nao sai do painel, nem por barra invertida', () => {
+    const comoUrl = (v: string) => v.replace(/[\x00-\x1f]/g, '/').replace(/\\/g, '/');
+
+    const externos = [
+        '//evil.com',
+        '/\\evil.com',
+        '/\\/evil.com',
+        '\\\\evil.com',
+        'https://evil.com',
+        'http://evil.com',
+        'javascript:alert(1)',
+        'data:text/html,<script>alert(1)</script>',
+        '/\t/evil.com',
+        '/\n/evil.com',
+        '\t//evil.com',
+    ];
+    for (const bruto of externos) {
+        assert.equal(comoUrl(seguroInterno(bruto)).startsWith('//'), false, `fugou: ${JSON.stringify(bruto)}`);
+    }
+
+    // Caminho interno continua passando, com query e fragmento: barrar demais
+    // custaria o destino legitimo, que e' o motivo da funcao existir.
+    assert.equal(seguroInterno('/admin'), '/admin');
+    assert.equal(seguroInterno('/admin?tab=pdv'), '/admin?tab=pdv');
+    assert.equal(seguroInterno('/trocar-senha'), '/trocar-senha');
+    assert.equal(seguroInterno('/admin?tab=whatsapp#textos-bot'), '/admin?tab=whatsapp#textos-bot');
+    assert.equal(seguroInterno(''), '/admin');
+    assert.equal(seguroInterno('/admin/..//evil.com'), '/admin/..//evil.com');
 });

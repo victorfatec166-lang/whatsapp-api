@@ -36,15 +36,17 @@ export type DadosTelaLogin = {
     primeiroAcesso?: boolean;
 };
 
-/**
- * O destino vem da URL e o login redireciona depois de entrar: aceitar
- * ?destino=https://outro-site transformaria a tela de entrada num redirecionador -- o login
- * responderia "entrou" e levaria a pessoa para fora com o endereco da sessao na barra.
+/*
+ * O destino vem da URL e o login redireciona depois de entrar: aceita-lo viraria a tela
+ * de entrada num redirecionador. A barra invertida entra na regra porque o Chrome a
+ * normaliza para `/`, e `trim` so limpa as pontas -- tab no meio tambem vira `/`.
  */
 export function seguroInterno(valor: string): string {
     const v = (valor || '').trim();
     if (!v.startsWith('/')) return '/admin';
-    if (v.startsWith('//')) return '/admin';
+    if (v[1] === '/' || v[1] === '\\') return '/admin';
+    // Nenhum caminho interno do painel precisa de barra invertida ou de controle.
+    if (/[\x00-\x1f\\]/.test(v)) return '/admin';
     return v;
 }
 
@@ -67,14 +69,8 @@ const HEAD_TEMA = `
 `;
 
 /**
- * O botao de tema das telas de entrada, que e' a unica parte do sistema que
- * RACHAva o tema: `HEAD_TEMA` so aplica o que esta salvo, sem dar onde trocar.
- * Quem entrava de noite ficava no escuro com a tela de entrada e sem poder sair
- * disso, e o nome do produto na tela de login e' fixo -- entao nao ha Configuracoes
- * para mandar a pessoa trocar.
- *
- * A funcao e' a mesma do painel, com a mesma chave no `localStorage`: sao duas
- * telas do mesmo produto e um unico interruptor na vida da pessoa.
+ * Alternador de tema para as telas de login e recuperacao de senha.
+ * Sincroniza com a mesma chave do painel em localStorage.
  */
 const SCRIPT_TEMA = `
                 function applyTheme(isDark) {

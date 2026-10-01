@@ -100,8 +100,8 @@ ${atencaoLista}
     const linhasCanal = [
         `                    <li class="border-b border-line">
                         <a href="/admin?tab=whatsapp" class="flex items-center gap-3 py-2.5 row-hover">
-                            <i class="fa-brands fa-whatsapp text-accent-emerald shrink-0"></i>
-                            <span class="text-body text-ink flex-1 truncate">WhatsApp</span>
+                            <i class="fa-solid fa-comment-dots text-accent-emerald shrink-0"></i>
+                            <span class="text-body text-ink flex-1 truncate">Bot no WhatsApp</span>
                             <span class="badge ${d.botOnline ? 'badge-success' : 'badge-danger'} shrink-0">${
                                 d.botOnline ? 'conectado' : 'desconectado'
                             }</span>

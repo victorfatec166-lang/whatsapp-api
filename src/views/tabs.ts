@@ -640,7 +640,7 @@ export function renderCalendar(d: CalendarData): string {
                     <div class="grid grid-cols-7 gap-1 mb-2 text-center text-caption font-semibold text-ink-3 uppercase">
                         <div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
                     </div>
-                    <div class="grid grid-cols-7 gap-1" id="calendarGrid"></div>
+                    <div class="grid grid-cols-7 gap-1" id="calendarGrid" style="min-height: 28rem"></div>
                     <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-caption text-ink-3">
                         <span class="flex items-center gap-1.5">
                             <span class="w-3 h-3 rounded-sm border border-success bg-success-bg"></span>

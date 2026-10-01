@@ -44,10 +44,16 @@ export const TABS: Array<{ id: TabId; group: TabGroupId; label: string; icon: st
      * estao entrando, nao um ajuste do negocio. Fica depois do catalogo porque quem vai la
      * costuma estar resolvendo "esse item sumiu do iFood".
      */
-    { id: 'whatsapp', group: 'apps', label: 'WhatsApp', icon: 'fa-brands fa-whatsapp', hint: 'Conexao e textos do bot' },
     { id: 'marketplace', group: 'apps', label: 'iFood e 99Food', icon: 'fa-solid fa-store', hint: 'Marketplace: credenciar e conferir pedidos' },
 
     { id: 'config', group: 'ajustes', label: 'Configuracoes', icon: 'fa-solid fa-gear', hint: 'Entrega e negocio' },
+
+    /*
+     * Saiu de "Apps e conexoes" e virou "Bot": o pareamento ja e' do cliente de
+     * desktop, entao o que sobra aqui sao os textos do cliente -- e isso e' ajuste
+     * do negocio, nao conexao.
+     */
+    { id: 'whatsapp', group: 'ajustes', label: 'Bot', icon: 'fa-solid fa-comment-dots', hint: 'Textos que o cliente recebe' },
 
     /*
      * A conta e' configuracao do negocio, nao aba de uso diario: quem gerencia e' o dono, uma
@@ -94,6 +100,22 @@ const HEAD_SCRIPTS = `
                             var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                             if (saved === 'dark' || (!saved && prefersDark)) {
                                 document.documentElement.classList.add('dark');
+                            }
+                        } catch (e) {}
+                    })();
+
+                    /*
+                     * O mesmo para a barra de abas, e pelo mesmo motivo.
+                     *
+                     * Marcar a classe aqui e' o que tira o tremor na troca de aba: o
+                     * HTML nasce com a barra escondida e so abria no DOMContentLoaded,
+                     * entao quem tinha a barra recolhida via 0 -> 240px DEPOIS da
+                     * primeira pintura. Toda troca de aba sacudia a tela.
+                     */
+                    (function () {
+                        try {
+                            if (localStorage.getItem('sidebarAberta') === '0') {
+                                document.documentElement.classList.add('rail-fechada');
                             }
                         } catch (e) {}
                     })();
@@ -165,28 +187,31 @@ const APP_SCRIPTS = `
                  * botao parar de servir para o que foi criado.
                  */
                 function aplicaSidebar(aberta) {
-                    var barra = document.getElementById('sidebar');
+                    var rail = document.getElementById('rail');
                     var guardar = document.getElementById('sidebarToggle');
                     var abrir = document.getElementById('sidebarAbrir');
-                    if (!barra || !guardar || !abrir) return;
+                    if (!rail || !guardar || !abrir) return;
 
+                    /*
+                     * Quem manda na largura e' a classe do elemento html, decidida no
+                     * head. O hidden do rail fica de fora de proposito: mexer nele
+                     * aqui seria o salto de pixels que a classe do head evita.
+                     */
                     if (aberta) {
-                        barra.classList.remove('hidden');
                         guardar.classList.remove('hidden');
                         abrir.classList.add('hidden');
                         guardar.setAttribute('aria-expanded', 'true');
+                        document.documentElement.classList.remove('rail-fechada');
                     } else {
-                        barra.classList.add('hidden');
                         guardar.classList.add('hidden');
                         abrir.classList.remove('hidden');
                         guardar.setAttribute('aria-expanded', 'false');
+                        document.documentElement.classList.add('rail-fechada');
                     }
                     try { localStorage.setItem('sidebarAberta', aberta ? '1' : '0'); } catch (e) {}
                 }
                 function alternaSidebar() {
-                    var barra = document.getElementById('sidebar');
-                    if (!barra) return;
-                    aplicaSidebar(barra.classList.contains('hidden'));
+                    aplicaSidebar(document.documentElement.classList.contains('rail-fechada'));
                 }
 
                 function abreSidebar() {
@@ -297,9 +322,9 @@ const APP_SCRIPTS = `
                     }
                 }
 
-                // Aplica assim que o corpo existe: este script fica no head, e o id
-                // da barra so aparece depois. Sem o guard, a preferencia era perdida
-                // a cada recarga -- pior do que nao ter preferencia nenhuma.
+                // Sincroniza os botoes e o aria-expanded. A largura ja foi decidida no head
+                // (classe rail-fechada), entao aqui nao ha mais salto de pixels --
+                // o que sobra e' o estado acessivel dos dois botoes.
                 document.addEventListener('DOMContentLoaded', function () {
                     var aberta = true;
                     try {
@@ -733,12 +758,12 @@ ${items}`;
         return `<optgroup label="${escapeHtml(group.label)}">${options}</optgroup>`;
     }).join('');
 
-    /*
-     * A barra vive num container de largura ZERO, com o painel absoluto dentro: recolhida, a coluna
-     * de conteudo ocupa a tela inteira. Sao dois botoes e nao um que muda de estado: um so
-     * esconderia o rotulo no espaco vazio, e espaco vazio nao sugere que a barra volta.
-     */
-    return `                    <div class="rail hidden md:block">
+/*
+ * O HTML nasce com a barra ABERTA, e quem esta recolhido e' marcado pela classe
+ * rail-fechada no elemento html. Antes nascia com hidden e abria no
+ * DOMContentLoaded: quem tinha a barra aberta tremia a cada troca de aba.
+ */
+    return `                    <div class="rail md:block" id="rail">
                         <aside id="sidebar" class="rail-painel bg-surface border-r line">
                             <a href="/admin" title="Ir para o inicio" class="h-16 px-4 flex items-center gap-2.5 border-b line text-body font-bold tracking-tight hover:bg-surface-2 transition">
                                 <i class="fa-solid fa-burger text-accent"></i>
@@ -761,14 +786,14 @@ ${blocks}
                             aria-label="Recolher a barra de abas">
                             <i id="sidebarToggleIcon" class="fa-solid fa-angles-left text-xs"></i>
                         </button>
-
-                        <button type="button" id="sidebarAbrir" onclick="abreSidebar()"
-                            class="rail-btn rail-btn--abrir hidden"
-                            aria-controls="sidebar" aria-expanded="false" title="Mostrar a barra de abas"
-                            aria-label="Mostrar a barra de abas">
-                            <i class="fa-solid fa-bars text-xs"></i>
-                        </button>
                     </div>
+
+                    <button type="button" id="sidebarAbrir" onclick="abreSidebar()"
+                        class="rail-btn rail-btn--abrir hidden"
+                        aria-controls="sidebar" aria-expanded="false" title="Mostrar a barra de abas"
+                        aria-label="Mostrar a barra de abas">
+                        <i class="fa-solid fa-bars text-xs"></i>
+                    </button>
 
                     <!-- Navegacao mobile -->
                     <div class="md:hidden bg-surface border-b border-line px-4 py-3 flex items-center justify-between gap-3">

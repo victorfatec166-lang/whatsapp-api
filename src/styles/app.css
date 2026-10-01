@@ -590,27 +590,48 @@
     /*
      * A barra de abas recolhivel.
      *
-     * Duas coisas aqui que nao se escrevem com classe do Tailwind.
+     * A barra e' um ITEM DO FLEX, e nao um painel absoluto: e' isso que empurra o
+     * conteudo. Com `.rail` em `width: 0` e o painel em `position: absolute`, o
+     * `flex-1` do conteudo comecava em x=0 e a barra pintava por cima -- 240px do
+     * painel por baixo dela. Sumia em Home e Kanban (fundo liso) e aparecia em PDV,
+     * Calendario e Faturamento, onde o conteudo tem card e grade com fundo proprio.
      *
-     * 1. A LARGURA E' TOKEN. A posicao do botao circular depende da borda
-     *    direita da barra, entao o valor aparece em tres lugares: a largura do
-     *    painel, o `left` do botao que fecha e o deslocamento do conteudo. Tres
-     *    numeros soltos que precisam concordar sao uma tela quebrada esperando
-     *    alguem mudar 15rem para 16rem e esquecer dos outros dois. Aqui o
-     *    calculo sai de `--rail-w`.
+     * Esconder e' `display: none` no proprio `.rail`: o item some do flex, o
+     * `flex-1` do conteudo ocupa a tela toda e nao sobra buraco.
      *
-     * 2. O ESCONDER E' `.rail-btn.hidden`, E NAO `hidden`. A versao anterior
-     *    usava `hidden md:flex` no botao: no desktop o `md:flex` e' uma regra de
-     *    media query e vence o `hidden` do Tailwind, entao os DOIS botoes
-     *    ficavam na tela ao mesmo tempo e o Javascript nao mandava em nenhum --
-     *    nao havia bug visivel, havia so um botao que nao respondia. Aqui a
-     *    classe que esconde tem especificidade maior que a que exibe, e nao
-     *    depende de qual regra o Tailwind escreve por ultimo.
+     * `.rail-btn.hidden` continua com especificidade maior que `.rail-btn` de
+     * propósito: a versao anterior usava `hidden md:flex`, e no desktop o `md:flex`
+     * (media query) vencia o `hidden` do Tailwind, deixando os DOIS botoes na tela
+     * e nenhum respondendo.
      */
     .rail {
         position: relative;
-        width: 0;
+        width: var(--rail-w);
         flex-shrink: 0;
+    }
+
+    .rail.hidden {
+        display: none;
+    }
+
+    /*
+     * A barra ja recolhida na primeira pintura, decidedo no `<head>`.
+     *
+     * Sem isto o HTML nasce escondido e o `DOMContentLoaded` abre: quem tinha a
+     * barra recolhida via de 0 para 240px depois de pintar, e toda troca de aba
+     * sacudia a tela. Aqui a classe ja vem no `<html>`, antes de existir elemento.
+     */
+    .rail-fechada .rail {
+        display: none;
+    }
+
+    /* O inverso: com a barra fechada, quem aparece e' o botao que a traz de volta. */
+    .rail-fechada .rail-btn--fechar {
+        display: none;
+    }
+
+    .rail-fechada .rail-btn--abrir {
+        display: inline-flex;
     }
 
     .rail-painel {
@@ -669,14 +690,24 @@
         outline-offset: 2px;
     }
 
-    /* Fica sobre a borda da barra, para parecer que pertence a ela. */
+    /*
+     * Fica sobre a borda direita da barra, para parecer que pertence a ela. Dentro
+     * do `.rail`, entao o `left` e' medido a partir da propria barra.
+     */
     .rail-btn--fechar {
         left: calc(var(--rail-w) - 0.875rem);
     }
 
-    /* Barra recolhida: o botao volta para a borda esquerda do conteudo. */
+    /*
+     * Fora do `.rail` de proposito -- e' o que sobrevive ao `display: none` do pai.
+     * Sendo item do flex, sem `position`, ele entraria na linha do conteudo; o
+     * `position: fixed` o tira do fluxo e o gruda na borda esquerda da janela.
+     */
     .rail-btn--abrir {
+        position: fixed;
         left: 0.375rem;
+        top: 50%;
+        transform: translateY(-50%);
     }
 
     /*

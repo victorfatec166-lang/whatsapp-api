@@ -51,18 +51,9 @@ export const DATA_DIR_PADRAO = path.join(
     NOME
 );
 
-/**
- * Onde o sistema guarda o que o dono nao pode perder. Banco, sessao, log e
- * backup nao podem ficar ao lado do codigo: `Program Files` nao e gravavel pelo
- * usuario comum, e a atualizacao trocaria a pasta do programa junto com o banco.
- */
-
-/** Nome da pasta de dados dentro de `%APPDATA%`. */
-/**
- * A pasta de dados.
- *
- * O `resolve` normaliza e remove a barra final. E' feio de fazer, mas evita que
- * apareca caminho duplo na tela de Configuracoes, que mostra a pasta por extenso.
+/*
+ * A pasta de dados: banco, sessao, log e backup nao podem ficar ao lado do
+ * codigo, porque a atualizacao do programa trocaria a pasta junto com o dado.
  */
 export const DATA_DIR = path.resolve(process.env.DELIVERYADMIN_DATA?.trim() || DATA_DIR_PADRAO);
 

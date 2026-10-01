@@ -2,26 +2,15 @@ import * as crypto from 'crypto';
 import { prisma } from '../database/prisma';
 import { createOrderWithStock } from './orders';
 import { logDoModulo } from './logger';
-import { mapaDeItens, registrarPedido, tokenWebhook, type Canal } from './marketplace';
+import { decifrar, mapaDeItens, registrarPedido, type Canal } from './marketplace';
+import { comoLoja, exigeLoja } from './loja';
 
 const log = logDoModulo('webhook');
 
 /**
- * Entrada de pedido de marketplace.
- *
- * O caminho e' parecido com o do bot: o pedido chega, e' normalizado para o
- * formato interno, e' precificado e gravado em UM commit, com a baixa de
- * estoque junto. A diferenca esta no comeco e no fim do caminho.
- *
- * No comeco, a assinatura. Um webhook e' um address publico: qualquer um na
- * internet pode mandar POST para ele. Sem conferir assinatura, o que chega e'
- * pedido falso -- com estoque do seu catalogo sendo baixado por gente que nao
- * comprou nada. Por isso a regra e' dura: sem token configurado, RECUSA. Nao
- * aceita "deixa passar em modo teste", porque e' assim que o falso entra.
- *
- * No fim, o casamento de item. O marketplace manda o id do produto DELE. Sem
- * saber qual produto do catalogo local e', nao ha como dar baixa de estoque sem
- * adivinhar, e adivinhar estoque errado e vender o que nao tem.
+ * Endereco publico: sem conferir assinatura o que chega e' pedido falso, com estoque
+ * do catalogo sendo baixado por quem nao comprou nada. Sem token configurado, RECUSA
+ * -- nao existe "modo teste". Item sem casamento com o catalogo nao baixa estoque.
  */
 
 /** Item normalizado, ja no formato interno. */
@@ -31,11 +20,9 @@ export type PedidoNormalizado = {
     externalId: string;
     itens: ItemNormalizado[];
     /**
-     * Itens que chegaram sem casamento com o catalogo local.
-     *
-     * Eles entram no pedido para a cozinha ver, mas SEM baixar estoque: sem o
-     * casamento, qualquer baixa seria no produto errado, e vender o que nao tem
-     * e' pior do que nao baixar. A tela de configuracao avisa quantos faltam.
+     * Itens que chegaram sem casamento com o catalogo local: entram no pedido para a
+     * cozinha ver, mas SEM baixar estoque -- sem o casamento, a baixa seria no produto
+     * errado, e vender o que nao tem e' pior do que nao baixar.
      */
     itensSemMapeamento: Array<{ nome: string; qty: number; externalId: string }>;
     clienteNome: string | null;
@@ -46,14 +33,9 @@ export type PedidoNormalizado = {
 };
 
 /**
- * Confere a assinatura do webhook.
- *
- * O marketplace assina o corpo cru com o token compartilhado, em HMAC-SHA256
- * codificado em base64 ou hexadecimal. As duas formas sao aceitas porque cada
- * plataforma escolheu uma, e o que importa e' comparar em tempo constante.
- *
- * Quando nao ha token configurado, devolve false. Configuracao segura e
- * negativa: o padrao de quem nao configurou e' nao aceitar nada.
+ * Base64 ou hexadecimais porque cada plataforma escolheu uma; o que importa e'
+ * comparar em tempo constante. Sem token devolve false: quem nao configurou nao
+ * aceita nada.
  */
 export function conferirAssinatura(corpo: string, cabecalhos: Record<string, string | undefined>, token: string): boolean {
     if (!token) return false;
@@ -86,17 +68,8 @@ export function conferirAssinatura(corpo: string, cabecalhos: Record<string, str
 }
 
 /**
- * Normaliza o corpo do pedido.
- *
- * O nome dos campos varia de plataforma para plataforma, e essa funcao e' o
- * unico lugar onde essa variacao mora. O resto do sistema so' ve o formato
- * interno.
- *
- * O que NAO esta aqui e' a tabela de campos exata de cada uma: os nomes mudam
- * conforme a versao do contrato do parceiro. O que importa agora e' que o
- * caminho aceite duas formas -- "data"/"items", o formato interno -- e uma
- * forma embrulhada, e que qualquer coisa fora disso seja recusada em vez de
- * entrar pela metade.
+ * Unico lugar onde a variacao de nome de campo entre plataformas mora. O que importa
+ * e aceitar o formato interno e o embrulhado, e recusar o resto pela metade.
  */
 export function normalizar(corpo: unknown, mapa: Map<string, string>): PedidoNormalizado {
     const c = (corpo ?? {}) as Record<string, unknown>;
@@ -147,9 +120,8 @@ export function normalizar(corpo: unknown, mapa: Map<string, string>): PedidoNor
         throw new Error('Pedido sem itens validos.');
     }
 
-    // O cliente vem aninhado em algumas plataformas e solto em outras. O
-    // cast vem do `unknown` do campo generico, nao de uma suposicao sobre o
-    // formato: e' a mesma normalizacao dos itens, so que para o cliente.
+    // Cliente vem aninhado em uma plataforma e solto em outra; e' a mesma
+    // normalizacao dos itens, so que para o cliente.
     const cliente = (bruto.client ?? bruto.customer ?? bruto.cliente ?? {}) as Record<string, unknown>;
 
     const telefone = String(
@@ -172,24 +144,71 @@ export function normalizar(corpo: unknown, mapa: Map<string, string>): PedidoNor
 }
 
 /**
- * Recebe o pedido de fora e grava.
+ * De que loja e' este pedido?
  *
- * O passo de deduplicacao vem antes de qualquer gravacao: a plataforma
- * reenvia quando nao recebe o retorno, entao o mesmo pedido pode chegar varias
- * vezes em minutos. Gravar duas vezes seria o mesmo pedido duas vezes no
- * Kanban e o estoque baixo duas vezes.
+ * O webhook e' a unica entrada do sistema que chega SEM sessao: quem chama e' o
+ * iFood, nao uma pessoa. E' por isso que ela precisa descobrir a loja sozinha --
+ * e a assinatura e' o que faz isso.
+ *
+ * Cada loja tem o SEU token de webhook, e o HMAC e' deterministico: o mesmo corpo
+ * com o token de outra loja da outra assinatura. Entao a loja do pedido e' a conta
+ * cujo token confere com a assinatura recebida. Nao e' adivinhacao nem backdoor:
+ * sem o token da loja B nao ha assinatura que passe contra o token da loja A.
+ *
+ * Esta e' a UNICA consulta do sistema que atravessa lojas de proposito, e e' a
+ * lista de contas -- nao dado de venda. Por isso usa o cliente cru: no momento em
+ * que ela roda, a loja AINDA NAO FOI DESCOBERTA, e e' por isso que o filtro de
+ * loja nao pode estar no caminho.
  */
-export async function receberPedido(channel: Canal, corpo: string, cabecalhos: Record<string, string | undefined>) {
-    const token = await tokenWebhook(channel);
-    if (!conferirAssinatura(corpo, cabecalhos, token)) {
-        return { aceito: false, motivo: 'assinatura invalida' as const };
+async function lojaDoPedido(
+    channel: Canal,
+    corpo: string,
+    cabecalhos: Record<string, string | undefined>
+): Promise<string | null> {
+    const contas = await prisma.marketplaceAccount.findMany({
+        where: { channel, tenant: { ativo: true } },
+        select: { tenantId: true, webhookSecretEnc: true },
+    });
+    for (const conta of contas) {
+        if (!conta.webhookSecretEnc) continue;
+        const token = decifrar(conta.webhookSecretEnc);
+        if (token && conferirAssinatura(corpo, cabecalhos, token)) return conta.tenantId;
     }
+    return null;
+}
 
+/**
+ * Deduplica antes de qualquer gravacao: a plataforma reenvia quando nao recebe
+ * o retorno, e gravar duas vezes seria o mesmo pedido duas vezes no Kanban com o
+ * estoque baixo duas vezes.
+ */
+export type RespostaWebhook =
+    | { aceito: true; duplicado: boolean; id: string; loja: string }
+    | { aceito: false; motivo: string };
+
+export async function receberPedido(
+    channel: Canal,
+    corpo: string,
+    cabecalhos: Record<string, string | undefined>
+): Promise<RespostaWebhook> {
+    const loja = await lojaDoPedido(channel, corpo, cabecalhos);
+    if (!loja) {
+        return { aceito: false, motivo: 'assinatura invalida' };
+    }
+    // Daqui para frente vale a loja: toda consulta do pedido sai com o filtro
+    // certo, sem ninguem pedir. A loja volta na resposta porque o dono precisa
+    // saber de qual loja veio o pedido -- com o painel unico, a pergunta "de onde
+    // foi este?" e' a primeira que ele faz quando um pedido chega errado.
+    const r = await comoLoja(loja, () => processaPedido(channel, corpo));
+    return { ...(r as object), loja } as RespostaWebhook;
+}
+
+async function processaPedido(channel: Canal, corpo: string) {
     let bruto: unknown;
     try {
         bruto = JSON.parse(corpo);
     } catch {
-        return { aceito: false, motivo: 'json invalido' as const };
+        return { aceito: false, motivo: 'json invalida' as const };
     }
 
     const mapa = await mapaDeItens(channel);
@@ -205,31 +224,21 @@ export async function receberPedido(channel: Canal, corpo: string, cabecalhos: R
     }
 
     /*
-     * Reenvio normal: o pedido ja esta no banco, e a plataforma quer o mesmo
-     * retorno. Confirmar de novo e' a resposta certa -- o pedido ja esta no
-     * Kanban e repetir seria o erro.
-     *
-     * Esta checagem cobre o caso comum. A corrida entre duas entregas do mesmo
-     * pedido chegando no mesmo instante nao passa por aqui: as duas leem antes
-     * de qualquer uma gravar. Quem fecha essa janela e' o indice unico, com o
-     * externalId entrando no mesmo commit do insert -- a segunda delas falha no
-     * insert e sobe como 500, que e' melhor do que pedido duplicado.
+     * Reenvio normal: confirmar de novo e' a resposta certa. Duas entregas no mesmo
+     * instante passam as duas por aqui, e a janela fecha no indice unico -- a segunda
+     * falha no insert, o que e' melhor do que pedido duplicado.
      */
     const jaExiste = await prisma.order.findUnique({
-        where: { channel_externalId: { channel, externalId: normalizado.externalId } },
+        where: { tenantId_channel_externalId: { tenantId: exigeLoja(), channel, externalId: normalizado.externalId } },
     });
     if (jaExiste) {
         return { aceito: true, duplicado: true, id: jaExiste.id };
     }
 
     /*
-     * Itens sem casamento entram com o nome, mas SEM baixa de estoque.
-     *
-     * Entrar e' melhor do que recusar: o pedido e' real, o cliente pagou, e a
-     * cozinha precisa saber o que montar. O que nao pode e' baixar o estoque
-     * do produto errado, entao esse item vai no pedido sem tocar no saldo, e a
-     * tela avisa quantos faltam casar. Recusar o pedido faria a loja perder
-     * dinheiro de verdade.
+     * Entram no pedido SEM baixa de estoque: recusar perderia dinheiro real, mas
+     * baixar o saldo do produto errado e' vender o que nao tem. A tela avisa
+     * quantos faltam casar.
      */
     const linhas = [
         ...normalizado.itens.map((i) => ({
@@ -237,9 +246,8 @@ export async function receberPedido(channel: Canal, corpo: string, cabecalhos: R
             name: i.nome,
             mods: i.observacoes ? [i.observacoes] : [],
         })),
-        // A mesma lista que a normalizacao ja separou. Ela nao e' reprocessada
-        // aqui de proposito: ler o payload duas vezes e' como os dois leitores
-        // passam a divergir depois de uma manutencao.
+        // Lista que a normalizacao ja separou, nao reprocessada: ler o payload duas
+        // vezes e' como os dois leitores divergem depois de uma manutencao.
         ...normalizado.itensSemMapeamento.map((i) => ({ qty: i.qty, name: i.nome, mods: [] })),
     ];
 
@@ -251,18 +259,9 @@ export async function receberPedido(channel: Canal, corpo: string, cabecalhos: R
     const subtotal = normalizado.totalDeclarado ?? 0;
 
     /*
-     * Grava o pedido.
-     *
-     * O `catch` existe para a corrida entre duas entregas do mesmo pedido
-     * chegando no mesmo instante: as duas passam da checagem de "ja existe"
-     * acima, e uma delas e' barrada pelo indice unico no insert. Isso NAO e'
-     * falha -- o pedido existe, e repetir seria o erro -- entao vira a mesma
-     * resposta de reenvio, e nao um 500.
-     *
-     * A diferenca importa para a plataforma. Com 500, o iFood entende que a
-     * loja nao recebeu o pedido, e pode marcar o pedido como perdido no painel
-     * do parceiro enquanto a cozinha ja estao montando. Com 200 e "duplicado",
-     * a plataforma fecha o pedido com a loja em paz.
+     * O catch cobre a corrida do mesmo pedido chegando junto: as duas passam do "ja
+     * existe" e uma e' barrada no indice unico. Isso NAO e' falha, entao vira resposta
+     * de reenvio -- com 500 a plataforma marca o pedido como perdido com a cozinha montando.
      */
     let criado: Awaited<ReturnType<typeof createOrderWithStock>>;
     try {
@@ -278,15 +277,9 @@ export async function receberPedido(channel: Canal, corpo: string, cabecalhos: R
                 channel,
                 paymentMethod: 'plataforma',
                 /*
-                 * No mesmo commit do insert, e nao num update depois.
-                 *
-                 * A versao anterior criava o pedido e so entao gravava o
-                 * externalId, num segundo commit. Entre os dois, o pedido estava
-                 * no banco com externalId nulo, e um reenvio da plataforma
-                 * nesse intervalo passava pelo indice unico -- o mesmo pedido
-                 * entrava duas vezes no Kanban e o estoque baixava duas vezes.
-                 * A plataforma reenvia justamente quando nao recebe o retorno,
-                 * ou seja, existe alguem reenviando.
+                 * No mesmo commit do insert: a versao anterior gravava o externalId
+                 * num segundo commit, e um reenvio nesse intervalo passava pelo
+                 * indice unico -- o mesmo pedido entrava duas vezes no Kanban.
                  */
                 externalId: normalizado.externalId,
             },
@@ -299,7 +292,7 @@ export async function receberPedido(channel: Canal, corpo: string, cabecalhos: R
             // "duplicado" do reenvio normal.
             log.warn(`Corrida no webhook de ${channel}: o pedido ${normalizado.externalId} ja tinha sido gravado`);
             const jaGravado = await prisma.order.findUnique({
-                where: { channel_externalId: { channel, externalId: normalizado.externalId } },
+                where: { tenantId_channel_externalId: { tenantId: exigeLoja(), channel, externalId: normalizado.externalId } },
                 select: { id: true },
             });
             return { aceito: true, duplicado: true, id: jaGravado?.id ?? '' };
@@ -319,12 +312,8 @@ export async function receberPedido(channel: Canal, corpo: string, cabecalhos: R
 }
 
 /**
- * A violacao veio do indice unico de (channel, externalId)?
- *
- * O Prisma marca violacao de unicidade com o codigo P2002 e diz qual indice
- * no `meta.target`. Confere o indice e nao apenas o codigo, porque qualquer
- * outro indice unico violado -- o `phone` da Chat, por exemplo -- tem o mesmo
- * P2002 e significaria outra coisa.
+ * Confere o indice em meta.target e nao so o codigo P2002: qualquer outro indice
+ * unico violado tem o mesmo codigo e significaria outra coisa.
  */
 function ehViolacaoDeExternalId(error: unknown): boolean {
     const e = error as { code?: unknown; meta?: { target?: unknown } };

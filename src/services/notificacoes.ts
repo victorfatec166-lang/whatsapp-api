@@ -1,48 +1,13 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { inicioDoDia } from './retencao';
 import { listarDoMes, type LembreteView } from './lembretes';
 import { listarContas, type Canal, type StatusConta } from './marketplace';
 import { reorderList, type StockRow } from './stock';
 
 /**
- * O sino do topo: tudo que pede uma acao, em um lugar so.
- *
- * As cinco fontes nao sao cinco tipos de aviso -- sao cinco jeitos de a mesma
- * pergunta passar despercebida:
- *
- * 1. PEDIDO NOVO. Chegou pedido e a pessoa nao viu. Antes isso aparecia como um
- *    numero em duas abas da barra lateral, que e' exatamente o tipo de aviso que
- *    ninguem nota. Aqui e' uma linha, e o numero no sino e' a soma de tudo.
- *
- * 2. LEMBRETE COM ANTECEDENCIA. "Ligar para o fornecedor" anotado para amanha e'
- *    uma pendencia hoje -- e a unica forma de transformar isso em aviso e' o
- *    proprio texto, que nao diz para quem nem quando.
- *
- * 3. PRODUTO QUE FALTA. Zerado e abaixo do minimo apareciam so em "Precisa de
- *    atencao", na Home. Quem trabalha no PDV e' a pessoa que descobre a falta
- *    quando o cliente ja esta na fila, entao o aviso precisa estar onde ela olha
- *    sem trocar de tela.
- *
- * 4. DESCONEXAO. Bot parado e canal com erro. As duas coisas calavam: nenhum
- *    pedido de WhatsApp chegava, nenhum aviso de marketplace chegava, e a tela
- *    seguia mostrando "online" ate alguem tentar falar com um cliente.
- *
- * 5. VENDA DE CANAL. Pedido que entrou pelo iFood ou 99Food. Precisa do canal na
- *    linha: esse pedido demora mais e sai por outro caminho, e a pessoa precisa
- *    saber de onde veio antes de sair para entregar.
- *
- * DECISAO QUE PRECISA SER DITA: "novo" e' por TEMPO, nao por "nao visto".
- *
- * O sino precisa saber o que a pessoa ainda nao viu, e o unico jeito de saber
- * isso sem sessao seria marcar cada pedido como lido -- que depende de login, que
- * nao existe ainda. Marcar por tempo erra nas duas direcoes: mostra como novo um
- * pedido que a cozinha ja pegou, e deixa de mostrar um pedido novo se o sino
- * estiver fechado ha horas.
- *
- * O meio-termo e' o recorte de duas horas MAIS o filtro de status: um pedido so e'
- * novo enquanto esta `pendente`. Depois que a cozinha pegou, ele deixa de ser
- * noticia, mesmo que ninguem tenha olhado -- porque a informacao que importava
- * (ele chegou) ja foi atendida. Sem login, e' o que da para ser honesto.
+ * Estoque e desconexao, as duas fora do PDV, entram porque no balcao o problema so
+ * aparece quando o cliente ja esta na fila. "Novo" e' por TEMPO, nao por "nao visto":
+ * nao ha sessao para marcar o que a pessoa leu, e com a cozinha pegou deixa de ser noticia.
  */
 
 /** Duas horas. Ver a decisao sobre "novo" no comentario do modulo. */
@@ -59,11 +24,8 @@ const CANAL_NOME: Record<Canal, string> = {
 };
 
 /**
- * Data local em "AAAA-MM-DD".
- *
- * Nao e' `toISOString().slice(0, 10)`: isso e' meia-noite UTC, que no Brasil e'
- * as 21h do dia anterior -- o mesmo bug que ja jogou pedido para o dia errado no
- * grafico. Aqui a data e' sempre a de quem esta olhando a tela.
+ * Data local, nunca toISOString: UTC no Brasil e' as 21h do dia anterior -- o
+ * mesmo bug que ja jogou pedido para o dia errado no grafico.
  */
 function dataIso(d: Date): string {
     const p = (n: number) => String(n).padStart(2, '0');
@@ -113,13 +75,9 @@ function deBot(botOnline: boolean, agora: number): Notificacao[] {
             href: '/admin?tab=whatsapp',
             cta: 'Reconectar',
             /*
-             * O mesmo `agora` dos outros, e nao um Date.now() proprio. Dois
-             * avisos da mesma gravidade que empatam sao desempatados pela ordem
-             * em que foram montados -- que e' a ordem de urgencia declarada
-             * aqui. Com um relogio lido em instantes diferentes, quem fosse lido
-             * um milissegundo depois passava a frente: bot parado e produto
-             * zerado trocavam de lugar conforme o dia, e nenhum dos dois estava
-             * errado. Era o `ordem` da lista virando sorte.
+             * O mesmo `agora` dos outros, e nao um Date.now() proprio: com o
+             * relogio lido em instantes diferentes, dois avisos da mesma gravidade
+             * empatavam pela ordem de montagem, e a urgencia virava sorte.
              */
             quando: agora,
         },
@@ -127,11 +85,9 @@ function deBot(botOnline: boolean, agora: number): Notificacao[] {
 }
 
 /**
- * Canal de marketplace: desconexao e venda.
- *
- * As duas nao podem ser a mesma linha. Quem tem iFood em homologacao precisa
- * saber que as vendas que ve NAO estao indo para a producao, e isso e' mais
- * urgente do que qualquer venda do dia.
+ * Desconexao e venda nao podem ser a mesma linha: quem tem canal em homologacao
+ * precisa saber que as vendas que ve NAO estao indo para a producao, e isso e'
+ * mais urgente do que qualquer venda do dia.
  */
 async function deCanais(): Promise<Notificacao[]> {
     const contas = await listarContas();
@@ -172,11 +128,8 @@ async function deCanais(): Promise<Notificacao[]> {
         if (conta.status === 'sem-credencial') continue;
 
         /*
-         * Vendas do dia, por canal.
-         *
-         * `externalId` preenchido e' o que separa "pedido entrou pelo canal" de
-         * "pedido feito no balcao". Sem esse filtro, todo pedido do dia
-         * apareceria em cada canal configurado.
+         * externalId preenchido separa "pedido entrou pelo canal" de "pedido feito
+         * no balcao": sem esse filtro todo pedido do dia aparece em cada canal.
          */
         const pedidos = await prisma.order.findMany({
             where: { channel: conta.channel, externalId: { not: null }, createdAt: { gte: hoje } },
@@ -205,29 +158,16 @@ async function deCanais(): Promise<Notificacao[]> {
 }
 
 /**
- * Lembretes que pedem atencao, em duas formas.
- *
- * HOJE E AMANHA sao uma linha cada. Sao os unicos que mudam o que a pessoa faz
- * hoje, e uma linha por lembrete e' o que faz o sino valer a pena abrir.
- *
- * DEPOIS DISSO VEM AGRUPADO. Uma semana de antecedencia e' o limite, e o
- * agrupamento e' o que permite esse limite sem virar barulho: sete lembretes
- * soltos empurrariam para baixo os avisos de bot parado e de estoque zerado,
- * que sao os que custam dinheiro. Uma linha dizendo "3 lembretes nos proximos
- * dias" ocupa o mesmo espaco que uma e ainda mostra o que sao.
- *
- * O que fica DEPOIS de uma semana nao entra no sino, e o Calendario avisa isso
- * no momento em que a pessoa anota -- silenciar a regra e' o que faz a pessoa
- * concluir que o sistema esqueceu.
+ * Hoje e amanha sao uma linha cada -- os unicos que mudam o que a pessoa faz hoje.
+ * Apos isso vem agrupado, porque sete lembretes soltos empurrariam para baixo os
+ * avisos que custam dinheiro. Passou de uma semana e' o Calendario que avisa, ao vivo.
  */
 async function deLembretes(): Promise<Notificacao[]> {
     const hojeIso = dataIso(new Date());
     const amanhaIso = dataIso(diasAFrente(1));
     const horizonte = dataIso(diasAFrente(DIAS_DE_ANTECEDENCIA));
 
-    // Os dois meses, e nao so o corrente: o lembrete do dia 31 lido no dia 30
-    // pertence ao mes que vem, e perder esse aviso e' perder o aviso no caso em
-    // que ele mais importa.
+    // Os dois meses: o lembrete do dia 31 lido no dia 30 pertence ao mes que vem.
     const meses = [...new Set([hojeIso.slice(0, 7), horizonte.slice(0, 7)])];
     const todos: LembreteView[] = (await Promise.all(meses.map((m) => listarDoMes(m)))).flat();
 
@@ -302,12 +242,9 @@ function deEstoque(produtos: StockRow[], agora: number): Notificacao[] {
 }
 
 /**
- * Todas as notificacoes, da mais urgente para a menos.
- *
- * A ordem nao e' a de chegada: e' a de quem doi mais. Um bot parado vem antes de
- * um canal em homologacao, que vem antes de um produto abaixo do minimo, que vem
- * antes de um lembrete de amanha. `quando` desempata dentro de uma mesma faixa --
- * nunca decide a ordem principal, que e' o que a pessoa precisa fazer agora.
+ * A ordem nao e' a de chegada, e' a de quem doi mais: bot parado antes de canal
+ * em homologacao, antes de produto abaixo do minimo, antes de lembrete de amanha.
+ * quando desempata dentro de uma mesma faixa, nunca decide a ordem principal.
  */
 const ORDEM_TOM: Record<NotificacaoTom, number> = { vermelho: 0, ambar: 1, verde: 2, info: 3 };
 
@@ -326,10 +263,9 @@ export async function montarPainel(botOnline: boolean, produtos: StockRow[]): Pr
         deCanais(),
         deLembretes(),
         /*
-         * Pedido novo e' lido do banco direto, e nao da lista que a tela ja
-         * carregou. Aquela lista e' a do boot do processo: um pedido que chegou
-         * ha dois minutos nao estaria nela, e o sino ficaria mudo justo quando
-         * ele deveria gritar.
+         * Lido do banco, e nao da lista que a tela ja carregou: aquela e' a do boot
+         * do processo, e um pedido de dois minutos nao estaria nela -- o sino
+         * ficaria mudo justo quando deveria gritar.
          */
         prisma.order.findMany({
             where: { createdAt: { gte: new Date(agora - JANELA_NOVO_MS) }, status: 'pendente' },

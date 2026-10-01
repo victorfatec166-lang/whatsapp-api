@@ -1,13 +1,7 @@
 /**
  * Formato do campo `items` de um pedido.
- *
- * Linha:  2x X-Burguer [P; Bacon extra]
- * Pedido: linha1 | linha2 | linha3
- *
- * O separador "| " e as opcoes entre [] existem porque o formato antigo
- * separava por ", " e um nome de produto com virgula quebrava o relatorio.
- * parseItems() continua aceitando o formato antigo (virgem ", ") para os
- * pedidos ja gravados.
+ * Linha:  2x X-Burguer [P; Bacon extra]   Pedido: linha1 | linha2 | linha3
+ * O separador "| " existe porque o antigo (", ") quebrava com virgula no nome.
  */
 
 export type ParsedItem = {

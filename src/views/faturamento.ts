@@ -140,16 +140,9 @@ function pedidos(d: FaturamentoData): string {
 }
 
 /**
- * Faturamento: tudo que mexe em dinheiro num lugar so.
- *
- * Resumo (numeros do dia, ticket, lucro, graficos), Caixa (turno, sangrias,
- * conferencia), Clientes (quanto cada um gastou) e Pedidos (a lista com filtro
- * e CSV). A Home ficou so com operacao.
- *
- * Esta aba e' o unico ponto onde o dinheiro aparece, e por isso foi deixada
- * pronta para ganhar uma senha: e' o lugar natural para o gate do servidor.
- * Vale registrar que senha sozinha nao esconde dado de quem ja tem a tela
- * aberta nem de quem le o banco -- o gate precisa ser no servidor.
+ * Unico ponto onde o dinheiro aparece, e por isso deixado pronto para ganhar senha: e' o
+ * lugar natural para o gate do servidor. Senha sozinha nao esconde dado de quem ja tem a
+ * tela aberta nem de quem le o banco -- o gate precisa ser no servidor.
  */
 export function renderFaturamento(d: FaturamentoData, inicial: SubTab = 'resumo'): string {
     return `${subTabBar(inicial)}

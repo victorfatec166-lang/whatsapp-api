@@ -1,40 +1,7 @@
 /*
- * Entender o que o cliente escreveu, sem modelo de linguagem.
- *
- * POR QUE ISTO EXISTE, E POR QUE NAO E' IA
- *
- * O bot falava com a pessoa em numeros: "1" para o cardapio, o numero do item,
- * "pular" para pular modificador. O vocabulario todo cabia em doze palavras, e
- * qualquer outra coisa recebia "Opcao invalida". Cliente que escreve "quero 3
- * coxinhas" -- que e' como gente pede comida -- simplesmente nao conseguia pedir.
- *
- * A solucao obvia seria um modelo de linguagem. Aqui nao e', por tres motivos
- * concretos, e nao por ser contra IA:
- *
- * 1. PRECO NUNCA VEM DO LADO DO CLIENTE. E' a regra mais antiga e mais
- *    importante deste sistema: o preco e' lido do banco e recalculado, em
- *    priceCart. Se um modelo decide o que foi pedido, existe um caminho em que
- *    o valor gravado nao passou pelo servidor -- e e' exatamente o que um
- *    cliente malicioso procuraria.
- * 2. A loja nao pode depender de rede nem de terceiro para atender o balcao.
- *    O sistema roda numa maquina de loja, as vezes com internet ruim.
- * 3. O texto do cliente nao precisa sair da maquina. A virada do dia existe
- *    justamente para o dado nao ficar guardado; mandar a conversa para um
- *    provedor seria o contrario disso.
- *
- * Entao o que este modulo faz: le a frase, separa, casa com o catalogo e
- * devolve INTENCAO -- estes produtos, estas quantidades, estes modificadores.
- * Quem valida, calcula e grava continua sendo o servidor. Este arquivo nao tem
- * acesso a preco, a estoque nem a pedido: ele so transforma texto em id de
- * produto.
- *
- * A TOLERANCIA A ERRO DE DIGITACAO E' O QUE FAZ DIFERENCA
- *
- * No balcao o cliente digita com um dedo, no celular, as vezes andando. "coxina"
- * tem de virar "Coxinha" -- e nao por um modelo, mas por distancia de edicao.
- * E' um calculo de tres linhas que roda em microssegundos, nao depende de
- * ninguem, e nunca inventa: se a distancia for grande demais, o produto nao
- * casa e o bot pergunta.
+ * Entender o que o cliente escreveu, sem modelo de linguagem. Nao e' IA por tres motivos:
+ * preco nunca vem do cliente (se um modelo decide o pedido, o valor gravado pode nao ter
+ * passado pelo servidor); a loja nao depende de rede nem de terceiro; o texto nao sai da maquina.
  */
 
 /** Item lido da frase, ja casado com o catalogo. */
@@ -59,11 +26,9 @@ export type Intencao = {
 /* ------------------------------------------------------------- texto basico */
 
 /**
- * Tira acento, baixa a caixa e aperta espacos.
- *
- * A chave de comparacao e' esta. "ARROZ, FEIJAO E SALADA" e "arroz feijao e
- * salada" precisam dar a mesma string, senao o cliente que escreve do mesmo
- * jeito que o cardapio nao acha o produto que ele mesmo escreveu.
+ * A chave de comparacao e' esta: "ARROZ, FEIJAO E SALADA" e "arroz feijao e
+ * salada" precisam dar a mesma string, senao quem escreve como o cardapio nao
+ * acha o produto que ele mesmo escreveu.
  */
 export function chave(valor: string): string {
     return valor
@@ -84,19 +49,9 @@ export function separaNumero(texto: string): { nome: string; numero: number | nu
 }
 
 /**
- * Distancia de edicao entre duas palavras, com corte cedo.
- *
- * E' Damerau-Levenshtein, e nao o Levenshtein puro, por causa de um motivo que
- * so aparece na digitacao real: a troca de duas letras vizinhas. "pastel" em vez
- * de "pastel" e' o erro mais comum de dedo em celular, e no Levenshtein conta
- * como DUAS substituicoes -- "patsel" e "pastel" dariam distancia 2, que e' o
- * mesmo que "pastel" e "pastel". O cliente que digitou o nome certo seria
- *recusado, e a loja receberia um pedido de outro prato. Aqui a troca vale 1.
- *
- * O corte por tamanho e' o que segura o custo: se a diferenca de comprimento ja
- * passa do limite, nao ha troca de letra que salve, e comparar letra por letra
- * seria desperdicio. O corte por "minimo da linha" sai mais cedo ainda: assim
- * que uma linha inteira esta acima do limite, o resto so pode piorar.
+ * Damerau-Levenshtein, e nao o puro: trocar duas letras vizinhas e' o erro mais
+ * comum de dedo em celular, e no Levenshtein puro conta como duas substituicoes.
+ * O corte por tamanho segura o custo -- passado o limite, nao ha troca que salve.
  */
 export function distancia(a: string, b: string, limite: number): number {
     if (a === b) return 0;
@@ -155,29 +110,18 @@ export type ItemCatalogo = {
 const CONECTORES = new Set(['e', 'mais', 'e mais', 'com', 'e depois']);
 
 /**
- * Quebra a frase em pedacos, de forma ingenua.
- *
- * Corta em virgula e no conector "e" / "mais", com limites de palavra para nao
- * cortar o "e" de dentro de um nome. "Arroz, feijao e salada" vira tres pedacos
- * aqui -- e a funcao esta CORRETA nisso, porque ela nao sabe o que e' um
- * produto.
- *
- * A inteligencia esta em `interpreta`: ele tenta casar a frase INTEIRA antes de
- * tentar as partes. E' a unica forma de acertar os dois casos com a mesma
- * quebra -- "coxinha e refrigerante" e' dois produtos, "arroz, feijao e salada"
- * e' um so, e nenhuma das duas formas se distingue olhando a virgula.
+ * Ingenua de proposito: corta no conector "e"/"mais" e nao sabe o que e' um produto.
+ * A inteligencia esta em interpreta, que tenta casar a frase INTEIRA antes das partes --
+ * e' o unico jeito de acertar "coxinha e refrigerante" (dois) e "arroz, feijao e salada" (um).
  */
 export function quebraEmPedacos(frase: string): string[] {
     const texto = chave(frase);
     if (texto === '') return [];
 
     /*
-     * A virgula NAO separa, e nao e' falha: `chave` ja a trocou por espaco.
-     *
-     * Isso e' deliberado. A virgula e' usada dentro do nome do produto --
-     * "Arroz, feijao e salada" -- e o conector "e" e' o sinal mais forte de que
-     * a pessoa esta listando duas coisas. Quem sabe a diferenca entre um nome
-     * e uma lista e' `interpreta`, que tenta a frase inteira primeiro.
+     * A virgula NAO separa e nao e' falha: chave ja a trocou por espaco. Ela e' usada
+     * dentro do nome do produto, e o conector "e" e' o sinal mais forte de lista --
+     * quem sabe a diferenca e' interpreta, que tenta a frase inteira primeiro.
      */
     const pedacos = texto
         .split(/\s*(?:\be\b|\bmais\b)\s*/g)
@@ -203,19 +147,9 @@ export type Casamento = {
 };
 
 /**
- * Acha o produto que a frase nomeia.
- *
- * A ordem das tentativas vai do mais confiavel para o menos, e cada passo so
- * roda se o anterior falhou:
- *
- * 1. Igualdade exata da chave. O cliente copiou do cardapio.
- * 2. O nome do produto esta contido no pedaco. "quero coxinha de frango" acha
- *    "Coxinha de frango" sem a pessoa escrever o nome inteiro.
- * 3. Distancia de edicao, no nome e nos apelidos.
- *
- * O piso e' o que impede o estrago: um produto so casa quando a melhor
- * distancia cabe no limite. Chamar "v942" de "Coxinha" seria pior do que
- * perguntar, porque a pessoa receberia um pedido errado e descobriria no preco.
+ * Do mais confiavel para o menos, cada passo so se o anterior falhou: chave exata, nome
+ * contido na frase, distancia de edicao no nome e nos apelidos. O piso e' o que impede
+ * o estrago: "v942" casado com "Coxinha" so apareceria como erro no preco.
  */
 export function achaProduto(pedaco: string, catalogo: ItemCatalogo[]): Casamento | null {
     const chavePedaco = chave(pedaco);
@@ -227,21 +161,9 @@ export function achaProduto(pedaco: string, catalogo: ItemCatalogo[]): Casamento
     }
 
     /*
-     * 2. Contido nos dois sentidos, e com criterios opostos de escolha.
-     *
-     * A) O NOME do produto esta dentro da frase. Ganha o nome mais LONGO: se a
-     *    frase cita "Arroz, feijao e salada", e' aquele e' nao o "Arroz" que
-     *    por acaso e' prefixo dele. Nome mais longo e' nome mais especifico.
-     *
-     * B) A frase esta dentro do NOME do produto. Ganha o nome mais CURTO: e' o
-     *    caso de "coxinha" para "Coxinha de frango", que e' o mais comum de
-     *    todos -- a pessoa digita o nome curto no chat. Aqui escolher o nome
-     *    mais longo seria o contrario do que a pessoa pediu: ela pediu a
-     *    coxinha e levaria um prato com nomeproprio.
-     *
-     * O piso de 4 letras vale para os dois: "ar" dentro de "arroz" e' curto
-     * demais para dizer que a pessoa quis dizer arroz, e sem esse piso qualquer
-     * pedido vira qualquer produto.
+     * A) Nome dentro da frase: ganha o nome mais LONGO, o mais especifico ("Arroz, feijao
+     *    e salada", nao o "Arroz" que e' prefixo dele). B) Frase dentro do nome: o mais
+     *    CURTO -- "coxinha" para "Coxinha de frango". Piso de 4: "ar" em "arroz" nao e' arroz.
      */
     let contido: { item: ItemCatalogo; tamanho: number } | null = null;
     for (const p of catalogo) {
@@ -274,9 +196,8 @@ export function achaProduto(pedaco: string, catalogo: ItemCatalogo[]): Casamento
             const cn = chave(nome);
             if (cn.length < 3) continue;
 
-            // Limite proporcional ao tamanho: nome curto nao aguenta dois erros
-            // de digitacao sem virar outra palavra, e nome longo nao pode exigir
-            // correspondencia perfeita.
+            // Limite proporcional: nome curto nao aguenta dois erros de digitacao sem virar
+            // outra palavra, e nome longo nao pode exigir correspondencia perfeita.
             const limite = cn.length <= 5 ? 1 : cn.length <= 10 ? 2 : 3;
             const d = distancia(chavePedaco, cn, limite);
             if (d > limite) continue;
@@ -292,14 +213,9 @@ export function achaProduto(pedaco: string, catalogo: ItemCatalogo[]): Casamento
 }
 
 /**
- * Casa opcao de modificador por nome, e so deste produto.
- *
  * Vale para o "sem cebola" e o "com bacon", que e' como a pessoa fala. O
- * modificador precisa estar ligado ao produto: se nao estiver, casar a palavra
+ * modificador precisa estar ligado a este produto: casar a palavra sem ligacao
  * seria inventar um item que a cozinha nao pediu.
- *
- * Exige o nome INTEIRO da opcao no texto, e nao o pedaco. "bacon" dentro de
- * "baconete" e' outra coisa, e o cliente que pediu baconete receberia bacon.
  */
 export function achaModificadores(
     pedaco: string,
@@ -314,12 +230,9 @@ export function achaModificadores(
             const cn = chave(op.nome);
             if (cn.length < 3) continue;
             /*
-             * Palavra INTEIRA, com limites dos dois lados.
-             *
-             * `includes` sozinho casava "bacon" dentro de "baconete" -- e a
-             * pessoa que pediu baconete receberia bacon. E casava "mal" dentro
-             * de "malte", "ao" dentro de "aovo". O item que a cozinha produz
-             * nao e' o mesmo, e o preco do modificador tambem nao e'.
+             * Palavra INTEIRA, com limites dos dois lados: includes sozinho casava
+             * "bacon" em "baconete", "mal" em "malte", "ao" em "aovo" -- e o item
+             * que a cozinha produz nao e' o mesmo, nem o preco do modificador.
              */
             if (!temPalavra(texto, cn)) continue;
 
@@ -363,18 +276,9 @@ function casaInteira(
 }
 
 /**
- * Casa o produto pelo PREFIXO mais longo da frase.
- *
- * E' o que faz "xburguer ao ponto com bacon" virar um item com dois
- * modificadores. O produto e' as primeiras palavras; o que sobra sao as
- * opcoes. Sem isso, a frase inteira nao casa com nome nenhum -- a distancia
- * entre "xburguer ao ponto com bacon" e "X-Burguer" passa do limite por causa do
- * comprimento -- e o cliente recebia "opcao invalida" para um pedido
- * perfeitamente claro.
- *
- * O prefixo mais longo ganha, e' o mais especifico: se o catalogo tem "Arroz" e
- * "Arroz, feijao e salada", e a pessoa disser "arroz feijao e salada", casa o
- * segundo.
+ * E' o que faz "xburguer ao ponto com bacon" virar um item com dois modificadores: o
+ * produto sao as primeiras palavras e o que sobra sao as opcoes. Sem isso a frase
+ * inteira nao casa com nome nenhum e o cliente recebia opcao invalida num pedido claro.
  */
 function casaPorPrefixo(
     pedaco: string,
@@ -414,24 +318,9 @@ function casaPorPrefixo(
 }
 
 /**
- * Interpreta a frase inteira: produtos, quantidades e modificadores.
- *
- * A ordem das tentativas e' o que resolve o caso mais comum de todos --
- * "coxinha", "3 coxinhas", "coxinha e refrigerante", "xburguer ao ponto com
- * bacon" -- e todos eles sao a mesma coisa vista de quatro jeitos:
- *
- * 1. A frase inteira como UM produto. E' o que acerta "arroz, feijao e salada",
- *    um prato cujo nome contem virgula e "e".
- * 2. A frase quebrada no conector "e", para virar dois produtos.
- * 3. Dentro de cada pedaco, o nome pelo prefixo mais longo, e o resto como
- *    modificador.
- *
- * A quantidade e' lida do fim do pedaco ("coxinha 3"). O que nao casa com nada
- * vai para `naoEntendidos`, que o bot usa para dizer o que nao entendeu em vez
- * de fingir que entendeu.
- *
- * Este arquivo nao grava nada, nao le preco e nao olha estoque. Quem faz isso
- * e' o servidor, depois, com o id que veio daqui.
+ * A ordem das tentativas e' o que resolve o caso mais comum: "coxinha", "3 coxinhas",
+ * "coxinha e refrigerante" e "xburguer ao ponto com bacon" sao a mesma coisa vista de
+ * quatro jeitos. O que nao casa vai para naoEntendidos, para o bot dizer em vez de fingir.
  */
 export function interpreta(frase: string, catalogo: ItemCatalogo[]): Intencao {
     const texto = chave(frase);

@@ -2,16 +2,9 @@ import { escapeHtml } from './html';
 import { cardVazio, faixaKpi, kpi } from './ui/card';
 
 /**
- * Quem pode entrar no painel.
- *
- * Fica no mesmo grupo de Configuracoes na barra lateral, e nao numa aba propria
- * de primeiro plano: e' uma tela de dono, aberta uma vez por trimestre, e nao
- * algo que a pessoa do balcao precisa achar.
- *
- * O que a tela mostra e' o que responde a pergunta que a pessoa traz: "quem tem
- * acesso aqui?". A resposta esta na lista, e a acao de mudar esta na linha da
- * pessoa -- nao num menu separado, que custaria um clique a mais para uma tela
- * que quase sempre e' lida e raramente e' alterada.
+ * Fica no grupo de Configuracoes e nao em aba propria: e' tela de dono, aberta uma vez por
+ * trimestre. A acao de mudar esta na linha da pessoa, e nao num menu separado -- um clique a
+ * menos numa tela que quase sempre e' lida e raramente alterada.
  */
 
 type LinhaUsuario = {
@@ -45,13 +38,9 @@ function linha(u: LinhaUsuario, d: UsuariosData): string {
     const bloqueado = u.bloqueadoAte && new Date(u.bloqueadoAte) > new Date();
 
     /*
-     * As acoes que nao existem para o proprio usuario somem, e nao ficam
-     * desabilitadas.
-     *
-     * Um botao cinza na propria linha e' um botao que a pessoa vai clicar para
-     * ver que nao faz nada -- e a resposta esta no servidor de qualquer jeito
-     * (ver usuariosRoutes). Hide e' o que evita a tentativa; o `exigeAdmin` e' o
-     * que garante.
+     * As acoes do proprio usuario somem em vez de desabilitar: botao cinza na propria linha
+     * e' um botao que a pessoa clica para ver que nao faz nada. Hide evita a tentativa; o
+     * exigeAdmin, no servidor, e' o que garante.
      */
     const acoes = souEu
         ? `<span class="text-caption text-ink-3">Voce</span>`
@@ -163,12 +152,9 @@ ${d.usuarios.map((u) => linha(u, d)).join('\n')}
 }
 
 /**
- * A janela que mostra a senha gerada.
- *
- * Show-once e por desenho: a senha nao volta do servidor -- o que existe no
- * banco e' o hash. Reprocessar a tela nao mostra de novo, e o aviso diz isso,
- * porque quem fecha a janela sem anotar fica sem acesso a conta e sem caminho
- * para recuperar, a nao ser gerar outra.
+ * Show-once por desenho: a senha nao volta do servidor, o que existe no banco e' o hash.
+ * O aviso diz isso porque quem fecha a janela sem anotar fica sem acesso e sem caminho de
+ * recuperacao, a nao ser gerar outra.
  */
 function renderModalSenha(): string {
     return `        <div id="senhaModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="senhaModal-titulo">

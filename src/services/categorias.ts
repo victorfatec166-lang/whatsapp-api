@@ -1,49 +1,13 @@
 /*
  * Categorias de produto: a lista canonica e a normalizacao do que a pessoa digita.
- *
- * POR QUE ISTO EXISTE, E POR QUE A LISTA FICA AQUI
- *
- * "Categoria" ja existia em tudo -- no filtro do Catalogo, no do Estoque, no do
- * PDV, no formulario do produto com uma datalist de sugestao. O que nao existia
- * era a lista. E sem lista, o campo vira texto livre, texto livre vira
- * proliferacao: alguem digita "Salgado", alguem digita "salgados", alguem digita
- * "SALGADO", e o catalogo ganha tres categorias que sao a mesma coisa -- com
- * tres entradas no filtro e tres grupos no PDV.
- *
- * Esse e' o defeito real, e ele nao aparece olhando a tela: aparece quando a
- * pessoa procura "salgado" no PDV e o produto esta em "Salgados". O filtro
- * compara com `toLowerCase()`, que resolve caixa mas naoresolve plural nem
- * acento.
- *
- * POR QUE A CANONICA E' FEITA AQUI E NAO NA TELA
- *
- * A lista aparece em quatro lugares: formulario do produto, filtro do Catalogo,
- * filtro do Estoque e navegacao do PDV. Se cada tela mantivesse a sua propria
- * copia, a primeira delas a mudar seria a errada, e o sintoma seria "o produto
- * aparece no filtro de uma tela e nao na outra". Uma lista so, usada por todas.
- *
- * A LISTA E' SUGESTAO, NAO TRAVA
- *
- * A datalist do formulario sugere e o campo aceita o que vier. Uma loja que
- * vende "Cafes" e nao "Bebidas" precisa poder escrever "Cafes" -- travar a lista
- * seria trocar um problema pequeno (proliferacao) por um maior (nao da para
- * cadastrar o que a loja vende). O que a normalizacao garante e' que a
- * proliferacao pare nas categorias que CONHECEMOS, e que o resto continue
- * funcionando como hoje.
- *
- * Alem disso: o filtro de tela ja compara sem diferenciar caixa, entao duas
- * categorias escritas de formas diferentes nao quebram o filtro -- elas so
- * aparecem separadas na lista. Por isso a normalizacao e' o comfy e nao o
- * obrigatorio.
+ * Sem lista, o campo vira texto livre e o catalogo ganha "Salgado", "salgados" e
+ * "SALGADO" como tres categorias. A lista e' sugestao: quem vende "Cafes" escreve.
  */
 
 /**
- * As categorias sugeridas.
- *
- * As quatro sao as que a loja pediu. "Geral" vem do schema como padrao e fica
- * na lista de proposito: e' onde cai o produto sem classificacao, e ela precisa
- * aparecer no filtro do PDV -- um produto sem categoria que nao aparece em
- * lugar nenhum e' um produto invisivel no balcao.
+ * As categorias sugeridas. "Geral" vem do schema e fica na lista de proposito:
+ * e' onde cai o produto sem classificacao, e sem aparecer no filtro do PDV ele
+ * seria invisivel no balcao.
  */
 export const CATEGORIAS: string[] = ['Bebidas', 'Salgados', 'Pastéis', 'Refeições', 'Geral'];
 
@@ -52,11 +16,8 @@ export const CATEGORIA_PADRAO = 'Geral';
 
 /**
  * Chave de comparacao: minuscula, sem acento e sem espaco.
- *
- * E' o que faz "PASTEL", "pasteis" e "Pastéis" cairem no mesmo lugar, e o que
- * faz o filtro de tela e a normalizacao concordarem sobre o que e' "a mesma
- * categoria". Nao ha acentos e nao ha espaco porque nenhum dos dois muda o
- * grupo do produto: e' so o jeito de escrever.
+ * E' o que faz "PASTEL", "pasteis" e "Pasteis" cairem no mesmo lugar. Nem acento
+ * nem espaco mudam o grupo do produto: e' so o jeito de escrever.
  */
 function chave(valor: string): string {
     return valor
@@ -69,10 +30,8 @@ function chave(valor: string): string {
 
 /**
  * As variantes aceitas de cada categoria canonica, ja em chave.
- *
- * Escritas a mao de proposito. Um gerador de variantes tentaria adivinhar o
- * plural e o genero do portugues, e errar os dois -- "Salgadas" e "Salgado" nao
- * sao a mesma palavra em portugues. A lista e' curta e e' conferida a olho.
+ * Escritas a mao: um gerador tentaria adivinhar o plural e erraria os dois --
+ * "Salgadas" e "Salgado" nao sao a mesma palavra em portugues.
  */
 const VARIANTES: Record<string, string[]> = {
     bebidas: ['bebida', 'bebidas', 'drinks', 'refri', 'refrigerante', 'refrigerantes', 'sucos', 'suco'],
@@ -95,10 +54,8 @@ const POR_CHAVE: Map<string, string> = (() => {
 
 /**
  * Normaliza o que a pessoa digitou no campo de categoria.
- *
- * Devolve o nome canonico quando reconhece, e devolve o que foi digitado --
- * limpo -- quando nao reconhece. Reconhecer e' cortesia; o que a pessoa escreveu
- * sempre vale.
+ * Devolve o nome canonico quando reconhece, e devolve o que foi digitado quando
+ * nao reconhece: reconhecer e' cortesia, o que a pessoa escreveu sempre vale.
  */
 export function normalizarCategoria(valor: unknown): string {
     const texto = String(valor ?? '').trim();
@@ -112,14 +69,9 @@ export function ehCategoriaSugerida(valor: string): boolean {
 }
 
 /**
- * As categorias que existem no catalogo, mais as sugeridas que ainda nao
- * aparecem.
- *
- * A ordem e' a que importa no PDV: as canonicas primeiro, na ordem em que a
- * loja as le (bebida, salgado, pastel, refeicao), e depois as que a loja
- * inventou, em ordem alfabetica. Um filtro que lista "Salgados" entre
- * "Graos" e "Pao de queijo" obriga a pessoa a ler a lista inteira; na ordem dos
- * grupos do balcao, ela le ate o que procura.
+ * As categorias do catalogo, mais as sugeridas que ainda nao aparecem.
+ * A ordem e' a do balcao: canonicas primeiro, na ordem em que a loja as le, e
+ * depois as inventadas em ordem alfabetica.
  */
 export function categoriasDoCatalogo(existentes: string[]): string[] {
     const canonicas = CATEGORIAS.filter((c) => existentes.some((e) => chave(e) === chave(c)));

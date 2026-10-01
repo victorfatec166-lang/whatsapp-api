@@ -1,33 +1,13 @@
 /*
- * Entender a frase do cliente sem modelo de linguagem.
- *
- * POR QUE UM TESTE DEDICADO, E O QUE ELE PROTEGE
- *
- * Este modulo e' o unico lugar do sistema que decide qual produto o cliente
- * pediu a partir de texto solto. Se ele errar, o preco sai certo e o pedido sai
- * errado -- a pessoa recebe outra coisa e so descobre pelo preco. Esse e' o
- * pior tipo de erro de um sistema de venda: silencioso, e descoberto no cartao.
- *
- * Por isso o PISO importa mais do que o acerto. Um casamento errado destroi mais
- * do que um casamento faltando: faltando, o bot pergunta; errado, o bot cobra.
- * Por isso os casos de "nao casa" estao aqui tanto quanto os de "casa".
- *
- * Todos os casos usam o catalogo de exemplo abaixo, que reproduz o padrao real:
- * nome com virgula, nome com acento, nome curto, apelido, produto com grupo de
- * modificador de escolha unica e de varias opcoes.
- *
- * O QUE ESTES TESTES PEGARAM
- *
- * 1. Troca de letras vizinhas valia 2 no Levenshtein. "patsel" em vez de
- *    "pastel" -- o erro mais comum de dedo em celular -- passava a ser a mesma
- *    distancia de um produto totalmente diferente, e o cliente que digitou o
- *    nome certo ficava sem resposta.
- * 2. Modificador casava por substring: "bacon" dentro de "baconete", e "mal"
- *    dentro de "malte". A cozinha recebia a instrucao errada, e o preco do
- *    modificador ia junto.
- * 3. A quebra da frase partia "Arroz, feijao e salada" em tres, e nao havia
- *    quem tentasse a frase inteira primeiro -- que e' o unico jeito de acertar
- *    esse nome e "coxinha e refrigerante" ao mesmo tempo.
+ * Este modulo e' o unico lugar que decide qual produto foi pedido a partir de
+ * texto solto. Se ele errar, o preco sai certo e o pedido sai errado -- e o
+ * cliente so descobre pelo cartao.
+ */
+
+/*
+ * Por isso o PISO importa mais que o acerto: faltando casamento o bot pergunta,
+ * errado o bot cobra. Por isso os casos de "nao casa" estao aqui tanto quanto os
+ * de "casa".
  */
 
 import test from 'node:test';
@@ -152,12 +132,9 @@ test('achaProduto: apelido serve quando o nome oficial nao casa', () => {
 
 test('achaProduto: exato ganha de contido, e contido ganha de aproximado', () => {
     /*
-     * A ordem das tentativas e' uma invariante, e nao um detalhe de codigo.
-     *
-     * Com "Refrigerante" e "Refrigerante lata" no catalogo, o cliente que
-     * escreve "refrigerante" esta pedindo o produto de nome exato. Se o passo de
-     * "contido" rodasse antes do exato -- ou se as duas coisas empatassem pela
-     * confianca -- a pessoa levaria a lata grande sem ter pedido.
+     * Ordem das tentativas e' invariante: com "Refrigerante" e "Refrigerante
+     * lata", quem escreve "refrigerante" pede o de nome exato. "Contido" antes
+     * faria a pessoa levar a lata grande sem ter pedido.
      */
     const dois: ItemCatalogo[] = [
         { id: 'lata', nome: 'Refrigerante lata' },
@@ -179,14 +156,9 @@ test('achaProduto: NAO casa o que nao e' + ' produto -- o piso importa mais que 
 
 test('quebraEmPedacos: a quebra e' + ' ingenua, e isso esta certo', () => {
     /*
-     * A funcao quebra, e nao decide. Ela nao sabe o que e' um produto, entao nao
-     * tem como saber que "arroz, feijao e salada" e' um so. Quem sabe e'
-     * `interpreta`, que tenta a frase inteira antes das partes.
-     *
-     * E a virgula nao chega aqui: a chave ja a trocou por espaco. Isso e'
-     * deliberado, porque a virgula aparece DENTRO do nome de produto e o
-     * conector "e" e' o sinal mais forte de que a pessoa esta listando duas
-     * coisas.
+     * A funcao quebra, e nao decide: quem sabe que "arroz, feijao e salada" e' um
+     * so e' `interpreta`, que tenta a frase inteira antes das partes. A virgula nem
+     * chega aqui, a chave ja a trocou por espaco: o "e" e' o sinal de lista.
      */
     assert.deepEqual(quebraEmPedacos('arroz, feijao e salada'), ['arroz feijao', 'salada']);
     assert.deepEqual(quebraEmPedacos('coxinha e refrigerante'), ['coxinha', 'refrigerante']);
@@ -196,18 +168,14 @@ test('quebraEmPedacos: a quebra e' + ' ingenua, e isso esta certo', () => {
 
 test('achaProduto: a frase curta casa com o nome mais curto que a contem', () => {
     /*
-     * O caso mais comum de todos, e o que faltava.
-     *
-     * O cliente escreve "coxinha". O produto se chama "Coxinha de frango". Antes
-     * so havia a busca pelo nome DENTRO da frase, entao "coxinha" nao casava com
-     * nada: a distancia entre as duas palavras passa do limite por causa do
-     * comprimento, e o cliente que escreveu do jeito mais natural recebia
-     * "opcao invalida".
-     *
-     * E o criterio de escolha aqui e' o mais conservador possivel -- ganha o
-     * nome MAIS CURTO que contem a frase. Se o catalogo tiver "Arroz" e "Arroz,
-     * feijao e salada", e o cliente disser "arroz", ele recebe o Arroz. Escolher
-     * o mais longo seria devolver mais do que a pessoa pediu.
+     * "coxinha" nao casava com "Coxinha de frango": so havia busca pelo nome
+     * DENTRO da frase, e a distancia passa do limite por causa do comprimento.
+     */
+
+    /*
+     * Ganha o nome MAIS CURTO que contem a frase: com "Arroz" e "Arroz, feijao
+     * e salada" no catalogo, quem diz "arroz" recebe o Arroz. O mais longo seria
+     * devolver mais do que a pessoa pediu.
      */
     assert.equal(id('coxinha'), 'p2');
     assert.equal(id('refrigerante'), 'p3');

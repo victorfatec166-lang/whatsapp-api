@@ -121,15 +121,9 @@ export function renderPdv(d: PdvData): string {
         .join('\n');
 
     /*
-     * As abas de categoria, com a contagem de produtos em cada uma.
-     *
-     * A contagem e' de produtos visiveis (disponiveis), e nao de produtos
-     * cadastrados: um grupo que mostra "Salgados (3)" e traz 1 salgado
-     * pausado faz a pessoa procurar algo que nao esta la. E o que a contagem
-     * responde e' "estou no grupo certo", nao "quantas coisas eu tenho".
-     *
-     * A aba de "Todos" vem primeiro e nao tem contagem: ela nao e' um grupo, e'
-     * a ausencia de filtro.
+     * A contagem e' de produtos visiveis, nao cadastrados: um grupo que mostra "Salgados (3)" e
+     * traz 1 salgado pausado faz a pessoa procurar algo que nao esta la. "Todos" vem primeiro e
+     * sem contagem: nao e' um grupo, e' a ausencia de filtro.
      */
     const porCategoria = new Map<string, number>();
     for (const p of d.products) {
@@ -149,19 +143,44 @@ export function renderPdv(d: PdvData): string {
     ].join('\n                        ');
 
     /*
-     * A faixa do topo e' a mesma faixa de KPI do resto do painel.
-     *
-     * Antes eram tres capsulas soltas (`surface border line rounded-xl px-4
-     * py-2`) mais uma frase de explicacao, o que dava a impressao de quatro
-     * coisas independentes. Vem do mesmo bloco das outras telas agora, e a
-     * frase virou legenda do primeiro numero, onde ela informa em vez de ocupar
-     * uma linha.
+     * Mesma faixa de KPI do resto do painel. Antes eram tres capsulas soltas mais uma frase de
+     * explicacao, o que dava a impressao de quatro coisas independentes; a frase virou legenda do
+     * primeiro numero, onde informa em vez de ocupar uma linha.
      */
     return `${faixaKpi([
         kpi('Vendas no balcao hoje', String(d.todaySales), 'entradas pelo PDV', 'accent'),
         kpi('Itens no cardapio', `${d.totals.available}`, `de ${d.totals.total} cadastrados`),
         kpi('Zerados', String(d.totals.soldOut), d.totals.soldOut > 0 ? 'precisam de reposicao' : 'nenhum item travado', d.totals.soldOut > 0 ? 'danger' : 'success', d.totals.soldOut > 0 ? 'danger' : undefined),
     ])}
+
+            <!-- ================= VENDAS SUSPENSAS ================= -->
+            ${d.holds.length > 0 ? `
+            <div class="card mt-4">
+                <div class="card-pad pb-3 border-b border-line flex items-center gap-2">
+                    <h3 class="text-title flex items-center gap-2"><i class="fa-solid fa-pause text-accent-orange"></i> Vendas suspensas</h3>
+                    <span class="badge badge-warn">${d.holds.length}</span>
+                </div>
+                <!--
+                    Sem esta lista o "Suspender" era um beco sem saida: o servidor
+                    guardava a venda e nao havia onde ver nem retomar. O d.holds
+                    ja vinha no dado da tela desde o inicio, sem ninguem renderizar.
+                -->
+                <ul class="divide-y divide-line">
+                    ${d.holds.map((h) => `
+                    <li class="px-4 py-3 flex items-center gap-3 flex-wrap">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-body font-medium truncate">${escapeHtml(h.label || 'Sem nome')} <span class="text-ink-3">- ${h.count} item(ns)</span></p>
+                            <p class="text-caption text-ink-3">${money(h.total)} - ${escapeHtml(h.when)}</p>
+                        </div>
+                        <button type="button" onclick="pdvRestore('${escapeHtml(h.id)}')" class="btn btn-primary btn-sm shrink-0">
+                            <i class="fa-solid fa-rotate-left"></i> Retomar
+                        </button>
+                        <button type="button" onclick="pdvDropHold('${escapeHtml(h.id)}')" class="btn btn-ghost btn-sm shrink-0" aria-label="Descartar venda suspensa de ${escapeHtml(h.label || 'Sem nome')}">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </li>`).join('')}
+                </ul>
+            </div>` : ''}
 
             <!-- ================= MODO VENDER ================= -->
             <div id="modeVender">
@@ -280,6 +299,7 @@ ${sellCards}
                         </div>
 
                         <div class="mt-4 pt-3 border-t border-line space-y-1.5 shrink-0">
+
 
                             <div class="flex justify-between text-body">
                                 <span class="text-ink-3">Itens</span>
@@ -859,9 +879,8 @@ ${sellCards}
                 var card = e.target.closest('[data-pdv-product]');
                 if (card) {
                     // sellable = 0 quando o produto esta pausado ou sem saldo
-                    // controlado. Clicar num cartao pausado nao pode acrescentar
-                    // nada: a regra e' do servidor, e o servidor recusaria
-                    // depois, quando a pessoa ja acreditava ter vendido.
+                    // controlado: clicar num cartao pausado nao pode acrescentar nada, ou o
+                    // servidor recusaria depois, quando a pessoa ja acreditava ter vendido.
                     if (card.dataset.sellable === '1') pdvModOpen(card.dataset.pdvProduct);
                     return;
                 }

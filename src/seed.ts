@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { logDoModulo } from './services/logger';
+import { exigeLoja } from './services/loja';
 const log = logDoModulo('seed');
 
 const prisma = new PrismaClient();
@@ -8,13 +9,9 @@ async function main() {
     log.info('A inserir dados de teste...');
 
     /*
-     * A linha de Config ja vem do servidor: getConfig() cria a linha "default"
-     * no primeiro boot se ela nao existir. Este seed nao precisa criar.
-     *
-     * Ele criava com originAddress, feePerKm, baseFee e googleApiKey, que
-     * foram removidos do schema -- ver o comentario do model Config. Um seed que
-     * grava campo de entrega depois da feature de entrega ter sido deletada e'
-     * a forma mais lenta de a coluna parecer viva.
+     * A linha de Config vem do servidor: getConfig() cria a "default" no
+     * primeiro boot. Nao recrie aqui -- e nem reintroduza os campos que foram
+     * removidos do schema (ver o model Config).
      */
 
     // Produtos de exemplo individuais
@@ -28,7 +25,7 @@ async function main() {
         // Verifica se já existe para não duplicar
         const exists = await prisma.product.findFirst({ where: { name: p.name } });
         if (!exists) {
-            await prisma.product.create({ data: p });
+            await prisma.product.create({ data: { tenantId: exigeLoja(), ...p } });
         }
     }
 

@@ -39,16 +39,9 @@ type KanbanData = {
 
 function orderCard(o: OrderWithProductless, next: string | null, cor: string, icon: string): string {
     /*
-     * O botao de status e' sempre o primario, nas quatro colunas.
-     *
-     * Antes cada coluna tinha a sua cor -- ambar no pendente, laranja na cozinha,
-     * verde na entrega, com `bg-amber-500` e `text-white` escritos a mao. Alem de
-     * ser o mesmo par de cor que o `check:contrast` barra (e que o projeto ja
-     * tinha decidido trocar por token), a cor repetida na tela transformava a
-     * cor da coluna em mais uma coisa a decodificar: quem estava com pressa lia
-     * "laranja" e pensava "esta em preparo" quando o que importava era que o
-     * cartao era acionavel. A cor fica na borda esquerda do cartao, que e' onde
-     * ela informa a etapa; o botao e' um so, e e' o primario.
+     * Um botao so, o primario, nas quatro colunas. A cor repetida na tela transformava a cor da
+     * coluna em mais uma coisa a decodificar -- quem com pressa lia "laranja" e pensava "esta em
+     * preparo" quando o que importava era que o cartao era acionavel. A cor fica na borda.
      */
     const action = next
         ? `<button type="button" data-order-status data-id="${escapeHtml(o.id)}" data-next="${next}"
@@ -93,11 +86,8 @@ function orderCard(o: OrderWithProductless, next: string | null, cor: string, ic
 }
 
 /**
- * Uma coluna do quadro.
- *
- * `next` nulo e' a coluna de chegada -- Concluidos, onde o card e' so leitura.
- * A coluna e' a unica coisa da tela que rola por dentro: o quadro precisa de
- * altura propria, porque a altura da tela nao e' a do quadro, e' a de quem
+ * next nulo e' a coluna de chegada, onde o card e' so leitura. E a unica regiao da tela que
+ * rola por dentro: o quadro precisa de altura propria, que nao e' a altura da tela, e' a de quem
  * esta vendendo na frente do balcao.
  */
 function colKanban(
@@ -194,13 +184,9 @@ ${COMANDA_SCRIPT}`;
 /* ----------------------------------------------------------- Configuracoes */
 
 /*
- * Campos que a tela de Configuracoes mostra.
- *
- * A lista e' curta porque e' a lista do que funciona. "Pedido minimo", "Tempo
- * de preparo" e "Chave PIX" gravaram no banco durante muito tempo sem ninguem
- * ler -- ver o comentario em renderConfig. Nao voltaram aqui porque o tipo e'
- * o que impede a tela de-growing: um campo novo precisa de leitura, e nao so
- * de gravacao.
+ * A lista e' curta porque e' a lista do que funciona. "Pedido minimo", "Tempo de preparo" e
+ * "Chave PIX" gravaram sem ninguem ler (ver renderConfig): nao voltaram porque o tipo e' o que
+ * impede a tela de crescer -- campo novo precisa de leitura, e nao so de gravacao.
  */
 type ConfigData = {
     businessName: string;
@@ -216,43 +202,18 @@ type ConfigData = {
 
 export function renderConfig(c: ConfigData): string {
     /*
-     * Tudo que esta nesta tela funciona.
-     *
-     * Ela ja teve "Pedido minimo" e "Tempo de preparo", e os dois gravavam no
-     * banco sem ninguem ler: o bot criava o pedido sem checar valor minimo, e o
-     * tempo de preparo nao aparecia em lugar nenhum. Um controle que nao muda
-     * nada e' pior do que a ausencia dele, porque o dono acredita que esta
-     * protegido. Eles sairam daqui e continuam no schema, sem uso, ate que
-     * exista a regra que os faca valer.
-     *
-     * A chave PIX tambem saiu, pelo mesmo motivo e por um caminho so dela: ela
-     * so era lida pelo checklist da Home, que marcava "configurada" sem nunca
-     * ter chegado ao cliente. O item de setup correspondente saiu junto.
-     *
-     * O que entrou depois foi o outro lado do mesmo raciocinio. O campo "Nome
-     * do negocio" e' obrigatorio na pratica -- sai no logo, no titulo da aba e
-     * no cabecalho da comanda da impressora -- e aceitou ficar vazio em silencio.
-     * Salvar o que quebrava era a versao desse defeito com os sinais trocados,
-     * e a agenda do caixa aceitava horario sem fundo de troco, estado que o
-     * agendador ignora. Agora os dois sao recusados com a frase que diz o que
-     * fazer, e o estado da agenda aparece ANTES de salvar.
+     * Controle que nao muda nada e' pior que a ausencia dele: o dono acredita que esta protegido.
+     * "Nome do negocio" sai no logo, no titulo da aba e no cabecalho da impressora, e a agenda
+     * do caixa aceitou horario sem fundo de troco -- estado que o agendador ignora.
      */
     const agendaAtiva = c.agenda.ativa;
     const dados = c.dados;
     const ultimo = dados.ultimoBackup;
 
     /*
-     * Duas colunas, e nao tres blocos empilhados.
-     *
-     * Negocio, agenda do caixa e armazenamento ocupavam a altura toda de uma
-     * vez, e o formulario de configuracao -- que e' o que se abre para mudar
-     * alguma coisa -- ficava abaixo da dobra. Quem queria ajustar a taxa de
-     * entrega tinha de descer a pagina inteira.
-     *
-     * Com a agenda e o armazenamento lado a lado, os dois blocos que tem texto
-     * longo dividem a altura, e o formulario de negocio fica no topo, onde a
-     * leitura comeca. Em tela estreita as colunas viram uma e a ordem continua
-     * a mesma, que e' a ordem de uso: o que se ajusta todo dia primeiro.
+     * Negocio, agenda e armazenamento ocupavam a altura toda de uma vez, e o formulario -- o que
+     * se abre para mudar alguma coisa -- ficava abaixo da dobra. Em tela estreita as colunas viram
+     * uma, e a ordem continua a de uso: o que se ajusta todo dia primeiro.
      */
     return `        <form onsubmit="return saveConfig(event)" id="cfgForm" class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
             <div class="card card-pad">
@@ -269,6 +230,7 @@ export function renderConfig(c: ConfigData): string {
                     </p>
                 </div>
             </div>
+
 
             <div class="card card-pad">
                 <h3 class="text-title flex items-center gap-2">
@@ -590,8 +552,7 @@ export function renderConfig(c: ConfigData): string {
                     }
                     // Recarrega para o nome do negocio aparecer no logo e no
                     // titulo: sao renderizados no servidor, entao valem para a
-                    // proxima pagina, nao para esta. E' o que traz de volta os
-                    // numeros de "Dados e armazenamento", medidos no servidor.
+                    // proxima pagina -- e e' o que traz os numeros de "Dados".
                     flash('ok', 'Configuracoes salvas.');
                     setTimeout(function () { window.location.reload(); }, 700);
                 } catch (e) {
@@ -607,26 +568,16 @@ export function renderConfig(c: ConfigData): string {
 /* ------------------------------------------------------------ Calendario */
 
 /**
- * Calendario: contagem de pedidos por dia.
- *
- * Nao mostra faturamento. O calendario responde "quantos pedidos houve", que
- * e pergunta de operacao; quanto entrou em dinheiro e' da aba Faturamento.
+ * Nao mostra faturamento: responde "quantos pedidos houve", pergunta de operacao. Quanto
+ * entrou em dinheiro e' da aba Faturamento.
  */
 type CalendarData = { totalOrders: number; totalRevenue: number; daysInPeriod: number };
 
 export function renderCalendar(d: CalendarData): string {
     /*
-     * A pagina precisa de largura propria, e nao do container geral.
-     *
-     * O `main` do layout aceita 88rem, e uma grade de 7 colunas esticada nisso
-     * da uma celula de 200px por dia: o numero fica perdido no meio de um bloco
-     * vazio, e a tela parece solta. Calendario e' uma tabela, e tabela fica
-     * melhor apertada -- com a data perto do vizinho dela, do jeito que se le
-     * de um calendario de parede.
-     *
-     * E os blocos vao em card, como o resto do painel. Solto no main, cada
-     * grupo vira uma ilha: os resumo, a navegacao do mes, a grade e a lista de
-     * pedidos pareciam quatro telas diferentes em vez de uma.
+     * Largura propria, e nao a do container: o main aceita 88rem, e uma grade de 7 colunas nisso
+     * da um bloco vazio de 200px por dia. Calendario e' tabela, e tabela fica melhor apertada.
+     * E os blocos vao em card: soltos, pareciam quatro telas diferentes em vez de uma.
      */
     return `        <div class="max-w-6xl">
             ${faixaKpi([
@@ -784,18 +735,9 @@ export function renderStats(s: DashboardStats): string {
     const maxDay = Math.max(...s.revenueByDay.map((d) => d.revenue), 1);
 
     /*
-     * Tres faixas de numero e quatro graficos.
-     *
-     * As faixas usaram durante muito tempo um cartao proprio, escrito a mao
-     * (`surface border line rounded-2xl p-4 shadow-sm` mais `text-xs uppercase`),
-     * que era o mesmo numero com outro desenho. Agora vem do mesmo lugar que a
-     * Home: um bloco so, e o que muda entre as telas e' o conteudo.
-     *
-     * Sao tres faixas e nao uma com nove cartoes. Nove numeros juntos sao uma
-     * parede, e a parede nao tem ordem de leitura: quem abre a tela precisa
-     * saber qual dos nove e' o que veio primeiro. Separado em receita, operacao e
-     * ajuste, cada faixa responde a uma pergunta -- quanto entrou, o que esta
-     * rolando, o que saiu do bolso -- e a ordem das faixas e' essa ordem.
+     * Tres faixas e nao uma com nove cartoes: nove numeros juntos sao uma parede sem ordem de
+     * leitura, e separado em receita, operacao e ajuste cada faixa responde a uma pergunta. As
+     * faixas usavam um cartao proprio, escrito a mao: agora vem do mesmo lugar que a Home.
      */
     return `${faixaKpi([
         kpi('Receita hoje', money(s.today.revenue), `${s.today.orders} pedido(s) hoje`, 'accent'),
@@ -914,18 +856,9 @@ export type ReportData = {
 /* -------------------------------------------------------------------- Bot */
 
 /*
- * Mensagens do bot.
- *
- * A tela precisa responder tres perguntas, e antes nao respondia nenhuma delas:
- *
- * 1. "O que o bot manda agora?" -- O texto efetivo va no campo, nao vazio. A
- *    versao anterior mostrava os 15 campos em branco para quem nunca editou
- *    nada, enquanto o bot mandava os padroes cheios de texto. A pessoa via uma
- *    tela em branco e nenhuma pista do que o cliente receberia.
- * 2. "O que e' o padrao?" -- Botao em cada campo editado, que devolve o texto
- *    padrao sem precisar sair da tela.
- * 3. "Quais eu ja mexi?" -- Selo de "padrao" ou "editada" em cada campo, e um
- *    contador no topo.
+ * A tela precisa responder tres perguntas, e antes nao respondia nenhuma: o que o bot manda
+ * agora (o campo vem com o texto efetivo, e antes abria vazio para quem nunca editou), o que e'
+ * o padrao (botao em cada campo editado) e quais eu ja mexi (selo por campo e contador no topo).
  */
 
 export type EstadoMensagem = {
@@ -940,13 +873,9 @@ export type EstadoMensagem = {
 export type BotData = { mensagens: Record<string, EstadoMensagem> };
 
 /**
- * Variaveis aceitas, e onde o clique insere.
- *
- * Viram botao em vez de texto solto na ajuda porque a pessoa nao deveria ter que
- * lembrar de um detalhe de sintaxe para escrever "Total {total}, e o PIX e' para
- * {total}". Um erro de digitacao aqui -- {item}, {total} -- mandava a variavel
- * literal para o cliente, e o unico sintoma era o cliente reclamando de um
- * texto com chaves.
+ * Viram botao em vez de texto solto na ajuda porque ninguem deveria ter que lembrar de um
+ * detalhe de sintaxe para escrever "Total {total}". Erro de digitacao aqui mandava a variavel
+ * literal para o cliente, e o unico sintoma era o cliente reclamando de um texto com chaves.
  */
 const VARIAVEIS: Array<{ token: string; exemplo: string }> = [
     { token: '{items}', exemplo: '2x Coxinha' },
@@ -963,13 +892,9 @@ type CampoBot = {
 };
 
 /**
- * Agrupadas por quando o cliente ve cada uma.
- *
- * A ordem anterior era a ordem do codigo, que e' a ordem em que foram escritas
- * as mensagens -- nao a ordem em que alguem precisa delas. Quem vai mudar o
- * "status: em entrega" procura essa, e ela estava no meio de quinze caixas
- * iguais. Agrupar por momento reduz a tela de "15 campos" para "4 respostas a
- * perguntas que eu tenho".
+ * A ordem anterior era a do codigo, que e' a ordem em que as mensagens foram escritas -- nao a
+ * em que alguem precisa delas: quem mudava "status: em entrega" procurava no meio de quinze
+ * caixas iguais. Agrupar por momento reduz a tela a quatro perguntas que a pessoa tem.
  */
 const GRUPOS_BOT: Array<{ titulo: string; descricao: string; campos: CampoBot[] }> = [
     {
@@ -1081,15 +1006,9 @@ export function renderBot(d: BotData): string {
     const editadas = TODOS_OS_CAMPOS.filter((f) => d.mensagens[f.key]?.editado).length;
 
     /*
-     * Aqui dentro ja nao ha botao de "voltar tudo ao padrao".
-     *
-     * Ele subiu para o topo da aba, no WhatsApp, onde aparece sempre. Repetido
-     * aqui dentro, ele so aparecia com a secao aberta -- e a secao abre
-     * recolhida, entao o botao que resolve "o bot esta falando estranho" era
-     * justamente o que ninguem via.
-     *
-     * O que fica aqui e' o contador, que faz sentido neste nivel: quantas das
-     * mensagens DESTA tela estao editadas.
+     * Sem botao de "voltar tudo ao padrao" aqui dentro: ele subiu para o topo da aba, no
+     * WhatsApp, onde aparece sempre. Repetido aqui, so aparecia com a secao aberta -- e a secao
+     * abre recolhida. Fica o contador, que e' o que faz sentido neste nivel.
      */
     return `        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
             <p class="text-body text-ink-3 max-w-2xl">

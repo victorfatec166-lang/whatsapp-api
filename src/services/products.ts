@@ -1,5 +1,6 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { currency } from './stats';
+import { exigeLoja } from './loja';
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
@@ -19,7 +20,7 @@ export async function generateSku(name: string): Promise<string> {
     for (let attempt = 0; attempt < 12; attempt++) {
         const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
         const candidate = `${base}-${suffix}`;
-        const exists = await prisma.product.findUnique({ where: { sku: candidate }, select: { id: true } });
+        const exists = await prisma.product.findFirst({ where: { sku: candidate }, select: { id: true } });
         if (!exists) return candidate;
     }
     //Fallback final: prefixo curto + timestamp, praticamente sem colisao.
@@ -216,7 +217,7 @@ export async function importProductsFromCsv(text: string): Promise<ImportResult>
         try {
             // Chave de coincidencia: SKU preenchido; sem SKU, cai para o nome.
             const existing = sku
-                ? await prisma.product.findUnique({ where: { sku } })
+                ? await prisma.product.findFirst({ where: { sku } })
                 : await prisma.product.findFirst({ where: { name } });
 
             if (existing) {
@@ -240,6 +241,7 @@ export async function importProductsFromCsv(text: string): Promise<ImportResult>
                 const finalSku = sku || (await generateSku(name));
                 await prisma.product.create({
                     data: {
+                        tenantId: exigeLoja(),
                         sku: finalSku,
                         name,
                         price: round(price),

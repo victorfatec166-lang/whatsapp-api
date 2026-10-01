@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { inicioDoDia } from './retencao';
 import { backupDir } from './backup';
 import { pastaDeLogs } from './logger';
@@ -8,31 +8,8 @@ import { DIR_SESSAO_WHATSAPP } from './paths';
 
 /**
  * Onde estao os dados, quanto ocupam, e o que o sistema guarda.
- *
- * POR QUE ISSO E' UMA TELA
- *
- * O dono de um sistema que roda na propria maquina tem perguntas que ninguem
- * responde: isso ocupa quanto, o que e' guardado do cliente, onde esta o backup,
- * o que acontece quando o disco enche. Hoje a resposta boa estava no log do
- * boot, que e' a pior tela possivel para essa pergunta -- visivel uma vez, no
- * terminal, e jogada fora na proxima virada do dia.
- *
- * E a pergunta ficou mais especifica depois da virada do dia. O sistema apaga
- * conversa a meia-noite, e isso e' uma promessa: o que o dono nao guardou nao
- * esta em lugar nenhum. Promessa de retencao que ninguem consegue auditar na
- * tela e' promessa que so o developer acredita.
- *
- * Os numeros sao medidos, nao estimados. "Ocupa pouco" sem numero e' o que faz
- * o disco encher em silencio; o valor exato do arquivo e' o que permite dizer
- * "cresceu 4 MB neste mes, olha a pasta X".
- *
- * O QUE ESTA AQUI, E O QUE NAO ESTA
- *
- * Nao ha grafico, nem barra de uso, nem projecao. Nenhum dos tres seria verdade:
- * o que ocupa espaco depende de quantos pedidos e quantas mensagens o dia teve,
- * e projetar isso sem historico e' inventar numero. O que a tela da e' o estado
- * agora, a regra que decide o futuro, e o caminho para agir -- que sao as tres
- * coisas que continuam valendo amanha.
+ * Numero medido, nunca estimado -- e' o que permite dizer "cresceu 4 MB neste mes".
+ * Sem grafico nem projecao: projetar sem historico e' inventar numero.
  */
 
 /** Como o sistema esta exposto. Ver a nota de seguranca no fim do arquivo. */
@@ -99,11 +76,8 @@ const ehBackup = (n: string) => n.startsWith('backup-') && n.endsWith('.db');
 const ehLog = (n: string) => n.startsWith('app-') && n.endsWith('.log');
 
 /**
- * Pasta da sessao do WhatsApp.
- *
- * Vem do `bot.ts` como `AUTH_DIR`, resolvida a partir de onde o processo roda.
- * Aqui e' recalculada com a mesma regra, e o motivo de nao importar o modulo
- * do bot e' concreto: `bot.ts` conecta o Baileys no import, e um modulo de
+ * Pasta da sessao do WhatsApp, recalculada com a mesma regra do `bot.ts` em vez
+ * de importada: `bot.ts` conecta o Baileys no import, e um modulo de
  * diagnostico nao pode ter esse efeito colateral.
  */
 function pastaDaSessao(): string {
@@ -120,12 +94,9 @@ export async function resumoArmazenamento(agora: Date = new Date()): Promise<Res
     const pastaSessao = pastaDaSessao();
 
     /*
-     * O caminho do .db vem do proprio SQLite, e nao de `path.join`.
-     *
-     * O `DATABASE_URL` e' relativo a pasta do schema, entao um join aqui erraria
-     * justamente no caso que importa: banco apontado para outro disco. E ja
-     * existe a mesma pergunta respondida na retencao -- `PRAGMA database_list`
-     * devolve o caminho que o motor esta usando de fato.
+     * O caminho do .db vem do proprio SQLite, e nao de `path.join`: o
+     * DATABASE_URL e' relativo a pasta do schema, e um join erraria justamente
+     * quando o banco esta em outro disco.
      */
     let caminhoBanco: string | null = null;
     try {
@@ -200,12 +171,9 @@ export async function resumoArmazenamento(agora: Date = new Date()): Promise<Res
         pastaBackup,
         pastaLog,
         /*
-         * A regra escrita para quem le, e nao para quem implementa.
-         *
-         * "24 horas" seria mais curto de explicar e seria menos verdade: o
-         * corte e' na meia-noite, entao uma mensagem das 23:00 vive uma hora e
-         * uma das 00:10 vive quase vinte e quatro. O que a tela promete tem que
-         * ser o que o codigo faz, entao o texto e' sobre a meia-noite.
+         * A regra escrita para quem le, e nao para quem implementa. "24 horas"
+         * seria mais curto e menos verdade: o corte e' na meia-noite, e o que a
+         * tela promete tem que ser o que o codigo faz.
          */
         retencao:
             `Na virada da meia-noite as mensagens de ontem saem do sistema, junto com a conversa na lista ` +
@@ -216,9 +184,8 @@ export async function resumoArmazenamento(agora: Date = new Date()): Promise<Res
             host,
             aberta: host === '0.0.0.0' || host === '::',
             // Verdade, e e' a parte que incomoda: o painel nao tem senha. Um
-            // campo aqui que dissesse "senha configurada" seria o tipo de
-            // configuracao que so o dono acredita -- ver a nota no schema do
-            // Config, sobre campo gravado e nao lido.
+            // campo aqui que dissesse "senha configurada" seria configuracao
+            // que so o dono acredita.
             temSenha: false,
         },
     };

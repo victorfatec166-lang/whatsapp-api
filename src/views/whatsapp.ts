@@ -2,30 +2,15 @@ import { renderPairing, type PairData } from './pairing';
 import { renderBot, type BotData } from './tabs';
 
 /**
- * WhatsApp: conexao + textos do bot numa unica tela.
- *
- * Antes eram dois itens da sidebar. Sao o mesmo subsistema e a mesma sessao, e o
- * botao "Reconectar" aparecia nas duas. Agora a conexao fica sempre no topo
- * (e o que importa 99% das vezes) e os textos do bot ficam numa secao
- * colapsavel, que o dono consulta poucas vezes por ano.
+ * Antes eram dois itens da sidebar, mesmo subsistema e mesma sessao, e o botao "Reconectar"
+ * aparecia nas duas. A conexao fica no topo porque e' o que importa quase sempre; os textos
+ * do bot, numa secao colapsavel.
  */
 export function renderWhatsApp(d: { pair: PairData; bot: BotData }): string {
     /*
-     * O botao de voltar ao padrao sobe para o topo da aba.
-     *
-     * Ele ja existia -- aqui em cima, e um por campo la embaixo -- mas morava
-     * dentro de "Textos do bot", que abre recolhido. Resultado: o dono que
-     * mudou o jeito de o bot falar, esqueceu como voltou, e nao tinha onde
-     * procurar. Botao que so existe dentro de uma secao fechada nao e' botao;
-     * e' piada de programador.
-     *
-     * Aparece sempre, mesmo sem edicao nenhuma, e nesse caso fica desligado e
-     * diz por que. Um botao que so aparece quando ha algo a fazer obriga a
-     * pessoa a caçar o estado do sistema antes de descobrir que ele existe --
-     * e nesse caso o que ela queria era descobrir que nao ha nada a fazer.
-     *
-     * A funcao mora em tabs.ts, junto dos campos que ela apaga. Chamar de dois
-     * lugares e' de graca; duplicar a confirmacao em dois lugares, nao.
+     * O botao ja existia, mas morava dentro de "Textos do bot", que abre recolhido: quem mudou
+     * o jeito do bot falar esqueceu como voltar e nao tinha onde procurar. Aparece sempre, e sem
+     * edicao alguma fica desligado e diz por que. A funcao mora em tabs.ts.
      */
     const editadas = Object.values(d.bot.mensagens).filter((m) => m?.editado).length;
 

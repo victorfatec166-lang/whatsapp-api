@@ -150,6 +150,44 @@ O projeto também possui comandos auxiliares definidos no `package.json`, inclui
 
 ---
 
+## 📦 Instalador para Windows
+
+O sistema é distribuído como um instalador de arquivo único, gerado com o [Inno Setup](https://jrsoftware.org/isinfo.php). Quem instala não precisa de Node, nem de qualquer outro pré-requisito: o runtime viaja dentro do instalador.
+
+A única dependência externa da montagem é o próprio Inno Setup:
+
+```bash
+winget install JRSoftware.InnoSetup
+```
+
+Para gerar o instalador:
+
+```bash
+npm run installer
+```
+
+O comando faz a montagem inteira — compila o sistema, baixa as dependências só de produção, gera o cliente do Prisma, monta o payload e chama o Inno Setup. Leva alguns minutos, e a maior parte do tempo é a compactação.
+
+O instalador sai em:
+
+```
+release\Instalar DeliveryAdmin.exe
+```
+
+Para recompilar **sem** refazer a montagem (útil quando só o `.iss` ou o ícone mudaram):
+
+```bash
+npm run installer:rapido
+```
+
+Esse caminho rápido é recusado se o payload estiver mais velho que o `dist\` do projeto — o mesmo defeito que faria o instalador levar o servidor de ontem, sem nenhum aviso. Nesse caso, rode `npm run installer`.
+
+Depois de instalar, o programa fica em `C:\Program Files\DeliveryAdmin`, e os dados do dono (banco, sessão do WhatsApp, backups e logs) em `%APPDATA%\DeliveryAdmin`. São separados de propósito: trocar o programa nunca toca no banco, e desinstalar não apaga o histórico de pedidos.
+
+O instalador é **Windows x64**. O runtime e os motores nativos do Prisma são binários dessa plataforma; não há artefato para macOS ou Linux.
+
+---
+
 ## 🧪 Testes
 
 Para executar os testes automatizados:
@@ -193,7 +231,10 @@ npm run check:contrast
 | `npm run check`          | Executa as verificações do projeto |
 | `npm run check:ui`       | Verifica a interface               |
 | `npm run check:js`       | Verifica o JavaScript              |
+| `npm run check:ps1`      | Verifica a sintaxe dos scripts do instalador |
 | `npm run check:contrast` | Verifica contraste da interface    |
+| `npm run installer`      | Monta o instalador do Windows      |
+| `npm run installer:rapido` | Recompila o instalador sem refazer a montagem |
 | `npm run watch:css`      | Observa alterações no CSS          |
 
 Os scripts acima são definidos atualmente no `package.json` do repositório.

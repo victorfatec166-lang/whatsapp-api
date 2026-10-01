@@ -1,24 +1,14 @@
 /*
- * Guard de maquina da sessao do WhatsApp.
- *
- * Este guard tem um temptedor de virar "seguranca". Nao e': ele nao impede
- * ninguem de copiar a pasta da sessao para outra maquina -- quem pode copiar um
- * arquivo pode editar a checagem. O que ele faz e' pegar o ACIDENTO, que e' o
- * que derruba numero: alguem copia a instalacao para testar, ou o empacotador
- * inclui a pasta sem querer, e o WhatsApp passa a ver dois aparelhos com a mesma
- * identidade criptografica.
- *
- * Por isso os casos daqui sao os que importam:
- *
- * 1. Sessao de outra maquina AVISA, e o texto diz o que fazer.
- * 2. Marcacao corrompida NAO bloqueia. Um arquivo de texto ilegivel derrubando
- *    o WhatsApp seria trocar uma sessao possivelmente errada por um bot
- *    comprovadamente quebrado.
- * 3. Sem id da maquina, nao se inventa veredito. Fingir que conferiu e' pior
- *    que admitir que nao deu para conferir.
- *
- * Roda em pasta temporaria: nao toca na sessao real nem derruba o WhatsApp que
- * esta pareado.
+ * Este guard nao e' seguranca: quem pode copiar a pasta da sessao pode editar a
+ * checagem. O que ele pega e' o ACIDENTO -- instalacao copiada para testar, ou
+ * pasta empacotada sem querer -- que faz o WhatsApp ver duas identidades.
+ */
+
+
+/*
+ * As tres regras: sessao de outra maquina AVISA e diz o que fazer; marcacao
+ * corrompida NAO bloqueia, porque trocar sessao possivelmente errada por bot
+ * quebrado e' pior; sem id da maquina nao se inventa veredito.
  */
 
 import test from 'node:test';
@@ -51,14 +41,9 @@ function marca(pasta: string, id: string): void {
 test('o id da maquina e estavel e nao vaza o GUID', () => {
     const id = idDaMaquina();
 
-    // Fora do Windows nao ha MachineGuid, e o guard trata isso como "nao da
-    // para amarrar" -- coberto pelo ultimo teste. Aqui so se verifica o
-    // formato quando existe.
-    //
-    // Nao se usa t.skip(cond, msg): no runner do Node o skip nao aceita
-    // condicao, e t.skip(false) pula do mesmo jeito. Foi o que aconteceu na
-    // primeira versao deste teste -- pulava sempre, e o id errado passava
-    // despercebido.
+    // `id === ''` e' o caso sem MachineGuid, coberto pelo ultimo teste. E
+    // t.skip(cond) nao serve: o runner nao aceita condicao, e t.skip(false) pula
+    // do mesmo jeito -- a primeira versao pulava sempre e o id errado passava.
     if (id === '') return;
 
     assert.equal(id.length, 32, 'tamanho fixo');

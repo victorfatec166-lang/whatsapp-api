@@ -2,34 +2,15 @@ import { escapeHtml } from './html';
 import { logDoModulo } from '../services/logger';
 const log = logDoModulo('layout');
 
-// O union so lista o que existe hoje em TABS. Caixa, Clientes, Bot, Stats,
-// Reports e System saíram da barra, e isTabId() so aceita o que esta em TABS,
-//entao mantê-los aqui dava a impressao de que ainda dava para abrir ?tab=caixa
-// e nao dava: LEGACY_TABS e' que resolve o link antigo, com redirecionamento.
-export type TabId = 'home' | 'kanban' | 'pdv' | 'estoque' | 'calendario' | 'chat' | 'faturamento' | 'whatsapp' | 'marketplace' | 'config' | 'usuarios';
+// O union so lista o que existe hoje em TABS: isTabId() so aceita o que esta em TABS, entao
+// manter Caixa, Clientes, Bot, Stats, Reports e System aqui dava a impressao de que ainda
+// dava para abrir ?tab=caixa, e nao dava. LEGACY_TABS e' que resolve o link antigo.
+export type TabId = 'home' | 'kanban' | 'pdv' | 'estoque' | 'calendario' | 'faturamento' | 'whatsapp' | 'marketplace' | 'config' | 'usuarios';
 
 /**
- * Ordem da sidebar: o dia primeiro, o catalogo, os canais de terceiro, os
- * ajustes, e o dinheiro por ultimo.
- *
- * A mudanca maior aqui e' o grupo "Apps e conexoes". Marketplace vivia dentro de
- * Ajustes, ao lado de Configuracoes: sao coisas de naturezas diferentes. Uma e'
- * onde se credencia iFood e 99Food e se confere se os pedidos estao entrando; a
- * outra e' entrega, taxa e nome do negocio. Quem procurava o iFood passava por
- * "Configuracoes" e concluia que o canal nao existia.
- *
- * WhatsApp e Marketplace juntos fazem sentido por uma razao pratica: sao os
- * dois lugares onde este painel conversa com um sistema de fora. Vem depois do
- * catalogo e antes dos ajustes porque e' o que se configura uma vez e depois
- * esquece -- e e' tambem onde a pessoa precisa ir quando o pedido de fora nao
- * aparece, entao tem de ser facil de achar.
- *
- * Faturamento continua no fim: e' a unica aba que mostra dinheiro, e a ultima
- * por decisao, nao por ordem alfabetica.
- *
- * Os rotulos sao o que a pessoa le na tela, entao valem uma palavra a mais que
- * o nome interno do grupo: "Dia a dia" diz o que tem la dentro, "Operacao" so
- * nomeia a categoria.
+ * O grupo "Apps e conexoes" nasceu porque Marketplace vivia dentro de Ajustes: quem procurava o
+ * iFood passava por "Configuracoes" e concluia que o canal nao existia. Os dois canais vem
+ * depois do catalogo, e Faturamento no fim -- e' a unica aba que mostra dinheiro.
  */
 export const TAB_GROUPS = [
     { id: 'dia', label: 'Dia a dia' },
@@ -43,39 +24,25 @@ export type TabGroupId = (typeof TAB_GROUPS)[number]['id'];
 
 export const TABS: Array<{ id: TabId; group: TabGroupId; label: string; icon: string; hint: string }> = [
     /*
-     * A ordem dentro de "Dia a dia" e' o caminho do expediente, nao o alphabetico.
-     *
-     * Acorda no Inicio, cai nos Pedidos que chegaram, atende no WhatsApp, vende
-     * no balcao, e so entao olha o Calendario para o dia seguinte. Quem procura
-     * "Conversas" na posicao em que ela estava, depois de Calendario, passava
-     * pelo Calendario inteiro sem ver -- e a tela que se usa o dia inteiro ficava
-     * embaixo da que se abre uma vez por semana.
+     * A ordem e' o caminho do expediente, nao o alfabetico: acorda no Inicio, cai nos Pedidos,
+     * vende no balcao, e so entao olha o Calendario.
      */
     { id: 'home', group: 'dia', label: 'Inicio', icon: 'fa-solid fa-house', hint: 'Resumo do dia e atalhos' },
     { id: 'kanban', group: 'dia', label: 'Pedidos', icon: 'fa-solid fa-chart-pie', hint: 'Gestao de pedidos em tempo real' },
-    { id: 'chat', group: 'dia', label: 'Conversas', icon: 'fa-solid fa-comments', hint: 'Atender pelo WhatsApp' },
     { id: 'pdv', group: 'dia', label: 'PDV', icon: 'fa-solid fa-cash-register', hint: 'Vender no balcao' },
-    { id: 'calendario', group: 'dia', label: 'Calendario', icon: 'fa-solid fa-calendar-days', hint: 'Pedidos por dia' },
+    { id: 'calendario', group: 'dia', label: 'Calendario', icon: 'fa-solid fa-calendar-day', hint: 'Pedidos por dia' },
 
     /*
-     * Catalogo tem grupo proprio porque e' um trabalho diferente do dia a dia:
-     * quem monta o cardapio nao esta vendendo, e misturar as duas coisas faz a
-     * lista do dia ter nove itens em vez de cinco.
-     *
-     * O rotulo e' "Estoque" e nao "Produtos e Estoque" porque o grupo acima ja
-     * diz Catalogo. E' o mesmo nome que a aba ja usava na tela, entao nao cria
-     * duas palavras para a mesma coisa.
+     * Grupo proprio porque quem monta o cardapio nao esta vendendo, e misturar as duas coisas
+     * faz a lista do dia ter nove itens em vez de cinco. O rotulo e' "Estoque" porque o grupo
+     * acima ja diz Catalogo: duas palavras para a mesma coisa nao.
      */
     { id: 'estoque', group: 'catalogo', label: 'Estoque', icon: 'fa-solid fa-boxes-stacked', hint: 'Catalogo, saldos e reposicao' },
 
     /*
-     * Os dois canais de fora, juntos e no mesmo grupo.
-     *
-     * Marketplace saiu de Ajustes: e' onde se credencia iFood e 99Food e se
-     * confere se os pedidos estao entrando, nao um ajuste do negocio. Fica
-     * depois do catalogo porque o canal vende exatamente o que esta no catalogo
-     * -- quem vai la costuma estar resolvendo "esse item sumiu do iFood", e as
-     * duas abas precisam estar perto uma da outra.
+     * Marketplace saiu de Ajustes: e' onde se credencia os canais e se confere se os pedidos
+     * estao entrando, nao um ajuste do negocio. Fica depois do catalogo porque quem vai la
+     * costuma estar resolvendo "esse item sumiu do iFood".
      */
     { id: 'whatsapp', group: 'apps', label: 'WhatsApp', icon: 'fa-brands fa-whatsapp', hint: 'Conexao e textos do bot' },
     { id: 'marketplace', group: 'apps', label: 'iFood e 99Food', icon: 'fa-solid fa-store', hint: 'Marketplace: credenciar e conferir pedidos' },
@@ -83,12 +50,9 @@ export const TABS: Array<{ id: TabId; group: TabGroupId; label: string; icon: st
     { id: 'config', group: 'ajustes', label: 'Configuracoes', icon: 'fa-solid fa-gear', hint: 'Entrega e negocio' },
 
     /*
-     * Quem entra no painel, no mesmo grupo das configuracoes.
-     *
-     * A conta e' uma configuracao do negocio, nao uma aba de uso diario: quem
-     * gerencia e' o dono, e uma vez por trimestre. Ficar no fim do grupo, logo
-     * antes do dinheiro, e' o que a mantem longe do caminho de quem so esta
-     * vendendo.
+     * A conta e' configuracao do negocio, nao aba de uso diario: quem gerencia e' o dono, uma
+     * vez por trimestre. Ficar no fim do grupo, logo antes do dinheiro, e' o que a mantem longe
+     * do caminho de quem so esta vendendo.
      */
     { id: 'usuarios', group: 'ajustes', label: 'Usuarios', icon: 'fa-solid fa-user-shield', hint: 'Quem pode entrar no painel' },
 
@@ -97,23 +61,9 @@ export const TABS: Array<{ id: TabId; group: TabGroupId; label: string; icon: st
 ];
 
 /**
- * Itens que sairam da sidebar e para onde vao.
- *
- * IsTabId() so aceita o que esta em TABS, entao um ?tab=antigo deixaria de
- * funcionar silenciosamente. Mapeamos para o destino real em vez disso.
- * O "#" aponta a sub-aba que a tela antiga virava.
- */
-/**
- * Itens que sairam da sidebar e para onde vao.
- *
- * IsTabId() so aceita o que esta em TABS, entao um ?tab=antigo deixaria de
- * funcionar silenciosamente. Mapeamos para o destino real em vez disso.
- *
- * O destino ja vem como caminho pronto, e nao como "aba + subaba": as
- * sub-abas do Faturamento se escolhem por ?aba=, que e' o mesmo mecanismo que
- * o servidor usa para desenhar a tela certa ja no HTML. Um #caixa tambem
- * funcionaria, mas entao teriamos dois jeitos de escolher a mesma sub-aba e o
- * proximo bug seria um deles deixar de ser lido.
+ * IsTabId() so aceita o que esta em TABS, entao um ?tab=antigo deixaria de funcionar em
+ * silencio: mapeamos para o destino real. O caminho ja vem pronto, e nao como "aba + subaba" --
+ * dois jeitos de escolher a mesma sub-aba, e o proximo bug seria um deles parar de ser lido.
  */
 export const LEGACY_TABS: Record<string, string> = {
     bot: '/admin?tab=whatsapp#textos-bot',
@@ -135,14 +85,9 @@ export function tabHint(id: TabId): string {
 }
 
 const HEAD_SCRIPTS = `
-                    // Aplica o tema salvo antes da primeira pintura para evitar
-                    // "flash" do tema errado ao carregar a pagina.
-                    //
-                    // A estrategia darkMode: 'class' e definida em tailwind.config.js,
-                    // na hora do build -- nao aqui. Uma atribuicao a "tailwind.config"
-                    // neste ponto (sobra da versao que usava o CDN) lancava
-                    // ReferenceError e abortava o script antes de ler o localStorage,
-                    // o que fazia o tema escuro voltar ao claro a cada troca de aba.
+                    // Aplica o tema salvo antes da primeira pintura para nao piscar o
+                    // tema errado. darkMode: 'class' e' definida em tailwind.config.js,
+                    // no build: a sobra da versao com CDN lancava ReferenceError aqui.
                     (function () {
                         try {
                             var saved = localStorage.getItem('theme');
@@ -352,10 +297,9 @@ const APP_SCRIPTS = `
                     }
                 }
 
-                // Aplica assim que o corpo existe. Este script fica no <head>, e
-                // o id da barra so aparece depois do corpo -- sem o guard, a
-                // preferencia era perdida a cada recarga, que e' pior do que
-                // nao ter preferencia nenhuma.
+                // Aplica assim que o corpo existe: este script fica no head, e o id
+                // da barra so aparece depois. Sem o guard, a preferencia era perdida
+                // a cada recarga -- pior do que nao ter preferencia nenhuma.
                 document.addEventListener('DOMContentLoaded', function () {
                     var aberta = true;
                     try {
@@ -448,11 +392,9 @@ const APP_SCRIPTS = `
                     // segunda substitui a mensagem e a acao da primeira.
                     confirmarPendente = fn;
 
-                    // O foco volta para o botao que abriu a janela quando ela
-                    // fechar. Guardar aqui, e nao em modalHide, porque o
-                    // activeElement no momento de fechar ja' e' o botao da
-                    // propria janela. Sem isso, quem opera o teclado perde o
-                    // lugar e precisa pegar o mouse de novo.
+                    // O foco volta para o botao que abriu a janela. Guardar aqui, e
+                    // nao em modalHide, porque o activeElement no momento de fechar ja
+                    // e' o botao da propria janela.
                     var ativo = document.activeElement;
                     confirmarOrigem = ativo && ativo !== document.body ? ativo : null;
 
@@ -614,11 +556,8 @@ const APP_SCRIPTS = `
                 }
 
                 // ---- Janelas pop-up ----
-                // Fica aqui, e' nao no corpo da pagina: modalBind depende de
-                // postJSON e flash, que sao daqui. Se a janela declarasse o
-                // proprio bloco de script no corpo, a ordem entre os dois
-                // seria o que decide se o botao funciona -- e ja foi uma
-                // janela que nao abria por causa disso.
+                // Fica aqui, e' nao no corpo: modalBind depende de postJSON e flash,
+                // que sao daqui. No corpo, a ordem entre os scripts decide o botao.
                 function modalShow(id) {
                     var m = document.getElementById(id);
                     if (!m) return;
@@ -795,29 +734,9 @@ ${items}`;
     }).join('');
 
     /*
-     * A barra lateral recolhivel, e o botao circular na borda dela.
-     *
-     * A barra vive dentro de um container de largura ZERO, com o painel
-     * absoluto dentro dele. Quando ela recolhe, o container continua medindo
-     * zero e a coluna de conteudo ocupa a tela inteira -- que e' o motivo de
-     * recolher em tela grande: no balcao, a area util e' o catalogo e o
-     * carrinho, nao a lista de abas.
-     *
-     * O botao e' circular e fica na VERTICAL, na borda da barra. Circular
-     * porque ele precisa parecer um controle flutuante e nao uma coluna: a
-     * versao anterior era uma faixa de altura inteira com o rotulo escrito
-     * dentro, e o resultado era uma segunda coluna estreita disputando espaco
-     * com a primeira -- mais uma coisa para olhar, do lado esquerdo, onde
-     * comeca o conteudo.
-     *
-     * Sao dois botoes, e nao um que muda de estado. O que fecha fica sobre a
-     * borda da barra aberta; o que abre fica na borda esquerda do conteudo,
-     * no lugar onde a barra estava. Um botao so esconderia o rotulo e o icone
-     * no espaco vazio, e um espaco vazio nao sugere que a barra pode voltar.
-     *
-     * As classes `rail*` sao do CSS, e nao do Tailwind: ver o comentario de
-     * `.rail-btn` em `styles/app.css` para o porque de o `hidden` precisar
-     * ser uma regra nossa.
+     * A barra vive num container de largura ZERO, com o painel absoluto dentro: recolhida, a coluna
+     * de conteudo ocupa a tela inteira. Sao dois botoes e nao um que muda de estado: um so
+     * esconderia o rotulo no espaco vazio, e espaco vazio nao sugere que a barra volta.
      */
     return `                    <div class="rail hidden md:block">
                         <aside id="sidebar" class="rail-painel bg-surface border-r line">

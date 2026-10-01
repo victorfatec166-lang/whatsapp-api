@@ -1,4 +1,4 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { serializeItems } from './items';
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -116,13 +116,9 @@ export type PriceResult = {
 };
 
 /**
- * Precifica o carrinho usando SEMPRE os precos do banco. O cliente manda
- * apenas { id, qty, mods:{ groupId: { optionIds } } }.
- *
- * Regras aplicadas:
- * - modificador so vale se a opcao existir E o grupo estiver ligado ao produto;
- * - respeita minSelect/maxSelect e grupos obrigatorios;
- * - combo baixa estoque nos componentes, nao no combo.
+ * Precifica o carrinho usando SEMPRE os precos do banco: o cliente manda apenas
+ * { id, qty, mods }. Modificador so vale se a opcao existir E o grupo estiver
+ * ligado ao produto; combo baixa estoque nos componentes, nao no combo.
  */
 export async function priceCart(raw: unknown): Promise<{ ok: true; result: PriceResult } | { ok: false; error: string }> {
     if (!Array.isArray(raw) || raw.length === 0) return { ok: false, error: 'Carrinho vazio.' };

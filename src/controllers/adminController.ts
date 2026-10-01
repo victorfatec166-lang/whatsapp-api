@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { logDoModulo } from '../services/logger';
 import { carregarConfig, salvarConfig, falhouSalvar } from '../services/config';
 import { normalizarCategoria } from '../services/categorias';
+import { exigeLoja } from '../services/loja';
 const log = logDoModulo('adminController');
 
 export const adminController = {
@@ -50,14 +51,14 @@ export const adminController = {
 
       const product = await prisma.product.create({
         data: {
+          tenantId: exigeLoja(),
           name: String(name).trim(),
           description: description ? String(description) : '',
           price: parsedPrice,
           costPrice: safeCost,
-          // A categoria passa pela normalizacao antes de gravar. Sem isso,
-          // "Salgado", "salgados" e "SALGADO" viram tres categorias distintas, e
-          // o filtro do PDV -- que compara texto -- deixa de achar o produto
-          // quando a pessoa procura por uma delas.
+          // Normaliza antes de gravar: sem isso "Salgado", "salgados" e "SALGADO"
+          // viram tres categorias, e o filtro do PDV -- que compara texto --
+          // deixa de achar o produto.
           category: normalizarCategoria(category),
           isAvailable: isAvailable === undefined ? true : isAvailable === true || isAvailable === 'true',
           trackStock: track,
@@ -83,6 +84,7 @@ export const adminController = {
       }
       const copy = await prisma.product.create({
         data: {
+          tenantId: exigeLoja(),
           name: `${source.name} (cópia)`,
           price: source.price,
           costPrice: source.costPrice,
@@ -147,10 +149,9 @@ export const adminController = {
           ...(name && { name: String(name).trim() }),
           ...(description !== undefined && { description: String(description) }),
           ...(price !== undefined && price !== '' && { price: parseFloat(price) }),
-          // Mesma normalizacao da criacao. Editar e' o caminho pelo qual as
-          // categorias se multiplicam na pratica: a pessoa corrige o campo,
-          // digita "Salgado" num produto que estava em "Salgados", e o filtro
-          // do PDV passa a mostrar o mesmo salgado em dois grupos.
+          // Mesma normalizacao da criacao: editar e' o caminho pelo qual as
+          // categorias se multiplicam -- "Salgado" num produto que estava em
+          // "Salgados" quebra o filtro do PDV, que compara texto.
           ...(category !== undefined && { category: normalizarCategoria(category) }),
           ...(isAvailable !== undefined && { isAvailable: isAvailable === true || isAvailable === 'true' }),
           ...(parsedMin !== undefined && { minStock: parsedMin }),
@@ -217,14 +218,9 @@ export const adminController = {
 
   // --- GESTÃO DE CONFIGURAÇÕES ---
   /*
-   * A regra das configurações mora em `services/config.ts`, e as duas rotas que
-   * gravam isso -- esta e a tela do painel -- passam por lá.
-   *
-   * Antes eram dois lugares: a tela gravava direto no banco e a API devolvia
-   * 501 dizendo que o modelo Config não existia, sendo que ele existe e a tela
-   * usa. Duas rotas para a mesma gravação divergem, e divergiram: só a da tela
-   * validava alguma coisa, e mesmo assim aceitou nome de negócio vazio e
-   * agenda do caixa pela metade.
+   * A regra mora em `services/config.ts`, e as duas rotas que gravam isso --
+   * esta e a tela do painel -- passam por la. Duas rotas validando por conta
+   * propria ja divergiram: so a tela validava, e aceitou nome de negocio vazio.
    */
   async getConfig(req: Request, res: Response) {
     try {

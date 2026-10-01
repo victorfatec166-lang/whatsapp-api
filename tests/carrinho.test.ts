@@ -1,27 +1,13 @@
 /*
- * O carrinho do cliente: juncao, agrupamento e os comandos que fecham pedido.
- *
- * POR QUE UM TESTE DEDICADO
- *
- * O carrinho decide o que a cozinha vai produzir. A regra de juncao e' a que
- * mais destrói dinheiro em silencio: se dois pedidos iguais viram duas linhas, a
- * cozinha prepara duas vezes; se viram uma linha com o dobro da quantidade, o
- * preparo esta certo e o painel mostra errado. Os dois erros nao aparecem em
- * nenhuma tela de log.
- *
- * O total NAO entra aqui, e isso e' o ponto: este arquivo nao conhece preco. O
- * preco vem do banco, recalculado em `priceCart`, e o total do pedido sai de
- * la. Se algum destes testes precisasse de um valor em reais, seria sinal de que
- * a regra passou para o lugar errado.
- *
- * O QUE ESTES TESTES PEGARAM
- *
- * 1. Um item de quantidade zero virava "0x Coxinha" no resumo e contava no
- *    total. A pessoa que escreveu "0 coxinha" para desfazer via um numero zero
- *    apagava o item da lista e deixava a linha morta na tela.
- * 2. A ordem das opcoes de modificador mudava o resultado da comparacao: "bacon
- *    e cheddar" e "cheddar e bacon" sao a mesma combinacao, e a versao anterior
- *    tratava como duas linhas diferentes.
+ * O carrinho decide o que a cozinha produz, e a regra de juncao e' a que mais
+ * destroi dinheiro em silencio: dois pedidos iguais virando duas linhas faz a
+ * cozinha preparar duas vezes, e uma linha com o dobro faz o painel errar.
+ */
+
+/*
+ * O total NAO entra aqui, e isso e' o ponto: o preco vem do banco, recalculado
+ * em `priceCart`. Se um destes testes precisasse de um valor em reais, a regra
+ * de juncao teria passado para o lugar errado.
  */
 
 import test from 'node:test';
@@ -39,13 +25,9 @@ import {
 } from '../src/services/carrinho';
 
 /*
- * Os itens sao factories, e nao constantes.
- *
- * Isso nao e' estilo: uma constante compartilhada entre testes e' exatamente o
- * que expôs o bug de `juntaItem` somar no objeto de quem chamou -- o primeiro
- * caso alterava a constante, e os casos seguintes enxergavam aalteração. Com
- * factory, cada caso parte do zero e um bug de mutação aparece como falha no
- * lugar certo.
+ * Os itens sao factories, e nao constantes: `juntaItem` somava no objeto de quem
+ * chamou, e uma constante compartilhada fazia o primeiro caso contaminar os
+ * seguintes. Com factory, um bug de mutacao aparece no lugar certo.
  */
 const COXINHA = (qtd = 1): LinhaCarrinho => ({ id: 'p1', nome: 'Coxinha de frango', qtd, modificadores: {} });
 const REFRIGERANTE = (qtd = 1): LinhaCarrinho => ({ id: 'p2', nome: 'Refrigerante lata', qtd, modificadores: {} });

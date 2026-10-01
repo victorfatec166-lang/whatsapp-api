@@ -1,51 +1,14 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { isValidHhMm } from './cashSchedule';
 import { logDoModulo } from './logger';
+import { exigeLoja } from './loja';
 
 const log = logDoModulo('config');
 
 /**
- * Configuracoes do negocio, em um lugar so.
- *
- * POR QUE ESTE ARQUIVO EXISTE
- *
- * A configuracao era validada em dois lugares diferentes, e so um deles
- * validava alguma coisa: a tela do painel gravava direto no banco
- * (`POST /admin/config/save`), e a API REST devolvia 501 dizendo que o modelo
- * "nao existe" -- sendo que ele existe e a tela usa. Duas rotas para a mesma
- * gravacao e' a forma garantida de elas divergirem, e foi o que aconteceu: a
- * rota da tela aceitou nome de negocio vazio e a agenda do caixa pela metade,
- * sem avisar ninguem.
- *
- * Aqui fica a regra, e as duas rotas chamam. O mesmo movimento que o `priceCart`
- * faz com preco: um lugar que decide, e todo mundo pergunta.
- *
- * A REGRA DO NOME DO NEGOCIO
- *
- * O nome nao e' um campo como outro: ele aparece no logo da lateral
- * (`layout.ts`), no titulo da aba do navegador, no cabecalho da comanda da
- * impressora (`comanda.ts`, que faz `.toUpperCase()`) e no rodape do cardapio do
- * WhatsApp. Nome vazio nao e' "sem nome": e' um logo em branco, um titulo
- * " | ", e uma comandathermal impressa sem cabecalho.
- *
- * E o espelho do defeito que a propria tela documenta: ali, um campo que nao
- * mudava nada era pior que a ausencia dele, porque o dono acreditava que
- * estava protegido. Aqui e' o mesmo erro pelo outro lado -- o campo e'
- * obrigatorio na pratica, e nada obrigava.
- *
- * A REGRA DA AGENDA DO CAIXA
- *
- * `runScheduleTick` so abre turno com `cashDefaultFloat > 0`, porque um fundo
- * estimado contaminaria a diferenca de caixa de todo fechamento. Entao
- * "horario preenchido + fundo vazio" e' um estado que o sistema aceita gravar e
- * silenciosamente nao faz nada. A tela falava disso num paragrafo estatico,
- * que e' texto de manual e nao estado do sistema.
- *
- * Aqui o estado e' DERIVADO e testavel (`estadoAgendaCaixa`), e a gravacao recusa
- * o estado pela metade. Recusar em vez de avisar e' a escolha: o dono preencheu
- * um horario, quase com certeza quer a abertura automatica, e salvar em silencio
- * deixa ele acreditando que amanha o turno abre sozinho. A mensagem de erro diz
- * exatamente o que fazer.
+ * A regra mora aqui porque tela e API gravavam a mesma config por rotas diferentes e
+ * divergiam em silencio. "Horario preenchido com fundo vazio" e' estado que o sistema
+ * aceita gravar e nao faz nada, entao a gravacao recusa em vez de avisar.
  */
 
 export type DadosConfig = {
@@ -67,48 +30,28 @@ const NOMES_CAMPO: Record<keyof DadosConfig, string> = {
     cashDefaultFloat: 'Fundo de troco',
 };
 
-/**
- * Estado da agenda automatica, derivado da configuracao.
- *
- * Funcao pura de proposito: e' a mesma forma de `stockStatus` e
- * `closeMomentAfter` no `cashSchedule` -- dado de entrada, dado de saida, sem
- * banco e sem relogio. A tela mostra isso antes de salvar, e o agendador
- * continua sendo quem decide de verdade.
- */
 /*
- * Dinheiro na frase, no formato do painel.
- *
- * `toFixed(2)` devolve "50.00", com ponto, e essa frase aparece na tela que o
- * dono le. Todo dinheiro do painel passa por `toLocaleString('pt-BR')` -- ver
- * `currency` em stats.ts -- e um unico "50.00" com ponto num texto de tela, ao
- * lado de "R$ 50,00" nos cartoes, e' o tipo de coisa que faz a pessoa duvidar
- * do numero em vez do ponto.
+ * Dinheiro na frase no formato do painel. toFixed(2) devolve "50.00" com ponto,
+ * e um unico valor assim num texto de tela, ao lado de R$ 50,00 nos cartoes, faz
+ * a pessoa duvidar do numero em vez do ponto.
  */
 function dinheiro(valor: number): string {
     return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /**
- * Estado da agenda automatica, derivado da configuracao.
- *
- * Funcao pura de proposito: e' a mesma forma de `stockStatus` e
- * `closeMomentAfter` no `cashSchedule` -- dado de entrada, dado de saida, sem
- * banco e sem relogio. A tela mostra isso antes de salvar, e o agendador
- * continua sendo quem decide de verdade.
+ * Funcao pura de proposito, como stockStatus e closeMomentAfter no cashSchedule:
+ * sem banco e sem relogio. A tela mostra o estado antes de salvar, mas quem
+ * decide de verdade continua sendo o agendador.
  */
 export type EstadoAgenda =
     | { ativa: true; resumo: string }
     | { ativa: false; motivo: 'sem-horario' | 'sem-fundo' | 'incompleta'; resumo: string };
 
 /*
- * Type guards.
- *
- * O projeto roda com `strict: false`, e sem `strictNullChecks` o TypeScript nao
- * estreita uniao por discriminante booleano: `if (!r.ok)` deixa de descartar o
- * ramo do sucesso, e o compilador passa a dizer que `.error` nao existe no tipo
- * inteiro. O mesmo problema e' o motivo de `falhou()` existir em
- * `services/validation.ts`, e a solucao e' a mesma -- um type guard, em vez de
- * fingir que o modo do compilador nao importa.
+ * Type guards: sem strictNullChecks o TypeScript nao estreita uniao por
+ * discriminante booleano, e `if (!r.ok)` deixa de descartar o ramo do sucesso.
+ * Mesma solucao de falhou() em services/validation.ts.
  */
 export type FalhouConfig = { ok: false; error: string };
 
@@ -138,7 +81,7 @@ export function estadoAgendaCaixa(c: {
     }
 
     // Horario preenchido sem fundo e' o estado que o sistema aceita gravar e nao
-    // faz nada. Aqui ele e' nomeado, porque quem le precisa saber o que falta.
+    // faz nada. Aqui ele e' nomeado, para quem le saber o que falta.
     if (!(fundo > 0)) {
         return {
             ativa: false,
@@ -147,9 +90,8 @@ export function estadoAgendaCaixa(c: {
         };
     }
 
-    // Abertura sem fechamento (ou o contrario) nao e' erro: uma loja que so abre
-    // automaticamente e fecha na mao e' uma configuracao legitima. Mas a tela
-    // precisa dizer qual dos dois e' automatico, senao "preenchido" parece
+    // Abrir sozinho e fechar na mao e' configuracao legitima, nao erro. A tela
+    // precisa dizer qual metade e' automatica, senao "preenchido" parece
     // "preenchido e funcionando" nos dois casos.
     if (abre !== '' && fecha === '') {
         return { ativa: true, resumo: `Abre sozinho as ${abre} com R$ ${dinheiro(fundo)} de fundo. O fechamento continua sendo manual.` };
@@ -162,11 +104,8 @@ export function estadoAgendaCaixa(c: {
 }
 
 /**
- * Valida o que veio do formulario.
- *
- * Regras de forma e uma regra de combinacao. As de forma sao obvias; a de
- * combinacao e' a que faltava e e' a unica que o dono nao consegue prever
- * olhando o formulario: os dois campos tem cara de campo independente.
+ * A regra de combinacao (horario preenchido exige fundo) e' a unica que o dono
+ * nao previa olhando o formulario: os dois campos tem cara de campo independente.
  */
 export function validarConfig(entrada: unknown): ResultadoValidacao {
     const b = (entrada ?? {}) as Record<string, unknown>;
@@ -231,8 +170,8 @@ export function validarConfig(entrada: unknown): ResultadoValidacao {
 
 /** A configuracao atual, criando a linha de fabrica se ela ainda nao existir. */
 export async function carregarConfig(): Promise<DadosConfig> {
-    const linha = await prisma.config.findUnique({ where: { id: 'default' } });
-    const c = linha ?? (await prisma.config.create({ data: { id: 'default' } }));
+    const linha = await prisma.config.findUnique({ where: { id: exigeLoja() } });
+    const c = linha ?? (await prisma.config.create({ data: { id: exigeLoja() } }));
     return {
         businessName: c.businessName,
         cashAutoOpen: c.cashAutoOpen,
@@ -242,11 +181,9 @@ export async function carregarConfig(): Promise<DadosConfig> {
 }
 
 /**
- * Grava a configuracao, depois de validar.
- *
- * Retorna a mesma forma da validacao, para a rota nao ter que saber a ordem:
- * validar, gravar, e so entao responder. Quem chama e' a tela e a API, e as duas
- * precisam da mesma resposta -- inclusive quando da errado.
+ * Mesma forma da validacao, para a rota nao ter que saber a ordem: validar,
+ * gravar, so entao responder. Tela e API precisam da mesma resposta, inclusive
+ * quando da errado.
  */
 export type ResultadoSalvar = { ok: true; dados: DadosConfig; avisos: string[] } | { ok: false; error: string };
 
@@ -257,9 +194,9 @@ export async function salvarConfig(entrada: unknown): Promise<ResultadoSalvar> {
     const { dados, avisos } = v;
     try {
         await prisma.config.upsert({
-            where: { id: 'default' },
+            where: { id: exigeLoja() },
             update: dados,
-            create: { id: 'default', ...dados },
+            create: { id: exigeLoja(), ...dados },
         });
     } catch (error) {
         log.error('nao foi possivel gravar a configuracao:', error);

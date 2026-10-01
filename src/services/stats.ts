@@ -7,12 +7,9 @@ export type OrderWithProductless = {
     id: string;
     clientPhone: string;
     /**
-     * Numero de verdade do cliente, quando o sistema ja resolveu.
-     *
-     * Fica aqui, e nao dentro de `clientPhone`, porque o `clientPhone` e' o
-     * endereco que o bot usou para responder -- e' ele que volta a funcionar se
-     * o cliente mudar de conta, e mexer nele quebraria o envio de status. Esta
-     * coluna e' so para mostrar na tela.
+     * Numero de verdade do cliente, quando o sistema ja resolveu. Fica aqui, e nao
+     * dentro de `clientPhone`, que e' o endereco que o bot usou para responder: e' ele
+     * que volta a funcionar se o cliente mudar de conta.
      */
     telefoneResolvido?: string;
     clientName: string | null;
@@ -136,19 +133,9 @@ export async function computeStats(orders: OrderWithProductless[]): Promise<Dash
     }
 
     /*
-     * O dia e' o do DONO, e nao o do servidor.
-     *
-     * `toISOString().slice(0, 10)` pega o dia em UTC. Um pedido feito as 21:23
-     * UTC e' 18:23 em Brasilia, do mesmo dia -- e sao as 18h que a marmitaria
-     * funciona. O pedido aparecia no grafico do dia seguinte, com o rotulo
-     * "26/09" para uma venda de sexta a noite.
-     *
-     * No banco de teste isso movia 8 pedidos para o dia errado. Nao era teoria:
-     * o `computeStatsSql` (o mesmo calculo em SQL, com `localtime`) discordou
-     * deste trecho no teste de paridade, e quem estava errado era ele.
-     *
-     * `getFullYear/getMonth/getDate` leem no fuso local do processo, que e' o
-     * fuso de quem esta olhando a tela.
+     * O dia e' o do DONO, e nao o do servidor. `toISOString().slice(0, 10)` pega o
+     * dia em UTC, e um pedido das 21:23 UTC e' 18:23 em Brasilia -- aparecia no
+     * grafico do dia seguinte. getFullYear/getMonth/getDate leem no fuso local.
      */
     const dayMap = new Map<string, { date: string; label: string; revenue: number; orders: number }>();
     for (const o of orders) {
@@ -219,14 +206,9 @@ export function toReportRows(orders: OrderWithProductless[]): ReportRow[] {
         id: o.id,
         quando: o.createdAt.toLocaleString('pt-BR'),
         cliente: o.clientName || 'Cliente',
-        // O WhatsApp passou a entregar o endereco como identificador de
-        // privacidade ("192...@lid"), que nao contem telefone. Cortar so o
-        // "@s.whatsapp.net" deixava o "@lid" inteiro na tela -- e a lista de
-        // pedidos fica ao lado da de clientes, que ja mostra o numero
-        // verdadeiro, parecendo dois dados sobre a mesma pessoa.
-        //
-        // `telefoneResolvido` e' preenchido por quem monta o relatorio. Sem ele,
-        // e' o endereco mesmo, que e' o que existe.
+        // O WhatsApp passou a entregar o endereco como identificador de privacidade
+        // ("192...@lid"), que nao contem telefone. Cortar so o "@s.whatsapp.net"
+        // deixava o "@lid" inteiro na tela, ao lado da lista de clientes.
         telefone:
             o.channel === 'pdv'
                 ? (o.paymentMethod ?? 'Balcao')

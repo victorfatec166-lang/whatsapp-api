@@ -1,26 +1,19 @@
 /*
- * Paginacao do historico de conversa.
- *
- * Por que precisa de teste, e nao pode ser so logica pura
- *
- * A janela de paginacao tem tres estados que so aparecem juntos: `take` com
- * `orderBy desc` para pegar o fim da conversa, `lt` estrito no cursor para nao
- * repetir a mensagem da borda, e a inversao para exibicao. Cada um passa
- * sozinho e o conjunto passa errado -- e o erro aparece como uma mensagem
- * duplicada ou faltando no meio da conversa do cliente, que ninguem nota ate
- * procurar por ela.
- *
- * Este teste escreve no banco de verdade, com 250 mensagens, e apaga tudo no
- * fim. Nao envia nada pelo WhatsApp: grava direto na base, entao a loja real
- * nao ve nada.
- *
- * Precisa do servidor rodando e do banco com a migration do Chat aplicada.
- * Quando o servidor nao responde, o teste avisa e falha -- nao da verde falso.
+ * A janela tem tres estados que so funcionam juntos: `take` com `orderBy desc`
+ * para pegar o fim, `lt` estrito no cursor para nao repetir a borda, e a inversao
+ * para exibicao. Errado, o conjunto vira mensagem duplicada ou faltando na conversa.
+ */
+
+/*
+ * O teste grava 250 mensagens no banco de verdade e apaga tudo no fim, sem
+ * enviar nada pelo WhatsApp. Precisa do servidor no ar e da migration do Chat:
+ * sem resposta, o teste avisa e falha em vez de dar verde falso.
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PrismaClient } from '@prisma/client';
+import { prismaComLoja } from '../src/database/prisma-com-loja';
+import { comoLoja } from '../src/services/loja';
 import { createRequire } from 'node:module';
 
 // A sessao de teste e' o mesmo login que o navegador faz -- nenhum bypass, e a
@@ -32,7 +25,10 @@ const JID = '5500000000000@teste-paginacao';
 const TOTAL = 250;
 const PAGINA = 100;
 
-const prisma = new PrismaClient();
+/** A loja do teste. E' a mesma do ambiente, que e' quem tem a linha em `Tenant`. */
+const LOJA = process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
+
+const prisma = prismaComLoja;
 
 /** Cabecalho de cookie da sessao, montado no primeiro uso. */
 let cookie: string | undefined;
@@ -46,23 +42,25 @@ type Pagina = { mensagens: Mensagem[]; temMais: boolean };
 
 /** Semeia TOTAL mensagens com um minuto de intervalo, e devolve o id da conversa. */
 async function semeia(): Promise<string> {
-    await prisma.chat.deleteMany({ where: { phone: JID } });
-    const chat = await prisma.chat.create({
-        data: { phone: JID, name: 'Cliente de Teste', telefone: '5500000000000' },
-    });
+    return comoLoja(LOJA, async () => {
+        await prisma.chat.deleteMany({ where: { phone: JID } });
+        const chat = await prisma.chat.create({
+            data: { phone: JID, name: 'Cliente de Teste', telefone: '5500000000000' },
+        });
 
-    const base = Date.now() - TOTAL * 60_000;
-    const linhas = Array.from({ length: TOTAL }, (_, i) => ({
-        chatId: chat.id,
-        from: i % 3 === 0 ? 'cliente' : 'atendente',
-        text: `mensagem ${i + 1}`,
-        sentAt: new Date(base + i * 60_000),
-    }));
-    // createMany respeita o limite de variaveis do SQLite, entao vai em lotes.
-    for (let i = 0; i < linhas.length; i += 100) {
-        await prisma.message.createMany({ data: linhas.slice(i, i + 100) });
-    }
-    return chat.id;
+        const base = Date.now() - TOTAL * 60_000;
+        const linhas = Array.from({ length: TOTAL }, (_, i) => ({
+            chatId: chat.id,
+            from: i % 3 === 0 ? 'cliente' : 'atendente',
+            text: `mensagem ${i + 1}`,
+            sentAt: new Date(base + i * 60_000),
+        }));
+        // createMany respeita o limite de variaveis do SQLite, entao vai em lotes.
+        for (let i = 0; i < linhas.length; i += 100) {
+            await prisma.message.createMany({ data: linhas.slice(i, i + 100) });
+        }
+        return chat.id;
+    });
 }
 
 async function pegaPagina(id: string, antes?: string): Promise<Pagina> {
@@ -82,10 +80,12 @@ test('paginacao do historico', async (t) => {
     }
 
     const id = await semeia();
-    t.after(async () => {
-        await prisma.chat.deleteMany({ where: { phone: JID } });
-        await prisma.$disconnect();
-    });
+    t.after(() =>
+        comoLoja(LOJA, async () => {
+            await prisma.chat.deleteMany({ where: { phone: JID } });
+            await prisma.$disconnect();
+        })
+    );
 
     await t.test('primeira pagina traz o fim da conversa, nao o comeco', async () => {
         const p = await pegaPagina(id);

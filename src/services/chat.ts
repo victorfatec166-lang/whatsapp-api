@@ -1,22 +1,14 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { logDoModulo } from './logger';
 import { notifyChat } from './sse';
+import { exigeLoja } from './loja';
 
 const log = logDoModulo('chat');
 
 /**
- * Conversas de WhatsApp.
- *
- * A regra que atravessa o modulo e' uma so: **o bot e o humano nunca respondem
- * o mesmo cliente ao mesmo tempo.** Sem isso, o cliente pergunta "o que voces
- * tem de vegetariano", o bot responde o cardapio inteiro, e em seguida a
- * pessoa digita a resposta -- e o cliente recebe as duas, uma por cima da
- * outra. Por isso `Chat.atendente` decide quem responde, e o bot consulta
- * antes de cada resposta.
- *
- * A conversa e' criada na primeira mensagem do cliente, nunca na leitura da
- * tela. Criar ao abrir a lista inflaria a tela com conversas que nao
- * aconteceram, e a lista mais cheia e' a lista menos confiavel.
+ * Regra do modulo: bot e humano nunca respondem o mesmo cliente ao mesmo tempo, e
+ * Chat.atendente decide quem responde. A conversa nasce na primeira mensagem do
+ * cliente, nunca na leitura da tela.
  */
 
 export type ResumoConversa = {
@@ -41,14 +33,6 @@ export type ResumoConversa = {
     naoLidas: number;
     lastMessageAt: Date;
     orderId: string | null;
-};
-
-export type MensagemView = {
-    id: string;
-    from: string;
-    text: string;
-    sentAt: Date;
-    falhou: boolean;
 };
 
 function toResumo(c: {
@@ -83,68 +67,28 @@ function toResumo(c: {
     };
 }
 
-/**
- * Recorta a previa da lista.
- *
- * A mensagem e' uma linha na lista de conversas. Sem o corte, um cliente que
- * mandou um paragrafo empurra as outras conversas para fora da tela, e o que
- * aconteceu naquele chat so aparece abrindo o chat.
- */
+/** Uma linha na lista: sem o corte, um paragrafo empurra as outras conversas da tela. */
 function previa(texto: string): string {
     const limpo = texto.replace(/\s+/g, ' ').trim();
     if (limpo.length <= 90) return limpo;
     return limpo.slice(0, 89) + '…';
 }
 
-/**
- * Acha a conversa do endereco, criando se ainda nao existir.
- *
- * `upsert` e' o que faz a chamada ser segura para os dois lados: o bot grava a
- * mensagem do cliente sem precisar perguntar antes se a conversa existe, e a
- * tela envia sem precisar criar nada.
- *
- * Aceita tambem o telefone e o nome ja resolvidos, para quem chama tem o dado na
- * mao e gravar e' mais barato do que descobrir depois.
- */
-export async function conversaDe(
-    phone: string,
-    extras?: { nome?: string | null; telefone?: string | null }
-): Promise<{ id: string; atendente: string }> {
-    const chat = await prisma.chat.upsert({
-        where: { phone },
-        update: {
-            ...(extras?.nome ? { name: extras.nome } : {}),
-            ...(extras?.telefone ? { telefone: extras.telefone } : {}),
-        },
-        create: {
-            phone,
-            name: extras?.nome ?? null,
-            telefone: extras?.telefone ?? null,
-        },
-        select: { id: true, atendente: true },
-    });
-    return chat;
-}
-
 /** O bot pode responder? Nao enquanto alguem assumiu a conversa. */
 export async function botPodeResponder(phone: string): Promise<boolean> {
-    const chat = await prisma.chat.findUnique({
+    const chat = await prisma.chat.findFirst({
         where: { phone },
         select: { atendente: true },
     });
-    // Conversa inexistente e' o caso comum: cliente novo, antes da primeira
-    // gravacao. Nao ter conversa e' o mesmo que estar com o bot, entao o bot
-    // pode responder.
+    // Conversa inexistente e' cliente novo: nao ter conversa e' o mesmo que estar
+    // com o bot, entao o bot pode responder.
     if (!chat) return true;
     return chat.atendente === 'bot';
 }
 
 /**
- * Grava uma mensagem e atualiza a previa da conversa.
- *
- * `naoLidas` sobe quando a mensagem vem do cliente e o atendimento e' do bot.
- * Se um humano esta na conversa, ele esta olhando: contar como nao lida seria
- * mostrar um numero que ninguem precisa ler.
+ * naoLidas sobe so quando a mensagem vem do cliente e quem atende e' o bot: se
+ * um humano esta na conversa ele esta olhando, e o numero seria ruido.
  */
 export async function registrarMensagem(opts: {
     phone: string;
@@ -160,15 +104,11 @@ export async function registrarMensagem(opts: {
     const previa_ = previa(opts.text);
 
     /*
-     * O `naoLidas` precisa do atendimento atual, e o atendimento mora em outra
-     * coluna da mesma linha -- o `update` do Prisma nao le a linha que ele mesmo
-     * esta alterando. Entao a conversa e' lida antes, e o `upsert` abaixo usa
-     * esse valor. Sao duas consultas em vez de uma, e o motivo de aceitá-las:
-     * o erro de perguntar errado seria o cliente esperar resposta com o numero
-     * de nao lidas parado, ou o humano ver "3 nao lidas" de uma conversa que
-     * ele mesmo esta atendendo.
+     * Duas consultas porque o update do Prisma nao le a linha que ele altera: o
+     * atendimento mora em outra coluna da mesma linha. Aceita o custo para o
+     * nao lidas nao ficar parado, nem mostrar "3 nao lidas" para quem atende.
      */
-    const atual = await prisma.chat.findUnique({
+    const atual = await prisma.chat.findFirst({
         where: { phone: opts.phone },
         select: { id: true, atendente: true },
     });
@@ -177,8 +117,8 @@ export async function registrarMensagem(opts: {
     // humano nao conta: e' ele que esta digitando.
     const contaNaoLida = opts.from === 'cliente' && (atual?.atendente ?? 'bot') === 'bot';
 
-    // Telefone e nome sao atualizados so quando chegaram cheios. Uma mensagem
-    // seguinte sem o numero nao pode apagar o que a anterior descobriu.
+    // So quando chegaram cheios: mensagem seguinte sem o numero nao pode apagar
+    // o que a anterior descobriu.
     const dados = {
         ultimaMensagem: previa_,
         lastMessageAt: quando,
@@ -191,6 +131,7 @@ export async function registrarMensagem(opts: {
         ? await prisma.chat.update({ where: { id: atual.id }, data: dados })
         : await prisma.chat.create({
               data: {
+                  tenantId: exigeLoja(),
                   phone: opts.phone,
                   name: opts.nome ?? null,
                   telefone: opts.telefone ?? null,
@@ -202,6 +143,7 @@ export async function registrarMensagem(opts: {
 
     await prisma.message.create({
         data: {
+            tenantId: exigeLoja(),
             chatId: chat.id,
             from: opts.from,
             text: opts.text,
@@ -215,15 +157,9 @@ export async function registrarMensagem(opts: {
 }
 
 /**
- * Guarda a foto do perfil, se ainda nao houver uma valida.
- *
- * A busca vai ao servidor do WhatsApp, entao e' limitada por data: uma foto
- * valida por uma semana, e nao por mensagem. Sem essa trava, um cliente que
- * manda "Ok" de dez em dez minutos geraria uma chamada de rede a cada "Ok", e
- * o dono nao perceberia nada -- o app pareceria lento sem motivo visivel.
- *
- * O que a tela mostra quando a foto nao existe: as iniciais. Um circulo com as
- * iniciais do cliente e' reconhecivel; um espaco vazio nao e'.
+ * Validade por DATA, nao por mensagem: a busca vai ao servidor do WhatsApp, e
+ * um cliente que manda "Ok" de dez em dez minutos geraria uma chamada de rede a
+ * cada "Ok" -- app lento sem motivo visivel.
  */
 const FOTO_VALIDA_POR_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -233,7 +169,7 @@ export async function guardaFoto(
     agora: Date = new Date(),
     forcar = false
 ): Promise<boolean> {
-    const chat = await prisma.chat.findUnique({
+    const chat = await prisma.chat.findFirst({
         where: { id: chatId },
         select: { avatarUrl: true, avatarAt: true },
     });
@@ -250,8 +186,8 @@ export async function guardaFoto(
         return false;
     }
 
-    // Sem foto e' um resultado legitimo -- o cliente nao tem -- mas gravar
-    // "nao tem" com a data de hoje evita refazer a chamada a cada mensagem.
+    // Sem foto e' resultado legitimo, mas gravar "nao tem" com a data de hoje evita
+    // refazer a chamada a cada mensagem.
     await prisma.chat.update({
         where: { id: chatId },
         data: { avatarUrl: url || null, avatarAt: agora },
@@ -260,114 +196,9 @@ export async function guardaFoto(
 }
 
 /**
- * Lista de conversas, mais recente primeiro.
- *
- * A ordem e' por recencia e nao por nome porque quem atende precisa ver
- * primeiro o que chegou por ultimo. Quem chegou de madrugada e' o que espera ha
- * mais tempo.
- */
-export async function listarConversas(): Promise<ResumoConversa[]> {
-    const conversas = await prisma.chat.findMany({
-        orderBy: { lastMessageAt: 'desc' },
-        take: 200,
-    });
-    return conversas.map(toResumo);
-}
-
-/**
- * Busca por nome, telefone ou endereco.
- * Os dois formatos sao procurados de proposito. O dono busca o que o cliente
- * digitou, e o cliente manda o telefone, entao o termo bate em `telefone`. Mas o
- * proprio painel exibe o endereco quando o numero nao foi identificado, e quem
- * le a tela pode copiar aquele texto de volta para a busca -- entao `phone`
- * tambem precisa casar.
- */
-export async function buscarConversas(termo: string): Promise<ResumoConversa[]> {
-    const limpo = termo.trim();
-    if (!limpo) return listarConversas();
-    const digitos = limpo.replace(/\D/g, '');
-    const conversas = await prisma.chat.findMany({
-        where: {
-            OR: [
-                { name: { contains: limpo } },
-                // Os numeros estao no MEIO da string, porque `telefone` e' so
-                // digitos e `phone` tem o "@..." no fim. `startsWith` nao
-                // acharia o telefone de quem colou o numero inteiro.
-                ...(digitos ? [{ telefone: { contains: digitos } }, { phone: { contains: digitos } }] : []),
-            ],
-        },
-        orderBy: { lastMessageAt: 'desc' },
-        take: 50,
-    });
-    return conversas.map(toResumo);
-}
-
-/**
- * Historico de uma conversa, em ordem cronologica.
- *
- * O padrao devolve as ultimas `limite` mensagens, e nao as primeiras. A tela
- * abre com o texto nao-empty embaixo, que e' onde a conversa esta -- uma lista
- * que abre no "oi" de tres dias atras e' obrigar a pessoa a rolar ate o fim para
- * descobrir o que aconteceu. `temMais` diz se existe alem disso, para o painel
- * oferecer "ver mais antigo".
- */
-export async function historico(
-    chatId: string,
-    limite = 100,
-    antesDe?: Date
-): Promise<{ mensagens: MensagemView[]; temMais: boolean }> {
-    const teto = Math.min(500, Math.max(1, limite));
-
-    /*
-     * Busca o bloco mais recente e inverte a ordem para exibicao.
-     *
-     * `orderBy: 'desc'` com `take` e' o que permite pegar a FIM da conversa com
-     * indice. Buscar a primeira pagina em ordem crescente e truncar em memoria
-     * exigiria ler a conversa inteira -- que e' exatamente o que se quer evitar.
-     *
-     * `antesDe` recua a busca para as mensagens mais antigas que aquele
-     * instante. Sem ele, a tela so oferece as ultimas e a conversa fica sem
-     * caminho para o comeco.
-     */
-    const ultimas = await prisma.message.findMany({
-        where: { chatId, ...(antesDe ? { sentAt: { lt: antesDe } } : {}) },
-        orderBy: { sentAt: 'desc' },
-        take: teto + 1,
-    });
-
-    const temMais = ultimas.length > teto;
-    const mensagens = (temMais ? ultimas.slice(0, teto) : ultimas)
-        .map((m) => ({
-            id: m.id,
-            from: m.from,
-            text: m.text,
-            sentAt: m.sentAt,
-            falhou: m.falhou,
-        }))
-        .reverse();
-
-    return { mensagens, temMais };
-}
-
-/** Uma conversa pelo id, para a tela validar antes de escrever. */
-export async function obterConversa(chatId: string): Promise<ResumoConversa | null> {
-    const c = await prisma.chat.findUnique({ where: { id: chatId } });
-    return c ? toResumo(c) : null;
-}
-
-/** Zera as nao lidas: a pessoa abriu a conversa e esta lendo. */
-export async function marcarLida(chatId: string): Promise<void> {
-    await prisma.chat.updateMany({ where: { id: chatId, naoLidas: { gt: 0 } }, data: { naoLidas: 0 } });
-    notifyChat(chatId);
-}
-
-/**
- * Assume a conversa: o bot cala a partir de agora.
- *
- * E' a unica coisa que impede o atropelo described la em cima. A conversa fica
- * assumida mesmo se o servidor reiniciar, porque o estado esta no banco e nao
- * em memoria -- o `userSession` do bot some a cada restart, e um cliente com
- * o bot calado sem ninguem saber e' o pior desfecho de um reinicio.
+ * Fica assumida mesmo apos reiniciar, porque o estado esta no banco e nao em
+ * memoria: um cliente com o bot calado sem ninguem saber e' o pior desfecho de
+ * um restart.
  */
 export async function assumirConversa(chatId: string): Promise<ResumoConversa | null> {
     const c = await prisma.chat.update({
@@ -378,32 +209,7 @@ export async function assumirConversa(chatId: string): Promise<ResumoConversa | 
     return toResumo(c);
 }
 
-/** Devolve ao bot, que volta a responder sozinho. */
-export async function devolverAoBot(chatId: string): Promise<ResumoConversa | null> {
-    const c = await prisma.chat.update({
-        where: { id: chatId },
-        data: { atendente: 'bot', assumidoAt: null },
-    });
-    notifyChat(chatId);
-    return toResumo(c);
-}
-
-/** Grava uma mensagem enviada pelo painel e avisa o SSE. */
-export async function registrarEnvioDoPainel(opts: {
-    phone: string;
-    text: string;
-    falhou: boolean;
-}): Promise<void> {
-    await registrarMensagem({
-        phone: opts.phone,
-        from: 'atendente',
-        text: opts.text,
-        falhou: opts.falhou,
-    });
-    log.info(`Mensagem do painel para ${opts.phone}${opts.falhou ? ' (FALHOU)' : ''}`);
-}
-
-/** Total de nao lidas, para a sidebar sinalizar conversa nova. */
+/** Total de nao lidas, para a barra lateral sinalizar conversa nova. */
 export async function totalNaoLidas(): Promise<number> {
     const r = await prisma.chat.aggregate({ _sum: { naoLidas: true } });
     return r._sum.naoLidas ?? 0;
@@ -412,10 +218,4 @@ export async function totalNaoLidas(): Promise<number> {
 /** Liga um pedido a uma conversa, para a tela mostrar o pedido junto do chat. */
 export async function vincularPedido(phone: string, orderId: string): Promise<void> {
     await prisma.chat.updateMany({ where: { phone }, data: { orderId } });
-}
-
-/** Nome do cliente, quando ele ja mandou, para rotular a conversa. */
-export async function nomeDoCliente(phone: string): Promise<string | null> {
-    const c = await prisma.chat.findUnique({ where: { phone }, select: { name: true } });
-    return c?.name ?? null;
 }

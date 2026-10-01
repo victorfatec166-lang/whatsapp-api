@@ -2,20 +2,9 @@ import { renderModal, type ModalSpec } from './ui/modal';
 import type { Canal } from '../services/marketplace';
 
 /**
- * Janelas de marketplace.
- *
- * Ficam em um modulo so, com o mesmo motivo de ui/modal.ts: sao declaracoes de
- * dados, e o esqueleto vem do componente. Assim a janela de credencial e a de
- * item nao nascem diferentes das de caixa so porque foram escritas em lugares
- * diferentes.
- *
- * Duas janelas, porque sao dois momentos diferentes do trabalho:
- *
- * 1. Credencial: colar o que o parceiro entregou. E' o passo que so se faz uma
- *    vez, ou quando o token expira.
- * 2. Item: casar o id do marketplace com o produto do catalogo. E' o passo que
- *    se repete toda vez que entra um item novo no cardapio da plataforma -- e
- *    sem ele o pedido chega sem baixa de estoque.
+ * Declaracoes de dados, com o esqueleto vindo do componente, para nao nascerem diferentes das de
+ * caixa so porque foram escritas em outro lugar. Duas janelas porque sao dois momentos:
+ * credencial, uma vez; item, a cada entrada nova -- sem ele o pedido chega sem baixa de estoque.
  */
 
 const NOME_CANAL: Record<Canal, string> = {
@@ -34,16 +23,9 @@ export const rotaCredencial = (c: Canal) => `/api/admin/marketplace/${c}/credenc
 export const rotaItem = (c: Canal) => `/api/admin/marketplace/${c}/itens`;
 
 /**
- * Credencial do parceiro.
- *
- * O campo do token de webhook aparece sempre, mesmo para quem ja tem os dois
- * valores: quem esta recadastrando nao deve ter que lembrar que existe um
- * segundo token so para nao perder o recebimento de pedidos.
- *
- * O campo da credencial e' texto simples, e nao `password`. A pessoa cola um
- * token longo do painel do parceiro e precisa conferir se colou o certo antes
- * de salvar -- campo de mascara esconde o erro de colecion. E o valor nao volta
- * para a tela depois: a API so devolve se ha credencial, nunca o conteudo.
+ * O token de webhook aparece sempre: quem recadastra nao pode perder o recebimento por
+ * esquecer que existe um segundo token. A credencial e' texto simples e nao password, para
+ * a pessoa conferir o token colado antes de salvar -- e o valor nao volta para a tela.
  */
 export function credencialSpec(channel: Canal): ModalSpec {
     return {
@@ -75,12 +57,9 @@ export function credencialSpec(channel: Canal): ModalSpec {
 }
 
 /**
- * Casar um item do marketplace com um produto do catalogo.
- *
- * O produto do catalogo vem como <select> e nao como texto livre: digitar o
- * nome exato e' o tipo de coisa que da errado em silencio, e um item casado com
- * o produto errado baixa o estoque do prato errado. O id do marketplace tambem
- * e' digitado -- ele vem da plataforma, entao nao ha o que sugerir.
+ * O produto vem como select e nao texto livre: digitar o nome exato da errado em silencio, e
+ * item casado com o produto errado baixa o estoque do prato errado. O id do marketplace e'
+ * digitado porque vem da plataforma, e nao ha o que sugerir.
  */
 export function itemSpec(
     channel: Canal,
@@ -121,11 +100,8 @@ export function itemSpec(
 }
 
 /**
- * Liga as janelas ao comportamento padrao de ui/modal.ts.
- *
- * O `DOMContentLoaded` e' obrigatorio: o script compartilhado do layout, onde
- * mora o modalBind, e' impresso depois do conteudo, entao quem chamasse na hora
- * estouraria ReferenceError e os botoes ficariam sem funcao.
+ * Espera o documento ficar pronto de proposito: o script do layout, onde mora modalBind, e'
+ * impresso depois do conteudo, e chamar na hora estouraria ReferenceError -- botao sem funcao.
  */
 export function marketplaceModalsScript(canais: readonly Canal[]): string {
     const binds = canais

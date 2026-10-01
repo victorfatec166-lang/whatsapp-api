@@ -1,37 +1,15 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { logDoModulo } from './logger';
 import { inicioDoDia } from './retencao';
 import { notifyClients } from './sse';
+import { exigeLoja } from './loja';
 
 const log = logDoModulo('lembretes');
 
 /**
- * Lembretes do calendario.
- *
- * O que este modulo decide, e por que a decisao nao e' trivial:
- *
- * ANOTAR E' PARA O DIA QUE ESTA NA TELA
- *
- * A pessoa clica no dia 25 e anota "ligar para o fornecedor". Se o lembrete
- * fosse para o dia de hoje, ela estaria anotando para amanha sem querer, e o
- * lembrete apareceria no lugar errado sem nenhum aviso. A tela manda o dia, e o
- * servico usa o dia que veio -- a unica excecao e' um dia que nao veio, que
- * vira hoje.
- *
- * A data e' MEIA-NOITE LOCAL, nunca data pura
- *
- * `new Date('2026-09-25')` em JavaScript e' meia-noite UTC, que no Brasil e'
- * 21h do dia anterior: o lembrete anotado no dia 25 aparecia no dia 24. E' o
- * mesmo erro que ja custou 8 pedidos aparecendo no grafico de receita com o dia
- * errado. Por isso o recorte e' sempre feito com `inicioDoDia`, que le o fuso de
- * quem esta olhando a tela.
- *
- * CONCLUIR NAO APAGA
- *
- * Marcar como feito esconde o lembrete da lista e mantem o registro. Apagar
- * perderia a resposta para "essa entrega ja saiu?", que e' a pergunta que a
- * lista de lembretes existe para responder -- e o mesmo raciocinio que impede o
- * "Pedidos concluidos" de sair do historico do Faturamento.
+ * Lembretes do calendario. Anotar e' para o dia que esta na tela, e a data e'
+ * meia-noite LOCAL: `new Date('2026-09-25')` e' meia-noite UTC, que no Brasil e' 21h
+ * do dia anterior. Concluir mantem o registro e so esconde da lista.
  */
 
 /** O que a tela recebe, ja em pt-BR e com o dia em texto. */
@@ -62,11 +40,8 @@ function paraView(r: { id: string; date: Date; text: string; done: boolean }): L
 
 /**
  * Os lembretes de um mes.
- *
- * O mes vem como "AAAA-MM" e o recorte usa o primeiro e o dia seguinte -- nao o
- * ultimo dia do mes. Montar o ultimo dia e' o caminho curto, e passa dois
- * problemas: mes com 30 dias em ano bissexto e' dia 30, e o fuso do `new Date`
- * empurra o limite. Aproximar pelo primeiro dia do mes seguinte e' exato.
+ * O recorte usa o primeiro dia e o dia seguinte do mes, e nao o ultimo dia: mes de
+ * 30 dias em ano bissexto e' dia 30, e o fuso do `new Date` empurra o limite.
  */
 export async function listarDoMes(mesIso: string): Promise<LembreteView[]> {
     const [ano, mes] = mesIso.split('-').map((n) => parseInt(n, 10));
@@ -82,13 +57,9 @@ export async function listarDoMes(mesIso: string): Promise<LembreteView[]> {
 }
 
 /**
- * Type guards.
- *
- * Mesma razao dos de `services/config.ts` e `services/validation.ts`: o projeto
- * roda com `strict: false`, e sem `strictNullChecks` o TypeScript nao estreita
- * uniao por discriminante booleano. `if (!r.ok)` deixa de descartar o ramo do
- * sucesso, e o compilador passa a dizer que `.error` nao existe no tipo inteiro.
- * Um type guard resolve sem depender do modo do compilador.
+ * Type guards. O projeto roda com `strict: false`, e sem `strictNullChecks` o
+ * TypeScript nao estreita uniao por discriminante booleano: `if (!r.ok)` deixa de
+ * descartar o ramo do sucesso. O guard resolve sem depender do compilador.
  */
 export type FalhouLembrete = { ok: false; error: string };
 
@@ -113,7 +84,7 @@ export async function anotar(texto: unknown, diaIso?: string): Promise<{ ok: tru
 
     try {
         const criado = await prisma.reminder.create({
-            data: { date: inicioDoDia(new Date(ano, mes - 1, d)), text: limpo },
+            data: { tenantId: exigeLoja(), date: inicioDoDia(new Date(ano, mes - 1, d)), text: limpo },
         });
         notifyClients();
         return { ok: true, lembrete: paraView(criado) };

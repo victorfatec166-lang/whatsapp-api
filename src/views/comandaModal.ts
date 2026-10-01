@@ -1,15 +1,9 @@
 import { renderModal } from './ui/modal';
 
 /**
- * Janela da comanda da cozinha.
- *
- * A comanda e' gerada no servidor, nao no navegador: a tela mostra exatamente o
- * que a cozinha vai receber, e o botao de imprimir entrega o ESC/POS para a
- * impressora do sistema. Quem quiser imprimir em outro lugar -- um agente
- * local, uma impressora de rede -- chama a rota direto e usa o mesmo texto.
- *
- * Esta janela nao e' formulario, entao usa bodyHtml em vez de fields. O
- * esqueleto continua vindo do componente: cabecalho, fechar, rodape.
+ * A comanda e' gerada no servidor, nao no navegador: a tela mostra exatamente o que a cozinha
+ * vai receber, e quem quiser imprimir em outro lugar chama a rota e usa o mesmo texto. Nao e'
+ * formulario, entao usa bodyHtml -- o esqueleto continua vindo do componente.
  */
 export const COMANDA_MODAL_ID = 'comandaModal';
 
@@ -37,11 +31,9 @@ export function renderComandaModal(): string {
 }
 
 /**
- * Abre a comanda de um pedido.
- *
- * Busca o texto no servidor porque a comanda e' montada em TypeScript, no
- * servidor. Se ela fosse montada no navegador, a tela e o papel poderiam
- * divergir no detalhe que ninguem revisa ate a cozinha reclamar.
+ * Busca o texto no servidor porque a comanda e' montada em TypeScript, la. Montada no
+ * navegador, a tela e o papel divergiriam no detalhe que ninguem revisa ate a cozinha
+ * reclamar.
  */
 export const COMANDA_SCRIPT = `        <script>
             // Guarda o pedido aberto para o botao de imprimir saber qual e'.

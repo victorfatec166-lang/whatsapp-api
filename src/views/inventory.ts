@@ -50,15 +50,9 @@ function movementDelta(m: MovementView): number {
 }
 
     /*
-     * Os cinco indicadores do topo usam o bloco compartilhado, com a borda
-     * esquerda para os que pedem acao.
-     *
-     * A borda e' o que separa "precisa de acao" de "so informacao". Sem ela, os
-     * cinco cards sao cinco caixas iguais e a pessoa precisa ler o numero de
-     * cada um para descobrir se tem coisa para comprar. Com ela, o cartao que
-     * tem problema se ve antes do texto -- que e' a leitura que importa quando
-     * o destino e' a lista de reposicao logo abaixo. E o zero, que e' justamente
-     * o caso mais grave, deixa de ser o unico numero sem cor.
+     * A borda esquerda separa "precisa de acao" de "so informacao": sem ela os cinco cards sao
+     * cinco caixas iguais e a pessoa le o numero de cada um para descobrir o que comprar. E o
+     * zero, o caso mais grave, deixa de ser o unico numero sem cor.
      */
 
 export function renderInventory(d: InventoryData): string {
@@ -70,14 +64,9 @@ export function renderInventory(d: InventoryData): string {
             const semMinimo = needsMinStock(r);
 
             /*
-             * Celula de saldo: menos, campo, mais.
-             *
-             * Os tres controles recebem nome proprio com o nome do produto. O
-             * campo de numero sozinho anunciava "campo de texto, 12" para quem
-             * usa leitor de tela -- o suficiente para o campo existir e nada
-             * para dizer QUAL saldo. Os botoes de menos e mais tinham `title`,
-             * que ajuda o mouse e nao o leitor de tela, e o "menos" ainda e'
-             * ambiguo: em uma tela com 40 produtos, "remover 1" de qual?
+             * Os tres controles recebem o nome do produto: o campo sozinho anunciava "campo de
+             * texto, 12" ao leitor de tela, e o title dos botoes ajuda o mouse e nao ele. O
+             * "menos" ainda e' ambiguo: em 40 produtos, "remover 1" de qual?
              */
             const estoqueDe = 'estoque de ' + r.name;
             const stockCell = r.trackStock
@@ -158,20 +147,9 @@ export function renderInventory(d: InventoryData): string {
     const semAbertura = d.summary.missingMin;
 
     /*
-     * "Saldos" virou "Estoque".
-     *
-     * A pergunta faz sentido -- saldo e' estoque? Aqui, sim: a aba mostra quanto
-     * de cada produto tem em maos, e a coluna da tabela tambem se chamava
-     * "Saldo". O problema e' que a aba tambem mostra dinheiro ("Capital em
-     * estoque"), e "saldo" em portugues e' a palavra do dinheiro que sobrou.
-     * "Saldos" numa tela que mostra R$ 12.000 e' ambíguo, e a ambiguidade e' do
-     * tipo que faz a pessoa clicar no lugar errado achando que achou o caixa --
-     * que e' outra aba, em outro lugar da tela, e que exige senha.
-     *
-     * "Estoque" responde a pergunta sem ambiguidade, e e' o nome que a coluna da
-     * tabela e a barra lateral ja usavam. Agora as tres coisas dizem a mesma
-     * palavra, que era o incoerente de verdade: a aba dizia Saldos, a coluna
-     * dizia Estoque, e o card dizia "Saldo por produto".
+     * "Saldos" era ambiguo numa tela que tambem mostra dinheiro: "saldo" e' a palavra do
+     * dinheiro que sobrou, e a ambiguidade faz clicar no lugar errado achando que achou o
+     * caixa. "Estoque" e' o nome que a coluna e a barra lateral ja usavam.
      */
     return `        <div class="inline-flex rounded-card border border-line overflow-hidden mb-5" role="tablist" aria-label="Produtos e estoque">
                 <button type="button" id="tabCatalogo" onclick="stockSetTab('catalogo')" class="stock-tab flex items-center gap-2" aria-selected="true">
@@ -637,5 +615,29 @@ ${movementRows}
                 try { qual = localStorage.getItem('estoqueAba') || 'catalogo'; } catch (e) {}
                 stockSetTab(qual);
             })();
+
+            /*
+             * Delegacao dos botoes da tabela. Sem este bloco, entrada, perda,
+             * ajustes e o "+"/"-" renderizavam e nao faziam nada: o data-* e'
+             * escrito pelo HTML e ninguem lia. Delegacao e' o padrao do projeto
+             * (ver catalog.ts), e e' por isso que o check:js via funcao orfa sem
+             * acusar -- o vinculo e' pelo nome do atributo, nao por chamada.
+             */
+            document.addEventListener('click', function (ev) {
+                var alvo = ev.target;
+                if (!alvo || !alvo.closest) return;
+
+                var entrada = alvo.closest('[data-stock-entry]');
+                if (entrada) { stockEntry(entrada.dataset.stockEntry); return; }
+
+                var perda = alvo.closest('[data-stock-loss]');
+                if (perda) { stockLoss(perda.dataset.stockLoss); return; }
+
+                var edita = alvo.closest('[data-stock-edit]');
+                if (edita) { stockEdit(edita.dataset.stockEdit); return; }
+
+                var soma = alvo.closest('[data-stock-adj]');
+                if (soma) { stockAdjust(soma.dataset.id, parseInt(soma.dataset.stockAdj, 10) || 0); }
+            });
         </script>`;
 }

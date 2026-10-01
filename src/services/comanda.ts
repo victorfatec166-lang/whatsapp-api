@@ -1,31 +1,9 @@
 import { parseItems } from './items';
 
 /**
- * Comanda da cozinha.
- *
- * E' o papel que sai na impressora termica quando o pedido entra. Duas coisas
- * valem a pena dizer antes do codigo:
- *
- * 1. A comanda NAO e' o espelho da tela do PDV. E' uma folha de trabalho da
- *    cozinha, e ela e' diferente porque e' lida com as maos sujas, as duas
- *    ocupadas, num lugar onde a luz e' ruim. Por isso: numero grande no topo,
- *    item e modificador em linhas separadas, nada de coluna apertada, e nada
- *    de valor -- a cozinha nao precisa saber quanto custou, e o preco no papel
- *    vira ponto de disputa no meio do expediente.
- *
- * 2. O texto vem do campo `items` que o priceCart gravou, lido pelo mesmo
- *    parseItems() do resto do sistema. Nao ha segunda forma de interpretar o
- *    item: se a comanda e o relatorio discordarem, e' porque o gravador mudou,
- *    e nao porque cada tela le de um jeito.
- *
- * Formato ESC/POS
- *
- * O texto puro serve para quem abre em bloco de notas, e e' o mesmo conteudo.
- * O ESC/POS serve para a impressora: 0x1B 0x40 reseta a impressora e 0x1D 0x56
- * corta o papel. Sao os dois comandos minimos de qualquer impressora
- * termica compativel, e mandamos sem depender de biblioteca: o pacote inteiro
- * cabe em duas linhas e nao traz nenhuma dependencia nova para um sistema que
- * roda local.
+ * Comanda da cozinha: nao espelha o PDV, porque e' lida com as maos sujas e as
+ * duas ocupadas -- numero grande no topo, item e modificador em linhas separadas,
+ * e sem valor (preco no papel vira discussao de troco).
  */
 
 /** Largura padrao das impressoras termicas de 80 colunas, o mais comum. */
@@ -88,11 +66,8 @@ function horaLocal(d: Date): string {
 }
 
 /**
- * Monta a comanda.
- *
- * `numero` e' a etiqueta humana do pedido. O id completo e' util no sistema,
- * mas no papel e' ruido: o balcao precisa de algo que caiba na boca, e e' por
- * isso que o numero vai no topo em corpo grande.
+ * Monta a comanda. `numero` e' a etiqueta humana do pedido: o id completo e'
+ * ruido no papel, e o balcao precisa de algo que caiba na boca.
  */
 export function montarComanda(c: Comanda): ComandaTexto {
     const itens = parseItems(c.order.items);

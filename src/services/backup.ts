@@ -1,4 +1,4 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logDoModulo } from './logger';
@@ -6,27 +6,9 @@ import { DIR_BACKUPS as DIR_BACKUPS_CENTRAL } from './paths';
 const log = logDoModulo('backup');
 
 /**
- * Backup do banco.
- *
- * O negocio inteiro cabe em um arquivo SQLite. Se esse arquivo se perde, some
- * o historico de pedidos, o caixa conferido e o catalogo, e nao ha como
- * reconstruir: nao existe outro lugar de onde a informacao veio. E' a unica
- * falha do sistema que nao tem conserto por logica, so por copia.
- *
- * Por que VACUUM INTO e nao "copiar o arquivo"
- *
- * Copiar o dev.db enquanto o servidor roda pode capturar o arquivo no meio de
- * uma escrita, e o SQLite temWrite-ahead Log: a copia sai truncada ou
- * inconsistente. VACUUM INTO pede ao proprio banco que grave uma copia
- * consistente, num arquivo novo, com a base em uso. Por isso roda no startup
- * e no meio do dia sem precisar derrubar o servidor.
- *
- * O que isso NAO protege
- *
- * A copia fica em outro arquivo na mesma maquina. Protege contra registro
- * apagado por engano, banco corrompido e erro de operacao. Nao protege contra
- * disco queimado, roubo ou fire: para isso a copia precisa sair daqui, por
- * exemplo para um disco externo ou um sync de pasta.
+ * Backup do banco: o negocio inteiro cabe num SQLite, e nao ha de onde reconstruir
+ * se ele some -- unica falha do sistema sem conserto por logica, so por copia. E'
+ * VACUUM INTO e nao "copiar o arquivo": com Write-ahead Log a copia sairia truncada.
  */
 
 const BACKUP_DIR = DIR_BACKUPS_CENTRAL;
@@ -51,12 +33,8 @@ function carimbo(): string {
 
 /**
  * As copias do sistema, mais novas primeiro.
- *
- * O filtro e' `backup-*.db` e nao `*.db` de proposito. A pasta e' o unico lugar
- * onde o dono pode fazer um dump manual -- e foi o que aconteceu: um
- * `pre-drop-colunas-20260928-172125.db` deixado durante uma manutencao estava
- * na fila de `podar()`, que considerava qualquer `.db` uma copia do sistema. Um
- * backup que o sistema nao fez nao pode ser apagado por uma regra de rotacao.
+ * O filtro e' `backup-*.db`, e nao `*.db`: um dump manual do dono nao pode ser
+ * apagado por uma regra de rotacao.
  */
 function copias(): string[] {
     try {
@@ -81,14 +59,8 @@ export type CopiaBackup = {
 
 /**
  * As copias que existem, com tamanho e hora, mais novas primeiro.
- *
- * A hora vem do carimbo do NOME, e nao do mtime do arquivo. Sao a mesma coisa
- * quando o backup foi feito pelo sistema -- e sao justamente esses que estao na
- * lista, porque o filtro e' `backup-*.db`. Ler o mtime abriria um `stat` por
- * arquivo para descobrir o que o nome ja diz.
- *
- * E' o que permite mostrar a pessoa "a ultima copia foi ha 2 horas" em vez de um
- * nome de arquivo, que e' informacao de maquina, e nao de reassurance.
+ * A hora vem do carimbo do NOME, e nao do mtime: sao a mesma coisa nas copias do
+ * sistema, e um `stat` por arquivo e' desperdicio.
  */
 export function listarBackups(): CopiaBackup[] {
     const saida: CopiaBackup[] = [];
@@ -136,16 +108,8 @@ function podar(): void {
 
 /**
  * Remove as copias de antes de `hoje` ("YYYY-MM-DD").
- *
- * Existe por causa da virada do dia. A copia e' o banco inteiro, entao mesmo
- * depois de a poda apagar as mensagens, um backup de ontem continuaria sendo o
- * lugar onde elas sobrevivem -- e o backup e' o unico arquivo que sai do
- * controle do dia a dia. Depois desta chamada, o que a loja nao guardou nao
- * esta em nenhuma copia.
- *
- * A comparacao e' entre os prefixos de data dos nomes, que sao `YYYY-MM-DD` e
- * ordenam como data sem abrir nenhum arquivo. O que importa nao e' a hora da
- * copia: e' de que dia ela e'.
+ * Existe pela virada do dia: a copia e' o banco inteiro, entao um backup de
+ * ontem continuaria sendo onde as mensagens apagadas sobrevivem.
  */
 export function podarBackupsDoDia(hoje: string): number {
     // "backup-" tem 7 caracteres, e a data ocupa os 10 seguintes.
@@ -193,20 +157,9 @@ export async function backupNow(): Promise<string | null> {
 let timer: NodeJS.Timeout | null = null;
 
 /**
- * Sobe o backup automatico: uma copia logo no startup e outra a cada seis
- * horas enquanto o processo viver.
- *
- * A primeira copia no startup e' proposital. Se o servidor esta rodando ha
- * semanas, esse e' o primeiro ponto onde a rotina executa, e um backup que so
- * comecou seis horas depois deixaria a janela aberta sem nenhuma copia.
- *
- * Devolve a Promise da primeira copia, e nao `void`, por causa da ordem de
- * partida: a virada do dia (`retencao`) roda logo depois e escreve no banco. Um
- * `VACUUM INTO` que pega o meio de um `DELETE` grava uma copia consistente --
- * consistente no sentido do SQLite, ou seja, transacionalmente correta -- porem
- * sem a combinacao que o dono espera: um backup feito no mesmo instante da
- * poda pode ja vir sem as mensagens de ontem, e ai o backup deixa de ser o
- * lugar de onde se recupera o dia anterior. Quem chama precisa poder esperar.
+ * Uma copia no startup e outra a cada seis horas; a primeira evita a janela sem
+ * backup nenhum. Devolve a Promise, e nao `void`: a virada do dia escreve logo
+ * depois, e um VACUUM INTO no meio do DELETE ja grava a copia sem o dia anterior.
  */
 export function startBackupScheduler(): Promise<void> {
     if (timer) return Promise.resolve();

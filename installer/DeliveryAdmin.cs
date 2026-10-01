@@ -1254,7 +1254,10 @@ namespace DeliveryAdmin
 
         private static void EscreveEnv(string destino)
         {
-            string banco = Path.Combine(Programa.PastaDados, "prisma", "marmitaria.db");
+            // O nome do arquivo do banco tem de ser o mesmo que o `paths.ts` do
+            // sistema usa. Divergir aqui e' o que faz o `migrate deploy` criar um
+            // banco vazio no arquivo novo e o sistema abrir outro, sem dados.
+            string banco = Path.Combine(Programa.PastaDados, "prisma", "deliveryadmin.db");
             // A barra do caminho vira barra e' o que o SQLite aceita em Windows;
             // com barra invertida, o Prisma trata como sequencia de escape.
             banco = banco.Replace('\\', '/');

@@ -1,26 +1,13 @@
 /*
- * Suite da logica pura.
- *
- * Por que estes arquivos e nao os outros
- *
  * O sistema tem duas camadas: regra de negocio (preco, caixa, estoque, dedupe,
- * normalizacao de pedido) e entrega (HTTP, WhatsApp, banco). A segunda precisa
- * de rede e de numero de verdade; a primeira e' pura e nao precisa de nada. E' a
- * primeira que produz dinheiro errado quando quebra.
- *
+ * normalizacao de pedido) e entrega (HTTP, WhatsApp, banco). A segunda precisa de
+ * rede e de numero de verdade; a primeira e' pura, e produz dinheiro errado.
+ */
+
+/*
  * O que nao entra aqui, de proposito: rotas, Prisma e Baileys. Um teste que
- * precisa de mock para chegar no fim esta testando o mock. A meta nao e'
- * cobertura alta: e' que cada regra que decide dinheiro tenha um caso onde ela
- * estava errada antes.
- *
- * Como rodar: `npm test`. Sem dependencia nova -- o runner de teste do proprio
- * Node, que ja vem instalado.
- *
- * Estas assinaturas nao sao de memoria. Ler o codigo antes de escrever o teste
- * evitou quatro testes que passariam sem testar nada: o formato de item usa " | "
- * e nao quebra de linha, o modificador vai entre colchetes, `stockStatus`
- * devolve 'sem-controle' e nao 'ok', e `needsMinStock` responde a pergunta
- * oposta -- "falta minimo", nao "tem minimo".
+ * precisa de mock para chegar no fim esta testando o mock. A meta nao e' cobertura
+ * alta: e' que cada regra que decide dinheiro tenha um caso onde ela errava.
  */
 
 import test from 'node:test';
@@ -39,9 +26,8 @@ import type { StockRow } from '../src/services/stock';
 /* ------------------------------------------------------------------ itens */
 
 /*
- * O formato gravado usa " | " entre linhas e " [mods]" no fim da linha. O
- * separador e' " | " e nao quebra de linha porque o campo vai para o banco e
- * para a comanda da impressora, e um parser que depende de \n quebra quando o
+ * O separador e' " | " e nao quebra de linha porque o campo vai para o banco e
+ * para a comanda da impressora: um parser que depende de \n quebra quando o
  * texto passa por um campo de formulario.
  */
 test('parseItems: le o formato gravado, separado por barra', () => {
@@ -401,10 +387,9 @@ test('summarize: valor e capital imobilizado usam o preco certo', () => {
 /* ------------------------------------------------- substituicao de variaveis */
 
 /*
- * A tela oferece {items} e {total} como botao justamente porque este
- * detalhe nao pode ficar nas costas de quem escreve a frase. Com `replace` de
- * string, a segunda ocorrencia ia para o cliente como "{total}" literal -- e o
- * unico sintoma era o cliente reclamando de um texto com chaves.
+ * A tela oferece {items} e {total} como botao porque este detalhe nao pode ficar
+ * nas costas de quem escreve a frase: com `replace` de string a segunda ocorrencia
+ * iria como "{total}" literal, e o sintoma era o cliente reclamar das chaves.
  */
 const itens = '2x Coxinha';
 const total = '18,00';
@@ -456,17 +441,14 @@ test('summarize: soma de dinheiro nao acumula erro de ponto flutuante', () => {
 /* ------------------------------------------------------- configuracoes do negocio */
 
 /*
- * Por que configuracao entra aqui, e nao em um arquivo novo
- *
- * A funcao e' pura: entrada do formulario, saida de validacao. Nao toca banco,
- * nao tem relogio, nao faz requisicao. E' a mesma categoria de `stockStatus` e
- * de `closeMomentAfter`, que ja estao neste arquivo.
- *
- * E o que precisa de prova aqui e' a REGRA, nao o codigo: o teste nao verifica
- * se a tela tem um campo, verifica se o sistema recusa o estado que ele aceitou
- * em silencio e que nao fazia nada. Esse e' o defeito, e ele nao aparece em
- * revisao de codigo -- aparece quando alguem salva e descobre no dia seguinte
- * que o turno nao abriu.
+ * Configuracao entra aqui, e nao em arquivo novo, porque a funcao e' pura: entrada
+ * do formulario, saida de validacao, sem banco, relogio ou requisicao.
+ */
+
+/*
+ * E o que se prova aqui e' a REGRA, nao o codigo: nao se verifica se a tela tem um
+ * campo, e sim se o sistema recusa o estado que ele aceitava em silencio e nao
+ * fazia nada -- defeito que so aparece no dia seguinte, com o turno que nao abriu.
  */
 
 const CONFIG_OK = {

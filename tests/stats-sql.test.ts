@@ -1,41 +1,20 @@
 /*
- * A agregacao no banco diz o mesmo que a de memoria?
- *
- * Este e' o teste que permite trocar "somar em JavaScript" por "somar no
- * SQLite" sem mexer em um centavo do Faturamento. Sem ele, a mudacao e' uma
- * aposta: os dois caminhos parecem Iguais na leitura, e divergem no primeiro
- * pedido com data thorn.
- *
- * Por que compara os dois calculos, e nao so o do SQL
- *
- * Um teste que so verifica o SQL precisa saber a resposta certa. Aqui a
- * resposta certa e' o que o sistema ja mostrava -- `computeStats`, a versao em
- * memoria, que e' a que roda hoje. Se os dois concordarem em todos os campos, a
- * troca nao mudou nada observavel. Se divergirem, o teste diz qual campo e
- * quais numeros, e nao "deu ruim".
- *
- * Os dois rodam sobre o MESMO banco, entao a comparacao e' justa: mesma
- * entrada, dois calculos.
- *
- * O QUE ESTE TESTE PEGOU
- *
- * 1. `createdAt / 1000` antes do `strftime`. O SQLite le "2026-09-25T21:23..."
- *    como o numero 2026 e o trata como epoch em segundos, devolvendo
- *    1969-12-31 -- uma data plausivel. Sem o erro, o GROUP BY por dia agrupava
- *    tudo em 1969 e o grafico de receita ficava vazio. Um teste que so conferia
- *    "veio uma data" passava.
- * 2. `localtime` faltando. Sem ele, o "pedidos por hora" mostra o horario de
- *    Greenwich: 21h em Brasilia viraria 00h do dia seguinte, e o pico de
- *    pedidos apareceria na hora errada.
- * 3. A soma de "hoje" vs "semana" vs "mes" trocada de janela.
- * 4. `revenueByDay` em ordem decrescente: o grafico e' linha do tempo, e
- *    invertido mostra o passado depois do presente.
+ * Este e' o teste que permite trocar "somar em JavaScript" por "somar no SQLite"
+ * sem mexer em um centavo do Faturamento. Sem ele a troca e' uma aposta: os dois
+ * caminhos parecem iguais na leitura e divergem no primeiro pedido com data torta.
+ */
+
+/*
+ * Por que compara os dois calculos, e nao so o do SQL: um teste so do SQL
+ * precisaria saber a resposta certa, e aqui ela e' o que o sistema ja mostrava --
+ * `computeStats`, a versao em memoria. Se divergirem, o teste diz qual campo.
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { prisma } from '../src/database/prisma';
+import { comoLoja } from '../src/services/loja';
 import { computeStats, type OrderWithProductless } from '../src/services/stats';
 import { computeStatsSql } from '../src/services/statsSql';
 
@@ -47,11 +26,28 @@ test.after(async () => {
     await prisma.$disconnect();
 });
 
+/*
+ * A loja que o teste compara. Os dois calculos tem de olhar para o MESMO conjunto
+ * de pedidos, e `computeStatsSql` exige uma loja -- entao a leitura em memoria
+ * filtra pela mesma. Sem este filtro a comparacao seria injusta assim que existisse
+ * uma segunda loja no banco: o SQL somaria uma loja e a memoria somaria as duas,
+ * e o teste acusaria divergencia num sistema que esta' certo.
+ */
+const LOJA = process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
+
+async function pedidosDaLoja(): Promise<OrderWithProductless[]> {
+    return (await prisma.order.findMany({
+        where: { tenantId: LOJA },
+        orderBy: { createdAt: 'asc' },
+    })) as OrderWithProductless[];
+}
+
+// Os dois calculos rodam sobre o MESMO banco: mesma entrada, comparacao justa.
 test('agregacao no banco bate com a de memoria, campo a campo', async () => {
-    const orders = (await prisma.order.findMany({ orderBy: { createdAt: 'asc' } })) as OrderWithProductless[];
+    const orders = await pedidosDaLoja();
 
     const memoria = await computeStats(orders);
-    const sql = await computeStatsSql();
+    const sql = await comoLoja(LOJA, () => computeStatsSql());
 
     // Receita: o campo que produz dinheiro.
     assert.equal(cents(sql.allTime.revenue), cents(memoria.allTime.revenue), 'receita total');
@@ -81,7 +77,7 @@ test('agregacao no banco bate com a de memoria, campo a campo', async () => {
 });
 
 test('receita por dia fica em ordem crescente, e nao invertida', async () => {
-    const sql = await computeStatsSql();
+    const sql = await comoLoja(LOJA, () => computeStatsSql());
     const datas = sql.revenueByDay.map((d) => d.date);
     const ordenadas = [...datas].sort();
     assert.deepEqual(datas, ordenadas, 'o grafico de receita e' + ' linha do tempo');
@@ -89,18 +85,17 @@ test('receita por dia fica em ordem crescente, e nao invertida', async () => {
 
 test('o dia do grafico e' + ' o dia local, nao o dia em UTC', async () => {
     /*
-     * A correcao que o teste de paridade discoveriu.
-     *
-     * O `computeStats` antigo agrupava por `toISOString().slice(0, 10)`, que e'
-     * o dia em UTC. Um pedido as 21:23 UTC e' 18:23 em Brasilia -- o mesmo dia,
-     * no meio do expediente -- e aparecia no grafico como dia seguinte.
-     *
-     * Este teste nao compara com o SQL: fixa o comportamento, para que uma
-     * refatoracao futura nao reintroduza o UTC. A escolha de quem estava certo
-     * (o SQL, com `localtime`) foi feita olhando os dois numeros lado a lado no
-     * banco de verdade: 8 pedidos apareciam no dia errado.
+     * A correcao que a paridade descobriu: `computeStats` agrupava por
+     * `toISOString().slice(0, 10)`, que e' o dia em UTC. Um pedido as 21:23 UTC
+     * sao 18:23 em Brasilia -- mesmo dia -- e aparecia no grafico como o seguinte.
      */
-    const orders = (await prisma.order.findMany({ orderBy: { createdAt: 'asc' } })) as OrderWithProductless[];
+
+    /*
+     * Aqui nao se compara com o SQL: fixa o comportamento para que uma refatoracao
+     * nao reintroduza o UTC. Quem estava certo -- o SQL, com `localtime` -- foi
+     * olhando os dois numeros lado a lado: 8 pedidos apareciam no dia errado.
+     */
+    const orders = await pedidosDaLoja();
     const memoria = await computeStats(orders);
 
     for (const dia of memoria.revenueByDay) {
@@ -121,14 +116,11 @@ test('o dia do grafico e' + ' o dia local, nao o dia em UTC', async () => {
 
 test('as datas do SQL sao as mesmas do JavaScript, no mesmo fuso', async () => {
     /*
-     * Este e' o teste do `/1000`.
-     *
-     * Com `createdAt / 1000`, o SQLite devolve 1969 para tudo. A data continua
-     * sendo uma data, entao nenhuma verificacao de "tem data" reclama -- e o
-     * Faturamento inteiro vira 1969. Aqui a comparacao e' com o que o
-     * JavaScript diz do mesmo registro, entao o erro aparece.
+     * Este e' o teste do `/1000`: assim o SQLite devolve 1969 para tudo, e a data
+     * continua sendo uma data -- nenhuma verificacao de "tem data" reclama e o
+     * Faturamento inteiro vira 1969. Aqui a comparacao e' com o mesmo registro.
      */
-    const sql = await computeStatsSql();
+    const sql = await comoLoja(LOJA, () => computeStatsSql());
     const inicioDoBanco = new Date(2000, 0, 1).getTime();
 
     if (sql.revenueByDay.length > 0) {
@@ -149,9 +141,10 @@ test('o total do SQL confere com a soma crua da tabela', async () => {
      * estivessem errados, o total ainda teria de bater com o `SUM` cru.
      */
     const [cru] = await prisma.$queryRawUnsafe<{ receita: unknown; n: unknown }[]>(
-        `SELECT COALESCE(SUM(total), 0) AS receita, COUNT(*) AS n FROM "Order"`
+        `SELECT COALESCE(SUM(total), 0) AS receita, COUNT(*) AS n FROM "Order" WHERE "tenantId" = ?`,
+        LOJA
     );
-    const sql = await computeStatsSql();
+    const sql = await comoLoja(LOJA, () => computeStatsSql());
 
     assert.equal(cents(sql.allTime.revenue), cents(Number(cru.receita)), 'receita total vs SUM cru');
     assert.equal(sql.allTime.orders, Number(cru.n), 'contagem vs COUNT cru');
@@ -163,7 +156,7 @@ test('banco vazio nao quebra a agregacao', async () => {
      * medio zero e sem divisao por zero. O `averageTicket` antigo tem guarda
      * explicita; o novo tambem precisa, e este teste e' o que trava isso.
      */
-    const sql = await computeStatsSql();
+    const sql = await comoLoja(LOJA, () => computeStatsSql());
     assert.ok(Number.isFinite(sql.averageTicket), 'ticket medio e' + ' finito');
     assert.equal(sql.byHour.length, 24, 'sempre 24 horas, mesmo vazio');
     assert.equal(sql.byDayOfWeek.length, 7, 'sempre 7 dias, mesmo vazio');

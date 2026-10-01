@@ -14,12 +14,16 @@
     "postinstall": "node scripts/postinstall.mjs",
     "watch:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --watch",
     "check:contrast": "node scripts/check-contrast.js",
+    "installer": "powershell -ExecutionPolicy Bypass -NoProfile -File installer/montar.ps1",
+    "installer:rapido": "powershell -ExecutionPolicy Bypass -NoProfile -File installer/compilar-instalador.ps1",
     "check:js": "node scripts/check-js.js",
     "check:ui": "node scripts/check-ui.js",
     "check:comentarios": "node scripts/check-comentarios.js",
-    "check": "npm run check:ui && npm run check:js && npm run check:comentarios && npm run test",
+    "check:ps1": "node scripts/check-ps1.js",
+    "check": "npm run check:ui && npm run check:js && npm run check:comentarios && npm run check:ps1 && npm run test",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts tests/*.test.js",
-    "start": "node scripts/start.mjs"
+    "start": "node scripts/start.mjs",
+    "cliente": "electron cliente"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
@@ -36,10 +40,14 @@
     "@types/node": "^20.11.24",
     "@types/qrcode-terminal": "^0.12.2",
     "autoprefixer": "^10.6.1",
+    "electron": "^44.5.1",
     "postcss": "^8.5.28",
     "prisma": "^5.22.0",
     "tailwindcss": "^3.4.19",
     "tsx": "^4.23.15",
     "typescript": "^5.3.3"
+  },
+  "allowScripts": {
+    "electron@44.5.1": true
   }
 }

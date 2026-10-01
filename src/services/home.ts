@@ -10,11 +10,8 @@ import { getDailyMenu, previousDailyMenu, type DailyMenuView } from './dailyMenu
 import { listarContas, type Canal, type StatusConta } from './marketplace';
 
 /**
- * Todas as queries da home ficam aqui, num modulo so.
- *
- * A view (src/views/home.ts) nao toca o banco: recebe dados prontos. Isso
- * mantem a home isolada do resto, que e o que permite multi-loja no futuro
- * sem reescrever a interface.
+ * Todas as queries da home ficam aqui: a view (src/views/home.ts) nao toca o
+ * banco, recebe dados prontos. E' o que mantem a home isolada do resto.
  */
 
 export type SetupCheck = {
@@ -64,12 +61,9 @@ export type HomeData = {
     /** Produtos disponiveis para montar o menu do dia, em ordem alfabetica. */
     menuProducts: Array<{ id: string; name: string; price: number; category: string }>;
     /**
-     * Canais de fora: onde este painel conversa com outro sistema.
-     *
-     * A Home mostra so o estado, nunca credencial. Serve para a pessoa ver que
-     * o iFood esta ativo sem precisar abrir a tela do marketplace -- e para
-     * saber que um canal esta em homologacao enquanto ela acha que esta
-     * vendendo por ele.
+     * A Home mostra so o estado do canal, nunca a credencial: serve para ver que o
+     * iFood esta ativo sem abrir a tela do marketplace, e para saber que um canal
+     * esta em homologacao enquanto ela acha que esta vendendo por ele.
      */
     conexoes: Array<{
         channel: Canal;
@@ -80,12 +74,9 @@ export type HomeData = {
 };
 
 /**
- * A Home e' so operacao: nada de receita, ticket, margem ou grafico de
- * faturamento. Tudo que mexe em dinheiro foi para a aba Faturamento, e os
- * campos correspondentes sairam daqui de proposito -- assim nao ha como o
- * valor voltar a aparecer na tela inicial por engano.
- *
- * estimateMargin() continua exportado: a aba Faturamento usa a mesma conta.
+ * A Home e' so operacao: nada de receita, ticket, margem ou grafico. Tudo que
+ * mexe em dinheiro foi para a aba Faturamento, e os campos sairam daqui de
+ * proposito -- assim nao ha como o valor voltar a aparecer por engano.
  */
 
 function startOfDay(d: Date): Date {
@@ -100,12 +91,10 @@ function pct(today: number, yesterday: number): number | null {
 }
 
 /**
- * Lucro estimado de um conjunto de pedidos. O total do pedido e distribuido
- * igualmente entre as unidades (mesma regra de computeStats) e o custo vem do
- * preco de custo do produto. Sem nenhum item com custo cadastrado, devolve
- * null em vez de um numero inventado.
+ * Lucro estimado. O total do pedido e distribuido igualmente entre as unidades
+ * (mesma regra de computeStats); sem nenhum item com custo cadastrado, percent
+ * e null em vez de um numero inventado.
  */
-/** Lucro estimado. percent e null quando algum item nao tem custo cadastrado. */
 export type MarginEstimate = { value: number; percent: number | null };
 
 export function estimateMargin(
@@ -140,14 +129,9 @@ export function estimateMargin(
 }
 
 /**
- * O que ainda falta para a loja funcionar.
- *
- * Cada item diz o que fazer e, enquanto nao estiver feito, o que quebra sem
- * ele -- e' mais util que repetir o titulo. So entram aqui etapas que o dono
- * realmente precisa cumprir; nada que ele nao consiga fazer pela tela.
- *
- * O "endereco de origem" saiu daqui: o campo nao existe mais no Config, entao
- * o item era um beco sem saida que nunca marcava como concluido.
+ * So entram etapas que o dono realmente precisa cumprir pela tela. Item que
+ * promete algo que nao acontece e' pior que a falta dele: a pessoa para de
+ * procurar o que esta realmente quebrado.
  */
 async function buildSetupChecks(
     products: Array<{ id: string; trackStock: boolean }>,
@@ -179,16 +163,9 @@ async function buildSetupChecks(
             href: '/admin?tab=whatsapp',
             done: botOnline,
         },
-        /* O item "Cadastre a chave PIX" saiu daqui.
-         *
-         * Ele prometia algo que nao acontecia: a Home marcava "Chave PIX
-         * configurada" e o cliente ainda assim nao recebia chave nenhuma, porque
-         * o pixKey so era lido por este checklist -- nem o bot, nem o PDV, nem a
-         * comanda da cozinha mandavam a chave para o cliente. Um item de setup
-         * que se marca como feito sem ter efeito e' pior que a falta dele: o
-         * dono para de procurar o que realmente esta quebrando.
-         *
-         * Quando o pixKey voltar a ser entregue ao cliente, o item volta junto.
+        /* O item "Cadastre a chave PIX" saiu daqui: prometia algo que nao acontecia --
+         * o pixKey so era lido por este checklist, nem o bot nem o PDV mandavam a
+         * chave para o cliente. Volta junto quando o pixKey voltar a ser entregue.
          */
         {
             id: 'estoque',
@@ -328,15 +305,9 @@ export async function loadHomeData(opts: {
     const setup = await buildSetupChecks(products, botOnline);
 
     /*
-     * Estado dos canais, e so o estado.
-     *
-     * A tela do marketplace mostra tudo -- credencial, webhook, erro da ultima
-     * checagem, quantos itens do catalogo ja casaram. Aqui nao cabe nada disso:
-     * a Home responde "esta conectado?", e o resto mora na tela do canal.
-     *
-     * `listarContas` cria a conta na primeira leitura, entao o canal nunca
-     * configurado aparece como "sem credencial" em vez de sumir da lista. Sem
-     * essa linha, a ausencia do canal seria indistinguivel de um defeito.
+     * Estado dos canais, e so o estado: credencial, webhook e erro da ultima
+     * checagem moram na tela do canal. listarContas cria a conta na primeira
+     * leitura, entao canal nunca configurado aparece como "sem credencial" em vez de sumir.
      */
     const conexoes = (await listarContas()).map((c) => ({
         channel: c.channel,

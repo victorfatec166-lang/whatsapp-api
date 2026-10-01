@@ -1,30 +1,26 @@
 #!/usr/bin/env node
 /*
- * Verifica o HTML servido: rotulos, nomes acessiveis e nomes de campo.
- *
- * Por que isto existe
- *
- * O painel e' HTML montado no servidor. O `tsc` valida o TypeScript, e nada
- * valida o HTML que sai dele. Duas classes de defeito passam assim:
- *
- * 1. `<label>` sem `for` e `<input>` sem `id`. O campo funciona, o texto do
- *    rotulo funciona, e clicar no texto nao foca o campo -- porque o navegador
- *    so liga os dois pelo `for`/`id`. Em formulario com 15 campos, e' a
- *    diferenca entre preencher rapido e ir campo a campo. E' leitor de tela
- *    que perde a ligacao e anuncia "campo de texto" sem dizer qual.
- *
- * 2. `<button>` ou `<a>` sem nome acessivel. `<button><i class="fa-solid
- *    fa-save"></i></button>` e' um botao que o leitor de tela anuncia como
- *    "botao" e nada mais. O `title` ajuda o mouse, nao o leitor de tela.
- *
- * O que este script NAO verifica, e por que
- *
- * Contraste de cor ja tem quem cuide: `check:contrast` le os tokens do CSS e
- * compara com a WCAG. Fazer aqui seria duplicar com uma versao pior, porque
- * medir cor precisa do arquivo de estilos compilado, e nao do HTML.
- *
- * Como o `check:js`, ele pede as abas ao servidor rodando. Precisa do processo
- * no ar; sem ele, avisa e falha -- nunca da verde falso.
+ * O painel e' HTML montado no servidor: o `tsc` valida o TypeScript e nada valida o
+ * HTML que sai dele. Duas classes de defeito passam assim, e por isso este script
+ * existe.
+ */
+
+/*
+ * `<label>` sem `for` e `<input>` sem `id`: o campo funciona, mas clicar no texto do
+ * rotulo nao foca nada, porque o navegador so liga os dois pelo `for`/`id`. Em
+ * formulario com 15 campos, e' a diferenca entre preencher rapido e ir campo a campo.
+ */
+
+/*
+ * E `<button>` ou `<a>` sem nome acessivel: `<button><i class="fa-solid
+ * fa-save"></i></button>` e' anunciado como "botao" e nada mais. O `title` ajuda o
+ * mouse, nao o leitor de tela.
+ */
+
+/*
+ * Contraste NAO e' verificado aqui: `check:contrast` le os tokens do CSS e compara
+ * com a WCAG, e medir cor precisa do CSS compilado, nao do HTML. Como o `check:js`,
+ * este script pede as abas ao servidor rodando e falha sem ele -- nunca verde falso.
  */
 
 const http = require('node:http');
@@ -52,23 +48,16 @@ const VARIACOES = {
 let cookieSessao = '';
 
 /**
- * Toda pagina pedida com a sessao de teste.
- *
- * Sem o cabecalho, o painel responde 401 e este script conferiria a tela de
- * login dez vezes, dando "ok" a dez telas que ninguem pediu para conferir. O
- * silencio e' o que torna o verde falso aceitavel: e' preciso que o token
- * entre pelo mesmo caminho do navegador.
+ * Sem o cabecalho, o painel responde 401 e este script conferiria a tela de login
+ * dez vezes, dando "ok" a dez telas que ninguem pediu. E' preciso que o token entre
+ * pelo mesmo caminho do navegador.
  */
 function pegar(caminho) {
     return new Promise((resolve, reject) => {
         /*
-         * O cabecalho vai NAS OPCOES, e nao em `req.setHeader` depois.
-         *
-         * `http.get()` envia a requisicao no momento da chamada. Um
-         * `setHeader` seguinte chega tarde demais e o Node lanca
-         * "Cannot set headers after they are sent" -- que e' erro do cliente
-         * aparecendo como se fosse do servidor, e fazia os doze verbos
-         * falharem com a mensagem errada.
+         * O cabecalho vai nas OPCOES: `http.get()` envia a requisicao na chamada, e
+         * um `setHeader` depois chega tarde e o Node lanca "Cannot set headers after
+         * they are sent" -- erro de cliente com cara de erro de servidor.
          */
         const opcoes = cookieSessao ? { headers: { Cookie: cookieSessao } } : undefined;
         http
@@ -151,23 +140,15 @@ function estaEmRotulo(html, pos) {
 function verifica(html, nomeDaAba) {
     const problemas = [];
     /*
-     * Tira <script>, <style> e comentario antes de varrer.
-     *
-     * Sem isso, o codigo JavaScript embutido era lido como HTML: as tres
-     * ocorrencias de "<img" da aba de Conversas vinham de uma string que
-     * CONSTRUI a imagem, nao de uma imagem de verdade. Um verificador que
-     * acusa codigo como se fosse marcação vira encher ruido, e ruido e' a
-     * razao pela qual as pessoas desistem de rodar o verificador.
-     *
-     * Comentario entra pelo mesmo motivo, e porque ele e' o lugar onde a gente
-     * escreve o nome da tag que NAO estamos usando: um texto explicando por que
-     * a categoria virou aba em vez de <select> trazia um "<select>" que o
-     * verificador lia como um campo sem rotulo, e acusava a tela por causa do
-     * proprio comentario que documentava a decisao.
-     *
-     * Substitui pelo <head>, que nao tem elementos do corpo, e o numero de linha
-     * deixa de bater -- a saida usa o caminho da aba, nao a linha, justamente por
-     * isso.
+     * Tira <script>, <style> e comentario antes de varrer: sem isso o JavaScript
+     * embutido era lido como HTML, e as tres ocorrencias de "<img" da aba de Conversas
+     * vinham de uma string que CONSTRUI a imagem. Ruido faz a gente parar de rodar.
+     */
+
+    /*
+     * Comentario entra pelo mesmo motivo, e porque e' onde se escreve o nome da tag que
+     * NAO esta em uso: um texto explicando por que a categoria virou aba em vez de
+     * <select> trazia um "<select>" lido como campo sem rotulo.
      */
     const corpo = html
         .replace(/<script\b[\s\S]*?<\/script>/gi, '<script></script>')
@@ -184,14 +165,9 @@ function verifica(html, nomeDaAba) {
     for (const el of elementos) {
         const { tag, attrs, pos } = el;
 
-        // 1. Rotulo sem `for`, ou apontando para um id que nao existe.
-        //
-        // Um `<label>` que ENVOLVE o campo e' valido e acessivel: o navegador
-        // liga os dois pela hierarquia, e clicar no texto foca o campo. A
-        // primeira versao deste script acusava todo rotulo sem `for`, e a
-        // metade dos casos era essa. Um verificador que acusa o que esta certo
-        // treina a ignorar a saida inteira -- foi o que aconteceu na primeira
-        // rodada, com 4 falsos positivos so na Home.
+        // Rotulo que ENVOLVE o campo e' valido e acessivel: o navegador liga os
+        // dois pela hierarquia. A primeira versao acusava todo rotulo sem `for`, e a
+        // metade dos casos era essa -- 4 falsos positivos so na Home.
         if (tag === 'label') {
             const forDe = attr(attrs, 'for');
             if (forDe === null) {
@@ -209,17 +185,9 @@ function verifica(html, nomeDaAba) {
             }
         }
 
-        // 2. Campo sem id.
-        //
-        // So e' defeito quando NINGUEM alcanca o campo. Dentro de um rotulo que
-        // o envolve, o navegador liga os dois pela hierarquia e o id e'
-        // desnecessario -- e a lista de modificadores do PDV monta dezenas de
-        // caixas dentro de um rotulo cada, onde um id por item seria trabalho
-        // sem resultado.
-        //
-        // Sem `for` e sem rotulo em volta, o campo nao tem nome: e' o caso da
-        // coluna de saldo na tabela de estoque, que Announces "campo de texto,
-        // 12" para quem usa leitor de tela.
+        // So e' defeito quando NINGUEM alcanca o campo: dentro de um rotulo que o
+        // envolve o id e' desnecessario, e a lista de modificadores do PDV monta
+        // dezenas de caixas assim. Sem `for` e sem rotulo em volta, nao ha nome.
         if ((tag === 'input' || tag === 'select' || tag === 'textarea') && !attr(attrs, 'id')) {
             const tipo = attr(attrs, 'type');
             const invisivel = tipo === 'hidden' || tipo === 'submit';
@@ -252,27 +220,21 @@ function verifica(html, nomeDaAba) {
     }
 
     /*
-     * 5. Tag sem fechador.
-     *
-     * Este e' o defeito mais caro do checklist, e o unico que o navegador
-     * conserta sozinho -- por isso ele passou semanas.
-     *
-     * Uma `<div>` sem `</div>` nao gera erro: o navegador fecha no fim do pai
-     * e continua desenhando. O que acontece depois e' que tudo que vem a
-     * seguir vira FILHO do elemento que ficou aberto, e a hierarquia vira outra
-     * sem que nada mude de lugar na tela. Na aba de Estoque, um `</div>` que
-     * faltava no painel fez a janela de entrada e o script entrarem dentro dele,
-     * e a tabela de produtos sumiu. O sintoma foi "o conteudo desapareceu", a
-     * causa estava a duzentas linhas de distancia, e nenhuma das outras quatro
-     * verificacoes tinha como ver: rotulo certo, id certo, botao com nome certo,
-     * script com sintaxe certa. Tudo estava certo menos uma tag.
-     *
-     * A contagem e' feita no corpo ja sem `<script>`, `<style>` e comentario,
-     * porque ali o texto do JavaScript -- que tem `<div>` dentro de string --
-     * deixaria a conta errada.
-     *
-     * Tags com fechador opcional nao entram: `br`, `hr`, `img`, `input`, `meta`,
-     * `link`. E so o que aceita contenido que precisa fechar.
+     * O defeito mais caro do checklist, e o unico que o navegador conserta sozinho --
+     * por isso ele passou semanas. Uma `<div>` sem `</div>` nao da erro: o navegador
+     * fecha no fim do pai e segue desenhando.
+     */
+
+    /*
+     * O que vem depois vira FILHO do elemento que ficou aberto, e a hierarquia muda
+     * sem nada mudar de lugar na tela. Na aba de Estoque, um `</div>` faltando fez a
+     * janela de entrada e o script entrarem nele, e a tabela de produtos sumiu.
+     */
+
+    /*
+     * Nenhuma das outras quatro verificacoes veria isso: rotulo certo, id certo, botao
+     * com nome certo, sintaxe certa. Tudo certo menos uma tag. E a contagem e' feita
+     * no corpo ja sem `<script>`, `<style>` e comentario, que tem `<div>` em string.
      */
     const semFechador = tagsSemFechador(corpo);
     if (semFechador.saldo !== 0) {
@@ -344,12 +306,9 @@ function tagsSemFechador(corpo) {
 
 async function main() {
     /*
-     * Espera o servidor ficar pronto, em vez de exigir que ele ja estivesse.
-     *
-     * A primeira versao falhava na hora se o processo acabasse de subir, e a
-     * mensagem dizia "rode npm start" para quem ja tinha feito isso um segundo
-     * antes. A espera e' curta e o aviso no fim continua valendo: sem servidor,
-     * a falha e' a mesma, so que agora nao grita sem motivo.
+     * Espera o servidor ficar pronto, em vez de exigir que ele ja estivesse: a
+     * primeira versao falhava na hora se o processo acabasse de subir, e a mensagem
+     * dizia "rode npm start" para quem ja tinha feito isso um segundo antes.
      */
     let pronto = false;
     for (let tentativa = 0; tentativa < 15; tentativa++) {
@@ -372,13 +331,9 @@ async function main() {
     const porTipo = new Map();
 
     /*
-     * Entra antes de varrer.
-     *
-     * A conta de teste e' de operador, entao a aba de Usuarios responde 403
-     * para ela -- e essa aba nao entra na lista. O motivo: ela e' a tela de
-     * administracao, e um verificador rodando com conta restrita nao teria o
-     * que conferir. As dez abas abaixo sao as de uso, e sao as que este script
-     * precisa cobrir.
+     * A conta de teste e' de operador, entao a aba de Usuarios responde 403 e ela nao
+     * entra na lista: e' a tela de administracao, e um verificador com conta restrita
+     * nao teria o que conferir. As dez abas abaixo sao as de uso.
      */
     try {
         const sessao = await sessaoDeTeste();

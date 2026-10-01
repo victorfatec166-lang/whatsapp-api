@@ -1,46 +1,19 @@
 /*
- * A virada do dia apaga o que e' de ontem. E' a unica rotina do sistema que
- * DELETA dado de cliente, entao o teste precisa de duas garantias:
- *
- * 1. Que ela apaga o que deve -- e o que nao deve tambem. A parte perigosa de
- *    uma rotina de retencao nao e' ela falhar e deixar dado para tras: e' ela
- *    funcionar bem demais e levar junto a mensagem de hoje.
- *
- * 2. Que o teste em si nao come o banco de quem roda.
- *
- * O SEGUNDO PROBLEMA, E COMO ESTE TESTE O RESOLVE
- *
- * A poda e' um `DELETE` sem `where` que faca sentido: apaga tudo antes da
- * meia-noite. Rodando isso contra o `dev.db` de verdade, ela levaria as
- * mensagens do dono junto -- e um teste nao pode apagar a conversa de quem
- * esta testando.
- *
- * A solucao nao e' banco temporario com migration, e' empurrar o `agora` para
- * o passado. `podarDiaAnterior` recebe o instante, entao o teste passa uma
- * data de DUAS semanas atras: a meia-noite artificial fica antes das mensagens
- * reais, e o `DELETE` so alcanca as fixtures que o proprio teste criou. O
- * `where` e' o mesmo de producao, sobre o schema de verdade.
- *
- * E, para nao depender dessa razao, o teste grava os ids de todas as mensagens
- * e conversas que existem antes e afirma, no fim, que todos ainda estao la.
- * Se um dia o `where` mudar e comecar a alcancar tudo, esse teste quebra em vez
- * de destruir o banco.
- *
- * Por que testar por arquivos de verdade (backups e logs)
- *
- * Sao as duas unicas partes da retencao que nao passam pelo Prisma, e sao
- * exatamente as que ninguem percebe quebrando: uma regra de nome de arquivo
- * errada nao da erro, apenas para de apagar -- e "parou de apagar" e' o modo
- * de falha silencioso deste sistema inteiro.
- *
- * E por que `npm test` roda com `--test-concurrency=1`
- *
- * A virada chama `VACUUM`, que trava o banco inteiro para reescrever o
- * arquivo. Os quatro arquivos de testeDividem o mesmo `dev.db`, e o runner do
- * Node os executa em paralelo por padrao: enquanto a virada segura o lock, o
- * teste de estatisticas leva "database is locked" e falha sem ter nada a ver
- * com o que testa. Serializar os arquivos resolve, e e' a mesma razao do
- * `writeQueue` -- um SQLite, uma escrita por vez.
+ * A virada do dia apaga o que e' de ontem, e e' a unica rotina que DELETA dado
+ * de cliente. O perigo nao e' falhar e deixar dado para tras: e' funcionar bem
+ * demais e levar a mensagem de hoje junto.
+ */
+
+/*
+ * Para o teste nao comer o banco de quem roda: `podarDiaAnterior` recebe o
+ * instante, entao o teste passa um `agora` de DUAS semanas atras, a meia-noite
+ * artificial fica antes de tudo e o `DELETE` de producao so pega as fixtures.
+ */
+
+/*
+ * Backups e logs nao passam pelo Prisma, e nome de arquivo errado nao da erro:
+ * so para de apagar. Ja `--test-concurrency=1` existe porque a virada chama
+ * `VACUUM` e tranca o `dev.db` que os quatro arquivos de teste dividem.
  */
 
 import test from 'node:test';
@@ -52,8 +25,29 @@ import { PrismaClient } from '@prisma/client';
 import { podarDiaAnterior, inicioDoDia, carimboDoDia } from '../src/services/retencao';
 import { podarBackupsDoDia, backupDir } from '../src/services/backup';
 import { podarLogsDoDia, pastaDeLogs } from '../src/services/logger';
+import { prismaComLoja } from '../src/database/prisma-com-loja';
+import { comoLoja } from '../src/services/loja';
+import nodeTest from 'node:test';
 
-const prisma = new PrismaClient();
+const prisma = prismaComLoja;
+
+/** A loja do teste: a mesma do ambiente, que e' quem tem a linha em `Tenant`. */
+const LOJA = process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
+
+/*
+ * A poda passou a ser POR LOJA -- uma volta por tenant ativo, e nao um DELETE
+ * global -- entao todo este arquivo roda dentro de uma loja. Sem este embrulho as
+ * fixtures nasceriam sem dono (`Argument tenant is missing`) e a prova de que a
+ * poda e' por loja viraria um teste que falha na montagem.
+ *
+ * E' um embrulho em `test`, e nao um `comoLoja` em cada chamada, porque o que o
+ * arquivo exercita e' a regra da meia-noite; a loja e' a condicao para ela rodar.
+ */
+const test = ((nome: string, fn: (t: never) => unknown) =>
+    nodeTest(nome, (t: never) => comoLoja(LOJA, () => fn(t)))) as typeof nodeTest;
+// `after`, `before` e `mock` sao propriedades da propria funcao; sem esta copia o
+// embrulho perderia o `test.after` que limpa a base no fim do arquivo.
+Object.assign(test, nodeTest);
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -69,24 +63,14 @@ const JID_BOT = '5500000000001@teste-virada-bot';
 const JID_HUMANO = '5500000000002@teste-virada-humano';
 
 /**
- * Cria uma conversa com mensagens de ontem e de hoje.
- *
- * `hojeTambem` decide se a conversa atravessa a meia-noite ou nao:
- *
- * - `true`: existe mensagem de hoje, entao `lastMessageAt` e' de hoje. A
- *   conversa sobrevive a virada e perde so as mensagens de ontem.
- * - `false`: a conversa parou ontem. `lastMessageAt` e' de ontem, entao a
- *   linha inteira e' removida.
- *
- * Esse detalhe nao e' enfeite de teste, e' um invariante do sistema, e ele
- * segura o `CASCADE` do `Message`. Como `Message.chatId` tem `onDelete:
- * Cascade`, uma conversa removida leva junto as mensagens dela -- inclusive as
- * de hoje. O que impede isso e' `registrarMensagem` gravar `lastMessageAt` com
- * o mesmo instante que grava o `sentAt` da mensagem: uma conversa que recebeu
- * algo hoje tem, por construcao, `lastMessageAt` de hoje, e nao e' candidata a
- * ser removida. A fixture que fizesse a conversa parecer de ontem enquanto
- * tinha mensagem de hoje desmentiria essa regra -- e foi assim que este teste
- * pegou o proprio bug de serie.
+ * `hojeTambem`: a conversa atravessa a meia-noite -- sobrevive a virada e perde
+ * so as mensagens de ontem -- ou parou ontem, e a linha inteira e' removida.
+ */
+
+/**
+ * `lastMessageAt` tem de ser o instante do ultimo `sentAt`: e' o que segura a
+ * conversa, ja que `Message.chatId` tem `onDelete: Cascade` e levar a conversa
+ * e levar as mensagens de hoje junto.
  */
 async function semeia(phone: string, atendente: 'bot' | 'humano', hojeTambem: boolean) {
     const agora = instanteArtificial();
@@ -125,9 +109,8 @@ async function mensagensDo(chatId: string): Promise<string[]> {
 /* ------------------------------------------------- o dia, e a fuso do processo */
 
 test('a virada e' + ' a meia-noite do dia local, e nao a de UTC', () => {
-    // O mesmo erro do grafico de receita: `toISOString()` jogava para o dia
-    // seguinte tudo que era feito depois das 21h -- que e' quando a loja
-    // funciona. Aqui o corte e' construido com getFullYear/getMonth/getDate, que
+    // Mesmo erro do grafico de receita: `toISOString()` jogava para o dia seguinte
+    // o que era feito depois das 21h. O corte usa getFullYear/getMonth/getDate, que
     // leem o fuso de quem esta olhando a tela.
     const fimDaNoite = new Date(2026, 8, 28, 23, 59, 59);
     const corte = inicioDoDia(fimDaNoite);
@@ -138,9 +121,8 @@ test('a virada e' + ' a meia-noite do dia local, e nao a de UTC', () => {
 });
 
 test('o carimbo ordena como data, que e' + ' o que a comparacao de arquivo usa', () => {
-    // Nomes de arquivo sao comparados com `<` string a string. Isso so vale se
-    // o formato ordenar por data, e so vale se for sempre YYYY-MM-DD: com
-    // DD-MM-YYYY, "2026-09-28" < "2026-10-01" seria verdadeiro e "2026-2-01"
+    // Nomes de arquivo se comparam com `<` string a string, o que so vale se o
+    // formato ordenar por data e for sempre YYYY-MM-DD: com DD-MM-YYYY, "2026-2-01"
     // passaria na frente de "2026-10-01".
     const dias = ['2026-09-28', '2026-10-01', '2026-10-10', '2027-01-01'].sort();
     assert.deepEqual(dias, ['2026-09-28', '2026-10-01', '2026-10-10', '2027-01-01']);
@@ -153,8 +135,7 @@ test('a poda leva o dia anterior e deixa o dia atual', async (t) => {
     /*
      * Conversa que atravessou a meia-noite: as duas mensagens de ontem caem, a
      * de hoje fica, e a conversa continua na lista. E' o caso comum de uma loja
-     * que atende ate tarde da noite -- o cliente de ontem escrevendo de manha
-     * continua sendo o mesmo cliente, nao uma conversa nova.
+     * que atende ate tarde.
      */
     const idBot = await semeia(JID_BOT, 'bot', true);
     const agora = instanteArtificial();
@@ -227,10 +208,8 @@ test('rodar duas vezes nao apaga nada na segunda', async (t) => {
 
 test('servidor que sobe as 09:00 ainda apaga o dia que passou', async (t) => {
     /*
-     * O caso do downtime. A virada nao tem marcador de "ja fiz", entao um
-     * servidor que ficou dois dias desligado e liga as 09:00 produz o mesmo
-     * estado que teria produzido a meia-noite -- e nao deixa duas noites de
-     * mensagem na base.
+     * Downtime: a virada nao tem marcador de "ja fiz", entao quem liga as 09:00
+     * produz o mesmo estado de quem rodou a meia-noite.
      */
     const phone = '5500000000005@teste-virada-downtime';
     const agora = instanteArtificial();
@@ -284,13 +263,14 @@ test('a conversa que sobra nao guarda mais nada do texto de ontem', async (t) =>
     await podarDiaAnterior(agora);
 
     /*
-     * A sobrevida da conversa e' o unico texto de cliente que a virada mantem, e
-     * ela mantem a LINHA, nao o conteudo. `ultimaMensagem` e' uma previa de 90
-     * caracteres do que o cliente escreveu: se ela sobreviver, a metade do
-     * trabalho -- apagar o texto -- teria sido feita no banco e desfeita na
-     * mesma tela.
+     * A sobrevida mantem a LINHA, nao o conteudo: `ultimaMensagem` e' previa do
+     * que o cliente escreveu, e se ela sobreviver o trabalho de apagar o texto
+     * seria desfeito na mesma tela.
      */
-    const c = await prisma.chat.findUnique({ where: { id: idHumano } });
+    // `findFirst` e nao `findUnique`: e' a forma de filtro, entao a extensao
+    // injeta a loja. `findUnique({ where: { id } })` estoura -- e o erro e' o aviso
+    // de que a consulta nao carregava a loja.
+    const c = await prisma.chat.findFirst({ where: { id: idHumano } });
     assert.ok(c, 'a conversa continua na lista');
     assert.equal(c!.ultimaMensagem, '', 'nada da mensagem de ontem ficou na previa');
     assert.equal(c!.naoLidas, 0, 'o contador de nao lidas nao sobra de ontem');
@@ -302,14 +282,9 @@ test('a conversa que sobra nao guarda mais nada do texto de ontem', async (t) =>
 /* ------------------------------------------------------------------ arquivos */
 
 /*
- * Datas de 1999 e 2000 nos dois testes de arquivo, e nao as de hoje.
- *
- * Os arquivos de teste sao criados na pasta de verdade, e a regra apaga pelo
- * nome. Com data de hoje, `backup-2026-09-28_2359.db` seria tanto um arquivo
- * que o teste cria quanto um backup que o sistema gravou de madrugada naquele
- * mesmo dia -- e o teste acabaria tendo authority para apagar o backup de
- * verdade. Em 1999 nao existe colisao possivel, e a comparacao de string
- * continua sendo a mesma.
+ * Datas de 1999 e 2000, e nao as de hoje: os arquivos vao na pasta de verdade e a
+ * regra apaga pelo nome, entao o dump do teste colidiria com um backup gravado
+ * de madrugada no mesmo dia -- e o teste acabaria apagando o backup de quem roda.
  */
 test('backup de ontem sai, o de hoje fica, e o dump avulso nao e' + ' tocado', () => {
     const hoje = '2000-01-01';
@@ -373,18 +348,9 @@ test('log de ontem sai e o de hoje fica', () => {
 
 test('a poda nao alcanca nada de hoje, e isso vale com a base cheia', async (t) => {
     /*
-     * A garantia final, e a que nao depende de nenhuma razao sobre fuso e
-     * fixture: uma mensagem gravada AGORA, que e' o mesmo dia do teste, tem que
-     * sobreviver a uma poda.
-     *
-     * E o teste que pega o erro de `where` alargado. Os outros provam que a
-     * poda apaga o que deve; este prova que ela nao apaga o que nao deve, num
-     * banco com dado de verdade. Um `where` que esquecesse do `corte` passaria
-     * por todos os outros e por aqui ainda passaria -- o que o pegaria nao e' um
-     * teste, e' a loja perdendo a conversa do dia.
-     *
-     * A contagem antes e depois fecha o cerco: um `DELETE` sem filtro algum
-     * zeraria a tabela e a conversa da fixture, e a diferenca acusaria.
+     * A garantia final: uma mensagem gravada AGORA, no mesmo dia do teste, tem
+     * que sobreviver a uma poda. E o que pega o `where` alargado -- os outros
+     * provam que apaga o que deve, este prova que nao apaga o que nao deve.
      */
     const phone = '5500000000006@teste-virada-hoje';
     const antes = await prisma.$queryRawUnsafe<{ n: number }[]>(`SELECT COUNT(*) AS n FROM "Message"`);
@@ -418,7 +384,11 @@ test('a poda nao alcanca nada de hoje, e isso vale com a base cheia', async (t) 
     assert.deepEqual(await mensagensDo(chat.id), ['de hoje mesmo', 'de hoje, mais cedo'].reverse());
 });
 
-test.after(async () => {
-    await prisma.chat.deleteMany({ where: { phone: { contains: '@teste-virada' } } });
-    await prisma.$disconnect();
-});
+// O `after` e' registrado a parte, porque o embrulho cobre os testes e nao as
+// ganchos: a limpeza também precisa da loja, senao o `deleteMany` estoura.
+test.after(() =>
+    comoLoja(LOJA, async () => {
+        await prisma.chat.deleteMany({ where: { phone: { contains: '@teste-virada' } } });
+        await prisma.$disconnect();
+    })
+);

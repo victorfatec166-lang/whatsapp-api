@@ -81,17 +81,9 @@ ${atencaoLista}
 
     /* --------------------------------------------------------- conexoes */
     /*
-     * Os canais de fora em um card so, com o WhatsApp no topo.
-     *
-     * Antes o WhatsApp era uma linha dentro de "Ir para", junto com tres
-     * atalhos de aba que a barra lateral ja resolve. Ou seja: a unica informacao
-     * desta tela que o resto do painel nao mostra -- se o canal esta vivo --
-     * estava misturada com navegacao, e o iFood/99Food nao aparecia aqui
-     * nenhum. Quem vendia por marketplace e achava que nao estava vendendo,
-     * porque a Home dizia "nada pendente" com um canal em homologacao.
-     *
-     * O card diz o estado e leva ate a tela do canal. Nao ha nada para fazer
-     * aqui: configurar credencial e teste de webhook sao do outro lado.
+     * O WhatsApp vivia dentro de "Ir para", misturado com tres atalhos que a barra lateral ja
+     * resolve, e o iFood/99Food nao aparecia aqui: quem vendia por marketplace achava que nao
+     * estava vendendo, com a Home dizendo "nada pendente" num canal em teste.
      */
     const CANAL_NOME: Record<string, string> = {
         ifood: 'iFood',
@@ -205,16 +197,9 @@ ${linhasCanal}
 
     /* ------------------------------------------------------------- acoes */
     /*
-     * O card "Ir para" saiu.
-     *
-     * Ele listava quatro abas -- Vender no balcao, Ver pedidos, Produtos e
-     * estoque, WhatsApp -- e as quatro ja estavam na barra lateral, a uma
-     * coluna de distancia. Em uma tela que tem que caber sem rolar, quatro
-     * linhas de atalho sao quatro linhas de altura gastas repetindo o que ja
-     * esta na tela.
-     *
-     * O que era unico dele -- o WhatsApp -- virou o card de Conexoes, onde
-     * informa algo que a barra lateral nao informa.
+     * O card "Ir para" saiu: as quatro abas que ele listava ja estavam na barra lateral, e
+     * quatro linhas de atalho custam altura numa tela que tem que caber sem rolar. O que era
+     * unico dele, o WhatsApp, virou o card de Conexoes.
      */
     /* ------------------------------------------------------------- fila */
     // A fila vira uma faixa de contadores lado a lado: da para ler os quatro
@@ -254,16 +239,9 @@ const cashModalsHtml = renderModal(cashOpenSpec());
     const dm = d.dailyMenu;    const temMenu = !!dm && dm.items.length > 0;
 
     /*
-     * Quatro pratos, e o resto fica no WhatsApp.
-     *
-     * O menu do dia e' a unica lista desta tela que nao tem teto: um cardapio de
-     * almoco com oito itens colocava oito linhas na Home e empurrava tudo para
-     * baixo da dobra. A tela precisa caber sem rolar, e um prato que nao aparece
-     * na Home nao deixa de estar publicado -- ele continua no topo do cardapio
-     * do WhatsApp, que e onde o cliente ve.
-     *
-     * Cortar em quatro e avisar quantos faltam nao esconde informacao: quem
-     * precisa da lista completa abre o cardapio.
+     * Unica lista da tela sem teto: oito itens empurravam tudo para baixo da dobra, e a tela
+     * precisa caber sem rolar. Cortar em quatro e avisar quantos faltam nao esconde nada --
+     * o prato continua no topo do cardapio do WhatsApp, que e' onde o cliente ve.
      */
     const LIMITE_MENU = 4;
     const itensMenu = dm ? dm.items : [];
@@ -309,16 +287,9 @@ const cashModalsHtml = renderModal(cashOpenSpec());
         </div>`;
 
     /*
-     * Tres colunas, e nao duas.
-     *
-     * Com duas, a coluna da esquerda recebia fila e menu, e a da direita recebia
-     * conexoes, caixa e mais vendidos: as colunas desiguais, e a esquerda
-     * esticava a pagina ate aparecer a barra de rolagem. Tres colunas deixa a
-     * mais alta com dois cards e as outras com dois e um, o que cabe na altura
-     * de um monitor de balcao.
-     *
-     * A ordem dentro de cada coluna e' do urgente para o consultivo: quem
-     * chegou na Home quer saber o que precisa ser feito agora.
+     * Tres colunas e nao duas: as desiguais esticavam a pagina ate aparecer a barra de
+     * rolagem. Dentro de cada coluna a ordem e' do urgente para o consultivo -- quem chega na
+     * Home quer saber o que precisa ser feito agora.
      */
     return `${faixaKpi([
         kpi('Pedidos hoje', String(d.today.orders), deltaBadge(d.delta.orders), 'accent'),

@@ -1,21 +1,14 @@
 import * as crypto from 'crypto';
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { logDoModulo } from './logger';
+import { exigeLoja } from './loja';
 
 const log = logDoModulo('marketplace');
 
 /**
  * Contas de marketplace: credencial guardada, estado real e casamento de itens.
- *
- * A regra que atravessa o modulo inteiro e' uma so: **esta tela nao promete o
- * que nao pode cumprir.** Pedido de iFood e de 99Food so chega se a loja for
- * credenciada como parceira e tiver credencial valida. Sem isso, qualquer botao
- * que dissesse "conectado" seria mentira -- e seria a pior mentira possivel,
- * porque o dono descobriria no meio do almoco que o pedido nao veio.
- *
- * Por isso o estado nao vem do marketplace: ele vem do que ESTE app consegue
- * fazer. Um marketplace que devolveu 200 e o que aceitou o webhook sao coisas
- * diferentes, e a tela mostra as duas.
+ * Regra do modulo: a tela nao promete o que nao pode cumprir. O estado vem do
+ * que este app consegue fazer, nao do 200 que o marketplace devolveu.
  */
 
 /** Canais suportados. O id coincide com Order.channel. */
@@ -27,15 +20,9 @@ export const STATUS_CONTA = ['sem-credencial', 'homologacao', 'ativo', 'erro'] a
 export type StatusConta = (typeof STATUS_CONTA)[number];
 
 /**
- * Erro de regra: algo que a pessoa precisa ler para corrigir.
- *
- * Existe para separar "faltou o CHANNEL_SECRET" de "o banco caiu". O primeiro
- * tem de aparecer na tela, com o texto que explica o que fazer; o segundo nao
- * pode vazar detalhe interno para quem esta na rede.
- *
- * Os erros de regra sao os poucos pontos onde `throw` e' a forma certa: sao
- * checagens que o chamador PRECISA conhecer, e a alternativa -- devolver um
- * objeto de resultado -- espalha a mesma verificacao por todo lugar.
+ * Erro de regra: algo que a pessoa precisa ler para corrigir. Separa "faltou o
+ * CHANNEL_SECRET" de "o banco caiu", e e' o unico ponto onde throw e' certo:
+ * sao checagens que o chamador PRECISA conhecer.
  */
 export class ErroDeRegra extends Error {
     constructor(mensagem: string) {
@@ -45,12 +32,9 @@ export class ErroDeRegra extends Error {
 }
 
 /**
- * Chave de cifra.
- *
- * Vem do ambiente e nao tem valor padrao. Sem ela, guardar credencial e'
- * recusado, e nao feito com chave fraca: uma chave no codigo seria o mesmo que
- * nao guardar, so que com a ilusao de protecao. Sem CHANNEL_SECRET no .env, o
- * app sobe e a aba mostra que falta configurar, que e' a informacao honesta.
+ * Chave de cifra, do ambiente e sem valor padrao: sem CHANNEL_SECRET guardar
+ * credencial e' recusado, e nao feito com chave fraca embutida no codigo.
+ * Os 32 bytes saem de SHA-256, para o dono nao ter que contar bytes no .env.
  */
 function chaveDeCifra(): Buffer | null {
     const bruto = process.env.CHANNEL_SECRET?.trim();
@@ -66,12 +50,9 @@ export function temChaveDeCifra(): boolean {
 }
 
 /**
- * Cifra um texto.
- *
- * AES-256-GCM, que traz autenticacao embutida: se alguem mexer no texto
- * gravado, a decifra falha em vez de devolver lixo. O IV acompanha o texto
- * gravado porque precisa ser diferente a cada vez -- reusar IV com GCM vaza
- * informacao da chave.
+ * Cifra um texto em AES-256-GCM, que traz autenticacao embutida: texto
+ * adulterado faz a decifra falhar em vez de devolver lixo. O IV viaja ao lado
+ * porque precisa ser novo a cada vez -- reusar IV com GCM vaza chave.
  */
 export function cifrar(texto: string): string {
     if (!texto) return '';
@@ -125,16 +106,14 @@ export type ContaResumo = {
 };
 
 /**
- * Le a conta, criando-a se ainda nao existir.
- *
- * Criar na primeira leitura e' de proposito: a tela precisa mostrar o caminho
- * ate a credencial mesmo antes de existir qualquer configuracao, e um estado
- * "conta inexistente" nao tem o que mostrar.
+ * Le a conta, criando-a se ainda nao existir: a tela precisa mostrar o caminho
+ * ate a credencial mesmo antes de existir configuracao, e "conta inexistente"
+ * nao tem o que mostrar.
  */
 export async function obterConta(channel: Canal): Promise<ContaResumo> {
     const conta = await prisma.marketplaceAccount.upsert({
-        where: { channel },
-        create: { channel },
+        where: { tenantId_channel: { tenantId: exigeLoja(), channel } },
+        create: { tenantId: exigeLoja(), channel },
         update: {},
         include: { _count: { select: { items: true } } },
     });
@@ -175,8 +154,9 @@ export async function guardarCredencial(
     }
 
     await prisma.marketplaceAccount.upsert({
-        where: { channel },
+        where: { tenantId_channel: { tenantId: exigeLoja(), channel } },
         create: {
+            tenantId: exigeLoja(),
             channel,
             secretsEnc: cifrar(dados.segredo.trim()),
             webhookSecretEnc: dados.webhookSecret?.trim() ? cifrar(dados.webhookSecret.trim()) : '',
@@ -197,7 +177,7 @@ export async function guardarCredencial(
 /** Apaga a credencial e volta o estado. Usado quando a credencial expira. */
 export async function limparCredencial(channel: Canal): Promise<void> {
     await prisma.marketplaceAccount.update({
-        where: { channel },
+        where: { tenantId_channel: { tenantId: exigeLoja(), channel } },
         data: { secretsEnc: '', status: 'sem-credencial', lastError: null },
     });
 }
@@ -213,7 +193,7 @@ export async function registrarChecagem(
     resultado: { ok: boolean; erro?: string }
 ): Promise<void> {
     await prisma.marketplaceAccount.update({
-        where: { channel },
+        where: { tenantId_channel: { tenantId: exigeLoja(), channel } },
         data: {
             status: resultado.ok ? 'ativo' : 'erro',
             lastCheckAt: new Date(),
@@ -225,14 +205,14 @@ export async function registrarChecagem(
 /** Marca que um pedido chegou, para a tela mostrar "ultimo pedido". */
 export async function registrarPedido(channel: Canal): Promise<void> {
     await prisma.marketplaceAccount.update({
-        where: { channel },
+        where: { tenantId_channel: { tenantId: exigeLoja(), channel } },
         data: { lastOrderAt: new Date() },
     });
 }
 
 /** Token de webhook em claro, para conferir assinatura. Vazio = recusar tudo. */
 export async function tokenWebhook(channel: Canal): Promise<string> {
-    const conta = await prisma.marketplaceAccount.findUnique({ where: { channel } });
+    const conta = await prisma.marketplaceAccount.findUnique({ where: { tenantId_channel: { tenantId: exigeLoja(), channel } } });
     if (!conta || !conta.webhookSecretEnc) return '';
     return decifrar(conta.webhookSecretEnc);
 }
@@ -244,23 +224,28 @@ export async function casarItem(
     productId: string,
     lastPrice?: number
 ): Promise<void> {
-    const conta = await prisma.marketplaceAccount.findUniqueOrThrow({ where: { channel } });
+    const conta = await prisma.marketplaceAccount.findUniqueOrThrow({ where: { tenantId_channel: { tenantId: exigeLoja(), channel } } });
     await prisma.marketplaceItem.upsert({
         where: { accountId_externalId: { accountId: conta.id, externalId } },
-        create: { accountId: conta.id, externalId, productId, lastPrice: lastPrice ?? null, lastSyncedAt: new Date() },
+        create: {
+            tenantId: exigeLoja(),
+            accountId: conta.id,
+            externalId,
+            productId,
+            lastPrice: lastPrice ?? null,
+            lastSyncedAt: new Date(),
+        },
         update: { productId, lastPrice: lastPrice ?? null, lastSyncedAt: new Date() },
     });
 }
 
 /**
- * Mapa item do marketplace -> produto local.
- *
- * E' o que permite dar baixa de estoque num pedido de fora. Sem o casamento, o
- * pedido entraria com o nome em texto e o sistema teria de adivinhar o produto
- * pelo nome -- e adivinhar estoque errado e vender o que nao tem.
+ * Mapa item do marketplace -> produto local: e' o que permite dar baixa de
+ * estoque num pedido de fora. Sem o casamento o sistema teria de adivinhar o
+ * produto pelo nome -- e adivinhar estoque errado e' vender o que nao tem.
  */
 export async function mapaDeItens(channel: Canal): Promise<Map<string, string>> {
-    const conta = await prisma.marketplaceAccount.findUnique({ where: { channel } });
+    const conta = await prisma.marketplaceAccount.findUnique({ where: { tenantId_channel: { tenantId: exigeLoja(), channel } } });
     if (!conta) return new Map();
     const itens = await prisma.marketplaceItem.findMany({ where: { accountId: conta.id } });
     return new Map(itens.map((i) => [i.externalId, i.productId]));
@@ -268,7 +253,7 @@ export async function mapaDeItens(channel: Canal): Promise<Map<string, string>> 
 
 /** Itens casados, para a tela de configuracao. */
 export async function listarItensCasados(channel: Canal) {
-    const conta = await prisma.marketplaceAccount.findUnique({ where: { channel } });
+    const conta = await prisma.marketplaceAccount.findUnique({ where: { tenantId_channel: { tenantId: exigeLoja(), channel } } });
     if (!conta) return [];
     return prisma.marketplaceItem.findMany({
         where: { accountId: conta.id },

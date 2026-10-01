@@ -39,12 +39,8 @@ export function notifyConnection(payload: string): void {
 
 /**
  * Avisa que uma conversa mudou, mandando o id dela.
- *
- * Separado do `notifyClients` de proposito: aquele diz "recarrega a pagina" e
- * serve para pedido e produto. Recarregar a tela de chat a cada mensagem
- * jogaria o que a pessoa estava digitando no meio da conversa, que e' o
- * pior lugar possivel para perder o que se estava escrevendo. Aqui o painel
- * sabe exatamente qual conversa mudar e atualiza so ela.
+ * Separado do `notifyClients` de proposito: recarregar a tela de chat a cada
+ * mensagem jogaria fora o que a pessoa estava digitando.
  */
 export function notifyChat(chatId: string): void {
     prune();
@@ -58,15 +54,8 @@ export function getClientCount(): number {
 
 /**
  * Encerra todas as conexoes SSE, avisando antes.
- *
- * O `res.end()` puro fecha a conexao sem dizer nada, e o painel fica com a aba
- * aberta mostrando "atualizando..." ate o navegador desistir sozinho -- que sao
- * trinta segundos de tela morta numa hora em que a pessoa nao sabe o que
- * aconteceu. Mandar um evento `encerrando` deixa o JavaScript da tela recarregar
- * por conta propria, e o que a pessoa ve e' o painel de novo, nao um aviso de
- * erro.
- *
- * Devolve quantas conexoes foram fechadas, para o log do desligamento dizer.
+ * `res.end()` puro deixa a aba em "atualizando..." ate o navegador desistir
+ * sozinho; o evento `encerrando` e' o que faz a tela recarregar por conta propria.
  */
 export function fechaClientes(motivo: string): number {
     prune();
@@ -76,7 +65,7 @@ export function fechaClientes(motivo: string): number {
             client.write(`event: encerrando\ndata: ${JSON.stringify({ motivo })}\n\n`);
             client.end();
         } catch {
-            // cliente ja morto: fechar e' o que queríamos mesmo
+            // cliente ja morto: fechar e' o que queriamos mesmo
         }
     }
     clients = [];

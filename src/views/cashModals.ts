@@ -1,21 +1,9 @@
 import { renderModal, type ModalSpec } from './ui/modal';
 
 /**
- * Janelas de caixa.
- *
- * Ficam em um modulo so porque sao as mesmas acoes, usadas de dois lugares: o
- * atalho da Home e a tela completa dentro de Faturamento. Antes cada uma tinha
- * seu proprio jeito de pedir os mesmos tres campos, e o do Faturamento usava
- * prompt() do navegador, que nao segue o layout do resto e nao tem o prefixo de
- * moeda pegando a expressao do input.
- *
- * O layout vem de ui/modal.ts, entao aqui so existe declaracao de dados.
- *
- * Regra que vale para as janelas de caixa: quando o pedido tem um campo so, o
- * campo fica visivel na propria tela e nao vira janela. Janela se justifica
- * quando ha dois campos ou quando o valor de referencia precisa aparecer junto
- * do que se digita. Por isso abrir turno continua com o input na tela, e
- * fechar e movimento viraram janela.
+ * Um modulo so porque sao as mesmas acoes de dois lugares -- atalho da Home e tela de
+ * Faturamento -- e o de Faturamento usava prompt(), que nao segue o layout. Regra: campo so
+ * fica na propria tela; janela se justifica com dois campos ou com o valor de referencia junto.
  */
 
 export const ENDPOINT_ABRIR = '/api/admin/cash/shift/open';
@@ -56,14 +44,9 @@ export function cashOpenSpec(): ModalSpec {
 }
 
 /**
- * Fechar turno.
- *
- * Quando a tela ja sabe o esperado, ele entra na descricao. O dono precisa
- * comparar com o que contou antes de confirmar, e pedir isso em duas janelas
- * separadas (uma para conferir, outra para salvar) faz ele decorar o numero.
- *
- * Aqui o valor de money e' permitido: esta tela esta em Faturamento, que e' o
- * lugar protegido por senha.
+ * O esperado entra na descricao porque o dono compara antes de confirmar, e pedir isso em
+ * duas janelas o faz decorar o numero. Aqui money e' permitido: esta tela esta em
+ * Faturamento, que e' o lugar protegido por senha.
  */
 export function cashCloseSpec(esperado?: number): ModalSpec {
     return {
@@ -105,11 +88,8 @@ export function cashCloseSpec(esperado?: number): ModalSpec {
 }
 
 /**
- * Sangria (saida) e deposito (entrada).
- *
- * Sao duas janelas, e nao uma com tipo dinamico, por dois motivos: o id do
- * DOM tem de ser unico, e o titulo e o tom mudam de verdade. Deposito nao e o
- * mesmo gesto que sangria com o sinal trocado, entao cada uma merece a sua.
+ * Duas janelas e nao uma com tipo dinamico: o id do DOM tem de ser unico, e titulo e tom
+ * mudam de verdade. Deposito nao e sangria com o sinal trocado, entao cada uma merece a sua.
  */
 export function cashMovementSpec(tipo: 'entrada' | 'saida'): ModalSpec {
     const entrada = tipo === 'entrada';
@@ -149,12 +129,8 @@ export function cashMovementSpec(tipo: 'entrada' | 'saida'): ModalSpec {
 }
 
 /**
- * Liga as janelas ao comportamento padrao de ui/modal.ts.
- *
- * A ligacao espera o documento ficar pronto de proposito: o script
- * compartilhado do layout, onde mora modalBind, e' impresso depois do
- * conteudo, entao quem chamasse modalBind na hora estouraria ReferenceError e
- * os botoes ficariam sem funcao.
+ * Espera o documento ficar pronto de proposito: o script do layout, onde mora modalBind, e'
+ * impresso depois do conteudo, e chamar na hora estouraria ReferenceError -- botao sem funcao.
  */
 export function cashModalsScript(): string {
     return `        <script>

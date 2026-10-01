@@ -80,11 +80,9 @@ const manageRows = (d: CatalogData) =>
         .join('\n');
 
 /**
- * Catalogo de produtos.
- *
- * Veio do "modo Produtos" do PDV, que ocupava cerca de 900 linhas e era 60% do
- * arquivo. Ficou aqui para o PDV voltar a ser so venda e o cadastro ficar ao
- * lado do estoque -- a entidade e a mesma, entao tambem o lugar e o mesmo.
+ * Veio do "modo Produtos" do PDV, que ocupava cerca de 900 linhas e era 60% do arquivo.
+ * Ficou aqui para o PDV voltar a ser so venda e o cadastro ficar ao lado do estoque: a
+ * entidade e a mesma, entao o lugar tambem.
  */
 export function renderCatalog(d: CatalogData): string {
     return `        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">

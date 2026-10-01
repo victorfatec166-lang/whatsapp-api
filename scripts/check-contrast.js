@@ -1,11 +1,7 @@
 /**
- * Valida o contraste dos tokens de src/styles/app.css contra a WCAG.
- *
- * Nao confia em numero digitado a mao: le o arquivo, extrai os valores de cada
- * tema e calcula. Assim, se alguem mudar um hex, o build quebra em vez de
- * degradar a acessibilidade em silencio.
- *
- *   node scripts/check-contrast.js
+ * Nao confia em numero digitado a mao: le o arquivo, extrai os valores de cada tema
+ * e calcula. Assim, se alguem mudar um hex, o build quebra em vez de degradar a
+ * acessibilidade em silencio.
  */
 
 const fs = require('fs');
@@ -127,22 +123,21 @@ for (const [tema, regras] of Object.entries(REGRAS)) {
 }
 
 /*
- * Segunda parte: cor de botao escrita a mao no HTML.
- *
- * O bloco acima mede os tokens do CSS, e nao acha cor nenhuma no TypeScript.
- * Era ai que o defeito vivia: seis botoes com `bg-amber-600 hover:bg-amber-700
- * text-white`, que no tema claro ficava bom e no escuro dava 3,7:1 -- lido por
- * ninguem, porque o script nao olhava para la.
- *
- * Por que nao basta "medir de novo em cima": a cor esta escrita no HTML, nao em
- * variavel, e medir exigiria compilar o CSS e resolver herdanca. A pergunta
- * util nao e' "qual e' o contraste desta classe", e' "esta classe existe em
- * algum botao". Classe que nao vem de token nao tem dupla cor por tema, e por
- * isso nao tem como estar certa nos dois.
- *
- * A lista e' curta e nomeada. `bg-amber-600` sozinho nao e' falha: checkbox de
- * selecao usa `accent-amber-600`, que e' outra coisa. E o que se procura e' a
- * cor de FUNDO de botao escrita direto, com o texto branco junto.
+ * O bloco acima mede os tokens do CSS e nao acha cor nenhuma no TypeScript. Era ai
+ * que o defeito vivia: seis botoes com `bg-amber-600 hover:bg-amber-700 text-white`,
+ * bons no tema claro e 3,7:1 no escuro -- lidos por ninguem.
+ */
+
+/*
+ * Por que nao basta medir de novo: a cor esta escrita no HTML, e medir exigiria
+ * compilar o CSS e resolver herdancia. A pergunta util nao e' o contraste desta
+ * classe, e' se ela existe em algum botao: fora de token nao ha cor para os dois temas.
+ */
+
+/*
+ * A lista e' curta e nomeada. `bg-amber-600` sozinho nao e' falha: checkbox usa
+ * `accent-amber-600`, que e' outra coisa. E o que se procura e' a cor de FUNDO de
+ * botao escrita direto, com o texto branco junto.
  */
 
 const VIEWS_DIR = path.join(__dirname, '..', 'src', 'views');
@@ -179,25 +174,21 @@ for (const arquivo of arquivosView(VIEWS_DIR)) {
 }
 
 /*
- * Terceira parte: campo de formulario escrito a mao.
- *
- * As duas primeiras medem cor. Esta nao mede nada: ela pergunta se a classe
- * `.input` esta no `<input>`/`<select>`/`<textarea>`.
- *
- * O defeito era de tema, nao de contraste, e por isso escapava das duas
- * medidas. Um campo escrito como `px-3 py-1.5 text-sm border line-in rounded-lg`
- * tem borda e tamanho, mas nao tem `background-color` e nao tem `color`: quem
- * pinta o campo e' o navegador. No tema claro isso parece certo, porque o padrao
- * do navegador e' claro. No tema escuro o campo continuava branco com o texto
- * que o navegador escolhesse -- e o <select> ainda trazia a seta do tema claro.
- *
- * Alem disso, `color-scheme` no CSS (veja o comentario em :root) resolve o que
- * o navegador desenha sozinho. As duas coisas juntas fecham o caso: o que vem
- * de token, e o que vem do navegador.
- *
- * A excecao e' o campo marcado com data-sem-input: sao os casos em que a caixa
- * nao e' um campo de formulario (o `<pre>` da comanda, por exemplo), e a classe
- * do que era antes fica por compatibilidade.
+ * As duas primeiras medem cor; esta pergunta se a classe `.input` esta no
+ * `<input>`/`<select>`/`<textarea>`. O defeito era de tema, nao de contraste, e por
+ * isso escapava das duas medidas.
+ */
+
+/*
+ * Um campo escrito como `px-3 py-1.5 text-sm border line-in rounded-lg` tem borda e
+ * tamanho, mas nao tem cor: quem pinta e' o navegador. No escuro o campo continuava
+ * branco, e o <select> trazia a seta do tema claro.
+ */
+
+/*
+ * `color-scheme` no CSS (veja :root) resolve o que o navegador desenha sozinho, e as
+ * duas coisas juntas fecham o caso: o que vem de token, e o que vem do navegador. A
+ * excecao e' o campo com data-sem-input, que nao e' campo de formulario.
  */
 console.log(`\n=== CAMPO SEM .input (src/views) ===\n`);
 
@@ -206,14 +197,15 @@ for (const arquivo of arquivosView(VIEWS_DIR)) {
     const texto = fs.readFileSync(arquivo, 'utf8');
 
     /*
-     * Tag por tag, e nao linha por linha: o `class` de um <input> cai na linha
-     * seguinte sempre que a tag tem atributo condicional -- e no projeto quase
-     * todo input tem. Varrer por linha dava falso negativo (a tag e' achada, o
-     * class nao) e apontava a linha errada.
-     *
-     * O `[^<>]*` no meio exige que a tag nao contenha outra tag. E' o que separa
-     * a tag de verdade de um `<select>` citado em prosa dentro de um comentario,
-     * e o `[=/]` exige atributo, para nao casar com um nome de elemento solto.
+     * Tag por tag, e nao linha por linha: o `class` cai na linha seguinte quando a
+     * tag tem atributo condicional, e no projeto quase todo input tem. Varrer por
+     * linha dava falso negativo e apontava a linha errada.
+     */
+
+    /*
+     * O `[^<>]*` exige que a tag nao contenha outra tag: e' o que separa a tag de
+     * verdade de um `<select>` citado em prosa dentro de um comentario. E o `[=/]`
+     * exige atributo, para nao casar com nome de elemento solto.
      */
     const tags = texto.matchAll(/<(?:input|select|textarea)\b[^<>]*[=/][^<>]*>/g);
 

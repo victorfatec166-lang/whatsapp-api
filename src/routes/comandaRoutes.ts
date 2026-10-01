@@ -1,30 +1,15 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { montarComanda } from '../services/comanda';
 import { logDoModulo } from '../services/logger';
+import { exigeLoja } from '../services/loja';
 const log = logDoModulo('comandaRoutes');
 
 /**
- * Rotas da comanda da cozinha.
- *
- * Ficam em arquivo proprio porque a impressora e' uma saida da casa, com
- *vida propria: um dia ela ganha fila, re-impressao e painel de impressoras.
- * Deixar a rota solta no monólito seria a unica coisa comendo a organizacao
- * que o resto do sistema ganhou.
- *
- * O destino da impressao NAO esta aqui, e' uma decisao consciente:
- *
- * - Nao mandamos direto para a impressora. O caminho real e' um agente local
- *   (ou a porta RAW da impressora), e nenhuma das duas e' responsabilidade de
- *   um servidor web. Mandar direto exigiria descobrir porta e driver em
- *   runtime, o que quebra em qualquer maquina diferente.
- * - Por isso a comanda e' GERADA aqui e entregue a quem sabe imprimir. A tela
- *   da cozinha tem um botao que mostra a comanda e um que entrega a impressora
- *   do SO, e qualquer agente local pode chamar esta rota e imprimir sozinho.
- *
- * O que ja fica resolvido: o formato ESC/POS, que e' o trabalho chato, sai
- * pronto e sem dependencia.
+ * A impressao NAO sai daqui: o caminho real e' um agente local (ou a porta RAW da
+ * impressora), e nenhum dos dois e' responsabilidade de um servidor web -- mandar
+ * direto exigiria descobrir porta e driver em runtime, o que quebra em outra maquina.
  */
 
 // O router e' montado em /api/admin, entao os caminhos aqui comecam em /.
@@ -32,17 +17,14 @@ const router = Router();
 
 /** Nome do negocio, para o cabecalho da comanda. */
 async function nomeDoNegocio(): Promise<string> {
-    const config = await prisma.config.findUnique({ where: { id: 'default' } });
+    const config = await prisma.config.findUnique({ where: { id: exigeLoja() } });
     return config?.businessName?.trim() || 'Marmitaria';
 }
 
 /**
- * Numero curto do pedido, sequencial no dia.
- *
- * Nao serve o UUID do banco: ele tem 36 caracteres e nao cabe na boca de
- * ninguem que esteja gritando "numero 47" para a cozinha. A contagem e' do
- * dia, porque e' assim que o balcao se organiza: misturar o numero 1 de hoje
- * com o numero 1 de ontem gera pedido errado na hora do montagem.
+ * Numero curto do dia, e nao o UUID do banco: 36 caracteres nao cabem na boca de
+ * quem grita "numero 47" para a cozinha, e misturar o 1 de hoje com o 1 de ontem
+ * monta pedido errado na hora.
  */
 async function numeroDoDia(orderId: string, createdAt: Date): Promise<number> {
     const inicio = new Date(createdAt);
@@ -80,15 +62,9 @@ router.get('/comandas/:id', async (req: Request, res: Response) => {
 });
 
 /**
- * Comanda em ESC/POS, pronta para a impressora.
- *
- * Enviada como octet-stream porque nao e' texto: tem comando de controle no
- * comeco (reset) e no fim (corte do papel). Se viesse como JSON, o agente
- * local teria que desescapar e remontar os bytes, e qualquer erro de
- * interpretacao viraria papel em branco.
- *
- * A resposta traz tambem o numero do pedido em cabecalho proprio, para o
- * agente poder logar qual papel saiu sem precisar abrir o corpo.
+ * Vai como `octet-stream` e nao JSON porque tem comando de controle no comeco e
+ * no fim: remontar os bytes no agente local e' onde nasce o papel em branco. O
+ * numero vai em cabecalho proprio, para logar qual papel saiu sem abrir o corpo.
  */
 router.get('/comandas/:id/escpos', async (req: Request, res: Response) => {
     try {

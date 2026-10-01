@@ -6,19 +6,9 @@ import { credencialSpec, itemSpec, marketplaceModalsScript } from './marketplace
 import { CANAIS, type Canal, type ContaResumo, type StatusConta } from '../services/marketplace';
 
 /**
- * Aba de marketplace: credenciar iFood e 99Food, casar itens e ver o que ja
- * entrou.
- *
- * A regra que atravessa a tela e' a mesma do modulo de servico: **nada aqui
- * promete o que nao pode cumprir.** Um status "conectado" que nao veio de uma
- * comunicacao real e' a pior coisa que esta tela poderia mostrar, porque o dono
- * descobriria no meio do almoco que o pedido nao veio. Por isso o estado vem do
- * que o sistema conseguiu fazer, e cada passo mostra o que ainda falta.
- *
- * A tela e' desenhada em tres passos porque essa e' a ordem real do trabalho:
- * credenciar, casar itens, acompanhar. Quem so tem a etapa 1 feita ve que
- * pedidos ainda nao terao baixa de estoque -- e isso e' verdade, e vale mais do
- * que uma tela de enfeite.
+ * Nada aqui promete o que nao pode cumprir: status "conectado" que nao veio de comunicacao real
+ * faz o dono descobrir no almoco que o pedido nao veio. Tres passos porque e' a ordem do
+ * trabalho, e quem so tem a etapa 1 ve que os pedidos ainda nao terao baixa de estoque.
  */
 
 export type ItemCasado = {
@@ -54,11 +44,8 @@ const NOME_CANAL: Record<Canal, string> = {
 };
 
 /**
- * Aparencia de cada estado da conta.
- *
- * O rotulo e' o que a pessoa le; a cor e' o que ela enxerga de longe. Nenhum dos
- * dois e' verde para "homologacao", porque homologacao nao e' estar no ar: o
- * pedido de verdade so passa depois do credenciamento.
+ * Nenhum estado intermediario e' verde: homologacao nao e' estar no ar, e o pedido de verdade
+ * so passa depois do credenciamento.
  */
 const STATUS_APARENCIA: Record<StatusConta, { badge: string; label: string }> = {
     'sem-credencial': { badge: 'badge-neutral', label: 'Sem credencial' },
@@ -79,12 +66,9 @@ function money(n: number): string {
 }
 
 /**
- * Aviso de divergencia de preco.
- *
- * O preco gravado aqui e' o ultimo que o marketplace mandou. Se o preco do
- * catalogo mudou depois, o marketplace continua cobrando o valor antigo: a loja
- * vende com o preco velho e so percebe na conciliacao do mes. Por isso a
- * diferenca aparece na linha, e nao em um relatorio.
+ * O preco gravado e' o ultimo que o marketplace mandou: se o catalogo mudou depois, a loja vende
+ * pelo preco velho e so percebe na conciliacao do mes. Por isso a diferenca aparece na linha,
+ * e nao em um relatorio.
  */
 function divergencia(item: ItemCasado): string {
     if (item.lastPrice === null) return '';
@@ -250,12 +234,9 @@ function metrica(label: string, valor: string, ok: boolean): string {
 }
 
 /**
- * A lista de pedidos de um canal.
- *
- * Com teto. Vinte pedidos de cada canal, lado a lado, sao quarenta linhas --
- * e a lista estava sem limite nenhum, entao a tela crescia conforme a entrada
- * do canal, nao conforme a quantidade. A rolagem e' aqui dentro, que e' onde
- * faz sentido: e' a unica regiao desta tela que cresce com dado.
+ * Com teto. A lista estava sem limite, e a tela crescia conforme a entrada do canal em vez de
+ * conforme a quantidade. A rolagem e' aqui dentro, que e' a unica regiao desta tela que cresce
+ * com dado.
  */
 function listaPedidos(pedidos: PedidoExterno[]): string {
     if (pedidos.length === 0) {

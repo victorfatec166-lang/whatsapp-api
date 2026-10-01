@@ -1,5 +1,6 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { logDoModulo } from './logger';
+import { exigeLoja } from './loja';
 const log = logDoModulo('cash');
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -118,7 +119,9 @@ export async function startShift(openingFloat: number, now = new Date()): Promis
     if (existing) return { ok: false, error: 'Ja existe um turno aberto. Feche antes de abrir outro.' };
     if (!(openingFloat >= 0) || openingFloat > 1_000_000) return { ok: false, error: 'Valor inicial invalido.' };
 
-    const shift = await prisma.cashShift.create({ data: { openingFloat: round(openingFloat), openedAt: now } });
+    const shift = await prisma.cashShift.create({
+        data: { tenantId: exigeLoja(), openingFloat: round(openingFloat), openedAt: now },
+    });
     return { ok: true, shiftId: shift.id };
 }
 
@@ -369,6 +372,7 @@ export async function registerCashMovement(params: {
         const shift = await prisma.cashShift.findFirst({ where: { closedAt: null } });
         await prisma.cashMovement.create({
             data: {
+                tenantId: exigeLoja(),
                 shiftId: shift?.id ?? null,
                 type: params.type,
                 amount,

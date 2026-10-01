@@ -1,41 +1,26 @@
-# Monta o instalador.
-#
-# O que este script produz, em ordem:
-#
-#   1. Uma PASTA de staging com o que roda: node.exe portavel, o dist
-#      compilado, o schema e as migrations do Prisma, e o node_modules SO COM
-#      O QUE O SISTEMA USA EM PRODUCAO.
-#   2. O `DeliveryAdmin.exe`, compilado com o compilador C# que ja vem no
-#      Windows, usando as cores do design system do painel.
-#   3. (opcional) O instalador de arquivo unico, pelo IExpress.
-#
-# Nenhuma das tres etapas baixa nada. O `csc.exe` e' o do .NET Framework que o
-# Windows traz; o `iexpress.exe` e' o proprio Windows; o `node.exe` e' uma copia
-# do que ja esta instalado nesta maquina. Nao ha NSIS, Inno Setup, Electron nem
-# Wix: as tres coisas que seriam de terceiros nao existem aqui.
-#
-# Rodar:  powershell -ExecutionPolicy Bypass -File installer\montar.ps1
-# Para o instalador de arquivo unico:
-#        powershell -ExecutionPolicy Bypass -File installer\montar.ps1 -Unico
+# Monta o instalador: staging com o que roda, o configurador C# e o `DeliveryAdmin.exe` de
+# arquivo unico que o Inno Setup gera em `release\Instalar DeliveryAdmin.exe`. O Inno ja
+# entrega progresso, permissao de administrador e desinstalador.
 
 [CmdletBinding()]
-param(
-    # Gera o instalador de arquivo unico, o que se manda para o cliente final.
-    [switch]$Unico
-)
+param()
 
-# 'Stop' e' o certo para o PowerShell, e ERRADO para npm e npx: os dois escrevem
-# aviso em stderr -- o "caniuse-lite is outdated" do Tailwind, entre outros -- e o
-# PowerShell transforma stderr de programa nativo em erro terminante. O build
-# parava no primeiro aviso, com saida de sistema em vez de codigo de retorno.
-# Entao o erro e' conferido pelo `$LASTEXITCODE`, que e' o que diz a verdade.
+# npm e npx escrevem aviso em stderr e o PowerShell trata stderr de nativo como erro
+# terminante: o build parava no primeiro aviso. O erro e' conferido pelo `$LASTEXITCODE`.
 $ErrorActionPreference = 'Continue'
 
 $env:Path = "C:\Program Files\nodejs;$env:Path"
 
 $raiz = Split-Path -Parent $PSScriptRoot
 $staging = Join-Path $raiz 'installer\payload'
-$saida = Join-Path $raiz 'installer\dist'
+# Onde o configurador C# vai ficar: e' ENTRADA do Inno Setup, nao entrega -- a entrega e' a
+# pasta `release\`. Antes os dois papeis viviam em `installer\dist`, que ninguem produzia, e a
+# emenda so fechava porque alguem copiava o arquivo na mao.
+$buildDir = Join-Path $raiz 'installer\build'
+$saida = Join-Path $raiz 'release'
+# Resquicio da via ZIP, morta em favor do Inno. Apagada uma vez aqui para o
+# resumo de 101 MB de `Compress-Archive` nao ficar para sempre no disco.
+$zipAntigo = Join-Path $raiz 'installer\dist'
 
 Write-Host ''
 Write-Host '  Montando o instalador do DeliveryAdmin'
@@ -43,14 +28,16 @@ Write-Host '  ====================================='
 Write-Host ''
 
 # --------------------------------------------------------------- 1. limpeza
-Write-Host '  [1/5] limpando o que era da montagem anterior'
+Write-Host '  [1/6] limpando o que era da montagem anterior'
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
-if (Test-Path $saida) { Remove-Item $saida -Recurse -Force }
+if (Test-Path $buildDir) { Remove-Item $buildDir -Recurse -Force }
+if (Test-Path $zipAntigo) { Remove-Item $zipAntigo -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
+New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 New-Item -ItemType Directory -Force -Path $saida | Out-Null
 
 # -------------------------------------------------- 2. compilacao do projeto
-Write-Host '  [2/5] compilando o sistema'
+Write-Host '  [2/6] compilando o sistema'
 Push-Location $raiz
 try {
     & npm run build 2>&1 | Out-Null
@@ -64,16 +51,9 @@ if (-not (Test-Path (Join-Path $raiz 'dist\server.js'))) {
 Write-Host '        ok'
 
 # -------------------------------------------- 3. dependencias so de producao
-# Esta e' a etapa que decide o tamanho do instalador. O `node_modules` de
-# desenvolvimento tem 765 MB, e o grosso disso e' ferramenta que so e' usada para
-# COMPILAR: o compilador do TypeScript, o do Tailwind, o do Prisma CLI, o
-# empacotador do tsx. Nada disso roda no computador de quem usa o sistema.
-#
-# `--omit=dev` fica com o que o `package.json` marca como dependencia normal. O
-# que sobra e' o Express, o Baileys, o pino, o zod, o qrcode e o cliente do
-# Prisma -- mais o motor do banco para Windows, que e' um binario de 18 MB e
-# nao tem como ser substituido por JS.
-Write-Host '  [3/5] baixando as dependencias de PRODUCAO (pode demorar)'
+# Decide o tamanho: o `node_modules` de desenvolvimento tem 765 MB e o grosso e' ferramenta
+# que so COMPILA. Fica o Express, o Baileys e o motor do banco, binario de 18 MB sem troca.
+Write-Host '  [3/6] baixando as dependencias de PRODUCAO (pode demorar)'
 $tempDeps = Join-Path $env:TEMP ("wa-deps-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force -Path $tempDeps | Out-Null
 Copy-Item (Join-Path $raiz 'package.json') $tempDeps
@@ -104,7 +84,7 @@ try {
 Write-Host '        ok'
 
 # -------------------------------------------------- 4. montagem do payload
-Write-Host '  [4/5] montando a pasta do programa'
+Write-Host '  [4/6] montando a pasta do programa'
 $pastaRuntime = Join-Path $staging 'runtime'
 New-Item -ItemType Directory -Force -Path $pastaRuntime | Out-Null
 
@@ -113,14 +93,20 @@ New-Item -ItemType Directory -Force -Path $pastaRuntime | Out-Null
 Copy-Item 'C:\Program Files\nodejs\node.exe' $pastaRuntime
 
 Copy-Item (Join-Path $raiz 'dist') (Join-Path $staging 'dist') -Recurse
-Copy-Item (Join-Path $raiz 'prisma') (Join-Path $staging 'prisma') -Recurse
+# O `prisma\` vai SO com schema e migrations: o `dev.db` da raiz NAO entra. E' inerte -- o
+# instalado le `DATABASE_URL` de %APPDATA% -- mas sao 356 KB do banco de DESENVOLVIMENTO
+# com telefones de teste, legiveis por qualquer programa na maquina de quem instalou.
+$prismaDestino = Join-Path $staging 'prisma'
+New-Item -ItemType Directory -Force -Path $prismaDestino | Out-Null
+Copy-Item (Join-Path $raiz 'prisma\schema.prisma') $prismaDestino
+if (Test-Path (Join-Path $raiz 'prisma\migrations')) {
+    Copy-Item (Join-Path $raiz 'prisma\migrations') $prismaDestino -Recurse
+}
 if (Test-Path (Join-Path $raiz 'public')) {
     Copy-Item (Join-Path $raiz 'public') (Join-Path $staging 'public') -Recurse
 }
 Copy-Item (Join-Path $tempDeps 'node_modules') (Join-Path $staging 'node_modules') -Recurse
 
-# O Prisma CLI precisa estar no payload, e so a versao install. O resto das
-# ferramentas de desenvolvimento nao.
 $cli = Join-Path $tempDeps 'node_modules\prisma'
 if (Test-Path $cli) {
     Write-Host '        (incluindo o Prisma CLI, que roda a migracao na instalacao)'
@@ -129,14 +115,8 @@ if (Test-Path $cli) {
 }
 
 # ------------------------------------------------- 4b. enxugando o payload
-#
-# Nao e' enfeite: 71 MB a menos no instalador e, mais importante, 71 MB a menos
-# copiados para o disco do cliente a cada instalacao ou atualizacao.
-#
-# As duas coisas cortadas sao as unicas que o Windows x86-64 nao usa, e ambas
-# sao copia de outra coisa que JA esta no payload. Nenhuma delas e' lida em
-# tempo de execucao -- sao o cache de download e os binarios de Linux, macOS e
-# ARM, que num Windows nao tem como ser chamados.
+# Nao e' enfeite: 71 MB a menos no instalador e 71 MB a menos copiados para o disco do
+# cliente a cada instalacao. Sai cache de download e binarios de Linux, macOS e ARM.
 $engines = Join-Path $staging 'node_modules\@prisma\engines'
 $cache = Join-Path $staging 'node_modules\.cache'
 
@@ -149,13 +129,9 @@ if (Test-Path $cache) {
 if (Test-Path $engines) {
     $m = 0
     $removidos = 0
-    # So os BINARIOS de outras plataformas. O filtroanticamente era
-    # "todo arquivo que nao tem 'windows' no nome", e ele levava junto o
-    # `package.json` do pacote -- 2 KB, arredondados para 0 MB no log. Sem o
-    # `package.json`, o Node deixa de resolver o pacote inteiro, e o
-    # `prisma migrate deploy` morre com "Cannot find module '@prisma/engines'".
-    # Foi o primeiro erro de verdade do instalador, e ele se annunciou como
-    # "detalhe: sem detalhe".
+    # So os BINARIOS de outras plataformas. O filtro `sem windows no nome` tambem levava o
+    # `package.json` do pacote, e sem ele o `prisma migrate deploy` morre com `Cannot find
+    # module '@prisma/engines'` -- sintoma de `detalhe: sem detalhe`.
     Get-ChildItem $engines -File -Force |
         Where-Object { $_.Name -match '^(query_engine|schema-engine|libquery-engine)' -and $_.Name -notmatch 'windows' } |
         ForEach-Object {
@@ -177,16 +153,28 @@ if (Test-Path $engines) {
 
 Remove-Item $tempDeps -Recurse -Force -ErrorAction SilentlyContinue
 
-# O manifesto NAO entra no payload: ele ja foi embutido no .exe na etapa de
-# compilacao, pelo `/win32manifest`. Copiar o arquivo aqui deixaria um
-# `app.manifest` solto na pasta do programa, sem ninguem o usando.
+# O `dev.db` ja foi barrado acima; este guard pega o resto do mesmo tipo. `.env`, banco e
+# sessao do WhatsApp nao viajam: o instalador levaria dado de desenvolvimento para dentro
+# de "Program Files", legivel por qualquer programa rodando com a conta de quem instalou.
+$vazamento = Get-ChildItem $staging -Recurse -File -Force |
+    Where-Object {
+        $_.Name -eq '.env' -or
+        $_.Name -match '\.db(-journal|-wal|-shm)?$' -or
+        $_.Name -eq 'sessao-maquina.json' -or
+        $_.DirectoryName -match 'auth_info_baileys'
+    }
+if ($vazamento) {
+    $nomes = ($vazamento | Select-Object -First 8 | ForEach-Object { $_.FullName.Replace($staging + '\', '') }) -join ', '
+    throw "Dado de desenvolvimento entrou no instalador: $nomes. O `.env`, o banco e a sessao do WhatsApp nao podem viajar no payload."
+}
+Write-Host '        (conferido: nenhum dado de desenvolvimento no payload)'
 
 $tam = (Get-ChildItem $staging -Recurse -File | Measure-Object -Property Length -Sum).Sum
 Write-Host ('        payload: {0:N0} MB' -f ($tam / 1MB))
 
 
 # ------------------------------------------------------- 5. compilando o C#
-Write-Host '  [5/5] compilando o programa de instalacao'
+Write-Host '  [5/6] compilando o programa de instalacao'
 $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) {
     $csc = 'C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe'
@@ -195,17 +183,9 @@ if (-not (Test-Path $csc)) {
     throw 'Nao achei o compilador C# do .NET Framework no Windows.'
 }
 
-# O manifesto e' conferido ANTES de compilar.
-#
-# Nao e' paranoia: um manifesto com XML invalido produz um .exe que o Windows
-# recusa ABRIR, com "falha na inicializacao do aplicativo devida a configuracao
-# lado a lado incorreta". A mensagem nao fala de manifesto, nao fala de XML e nao
-# diz a linha. O compilador aceita o arquivo sem reclamar -- ele so copia os
-# bytes -- entao o defeito so aparece na mao de quem foi instalar, que e' o pior
-# lugar possivel para descobrir que faltava uma virgula.
-#
-# A causa real que passou por aqui: um comentario com dois hifens seguidos, o que
-# XML proibe. O sintoma era identico ao de um manifesto que nem existia.
+# O manifesto e' conferido ANTES de compilar: XML invalido produz .exe que o Windows
+# recusa abrir, e a mensagem nao fala de manifesto nem de XML -- o `csc` aceita o arquivo
+# sem reclamar. Ja passou por aqui um `--` duplo dentro de um comentario.
 $manifesto = Join-Path $PSScriptRoot 'app.manifest'
 try {
     [xml]$confere = Get-Content $manifesto -Raw
@@ -214,14 +194,18 @@ try {
         throw "o manifesto pede '$nivel', e nao requireAdministrator"
     }
     if (-not $confere.DocumentElement.dependency) {
-        throw 'o manifesto esta sem a dependencia de Common Controls, que e' o que faz o .exe nao abrir'
+        # Aspas duplas: a frase tem "e'" e apostrofo fecha a string simples, o resto da
+        # linha vira comando e o arquivo inteiro deixa de fazer parse.
+        throw "o manifesto esta sem a dependencia de Common Controls, que e' o que faz o .exe nao abrir"
     }
     Write-Host '        manifesto ok (XML valido, pede administrador, com dependencia)'
 } catch {
     throw "O manifesto esta invalido: $($_.Exception.Message)"
 }
 
-$exe = Join-Path $saida 'DeliveryAdmin.exe'
+# Vai para `installer\build\`, que e' de onde o `DeliveryAdmin.iss` le. Nao e' a
+# entrega: e' intermediario, igual ao payload.
+$exe = Join-Path $buildDir 'DeliveryAdmin.exe'
 $icone = Join-Path $PSScriptRoot 'DeliveryAdmin.ico'
 if (-not (Test-Path $icone)) {
     Write-Host '        (aviso: sem icone; rode installer\gerar-icone.ps1 para o programa ter identidade)'
@@ -237,57 +221,15 @@ if (-not (Test-Path $icone)) {
 if ($LASTEXITCODE -ne 0) { throw 'A compilacao do DeliveryAdmin.exe falhou.' }
 Write-Host '        ok'
 
-# --------------------------------------------------- 6. instalador de arquivo unico
-if ($Unico) {
-    Write-Host ''
-    Write-Host '  Montando o instalador para distributing'
 
-    # POR QUE UM ZIP, E NAO UM .EXE UNICO
-    #
-    # O caminho do .exe unico foi tentado em duas vias, ambas nativas do Windows,
-    # e nenhuma serviu:
-    #
-    #   - IExpress empacota arquivos um a um, listados num arquivo de texto. Sao
-    #     4.500 arquivos no payload. Alem do arquivo de texto enorme, ele abre a
-    #     janela de interface e falha sozinho com um pacote desse tamanho.
-    #   - makecab nao expande curinga em linha de comando, e o formato de
-    #     diretivas dele exige a lista de arquivos gerada um a um.
-    #
-    # O que funciona e vem do proprio Windows: `Compress-Archive`, do PowerShell.
-    # O cliente recebe UM arquivo, extrai e da dois cliques. E o `DeliveryAdmin.exe`
-    # descompacta o programa.zip sozinho e mostra uma janela de preparo, entao o
-    # unico trabalho de quem instala e extrair, que todo mundo ja sabe fazer.
-    Write-Host '    compactando o programa'
-    $zip = Join-Path $saida 'programa.zip'
-    if (Test-Path $zip) { Remove-Item $zip -Force }
-    Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip -CompressionLevel Optimal
-    Write-Host ('    programa.zip: {0:N0} MB' -f ((Get-Item $zip).Length / 1MB))
-
-    # O ZIP de entrega leva o .exe junto com o programa.zip. O .exe e' o unico
-    # arquivo que a pessoa precisa apertar.
-    $palco = Join-Path $saida 'entrega'
-    if (Test-Path $palco) { Remove-Item $palco -Recurse -Force }
-    New-Item -ItemType Directory -Force -Path $palco | Out-Null
-    Copy-Item $exe $palco
-    Move-Item $zip (Join-Path $palco 'programa.zip')
-
-    $unico = Join-Path $saida 'Instalar DeliveryAdmin.zip'
-    if (Test-Path $unico) { Remove-Item $unico -Force }
-    Compress-Archive -Path (Join-Path $palco '*') -DestinationPath $unico -CompressionLevel Optimal
-    Remove-Item $palco -Recurse -Force
-
-    Write-Host ''
-    Write-Host '  Para instalar: extraia o ZIP e de dois cliques em DeliveryAdmin.exe.'
-    Write-Host ('  Instalador: {0}' -f $unico)
-    Write-Host ('  Tamanho: {0:N0} MB' -f ((Get-Item $unico).Length / 1MB))
+# ------------------------------------------- 6. o instalador de arquivo unico
+# Payload de 4.500 arquivos e configurador ainda sao intermediario: quem gera o instalador
+# de arquivo unico e' o Inno, e a conferencia do payload velho mora no script que o chama.
+$compilador = Join-Path $PSScriptRoot 'compilar-instalador.ps1'
+if (-not (Test-Path -LiteralPath $compilador)) {
+    throw "Falta o compilador do instalador: $compilador"
 }
-
-Write-Host ''
-Write-Host '  Pronto.'
-Write-Host ''
-Write-Host '  O programa gerado:'
-Write-Host ('    ' + $exe)
-Write-Host ''
-Write-Host '  Para testar a instalacao de verdade, rode o .exe: ele cria a pasta em'
-Write-Host '  C:\Program Files, os atalhos e a entrada em "Apps installed".'
-Write-Host ''
+& powershell -ExecutionPolicy Bypass -NoProfile -File $compilador
+if ($LASTEXITCODE -ne 0) {
+    throw 'A etapa do instalador falhou. O payload e o configurador ja ficaram prontos; o motivo esta acima.'
+}

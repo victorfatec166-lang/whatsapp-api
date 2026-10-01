@@ -4,19 +4,9 @@ import { REGRA_EMAIL_JS } from '../services/regras';
 import { ADMIN_PADRAO } from '../services/auth';
 
 /**
- * A tela de entrada.
- *
- * Layout dividido, e o motivo do corte esta na largura util. Uma caixa de login
- * no meio de uma tela vazia e' o desenho padrao -- e e' o que faz uma tela de
- * entrada parecer uma tela de demonstracao em vez de um produto. A metade
- * esquerda carrega o nome, a promessa e o que o sistema faz; a direita e' so o
- * formulario. Quem chega no celular nao ve nenhuma das duas: a area de
- * identidade some abaixo de lg e sobra o formulario, que e' o que interessa.
- *
- * E' a unica tela do painel que NAO usa o renderLayout. Ela nao tem barra
- * lateral nem cabecalho com o sino, e'ao que a pessoa nao entrou: mostrar o
- * menu de abas para quem nao tem sessao e' convidar a pessoa a descobrir o que
- * ela nao pode acessar.
+ * Layout dividido: uma caixa de login no meio de uma tela vazia faz a tela de entrada parecer
+ * demonstracao em vez de produto. A identidade some abaixo de lg e sobra o formulario. E' a
+ * unica tela sem renderLayout: mostrar o menu de abas convida a pessoa a descobrir o que nao pode.
  */
 
 /** Frases da metade esquerda. */
@@ -47,12 +37,9 @@ export type DadosTelaLogin = {
 };
 
 /**
- * Aceita so caminho interno que comece com `/` e nao seja `//`.
- *
- * O login redireciona depois de entrar, e o destino vem da URL. Sem esta
- * funcao, um `?destino=https://outro-site` transformaria a tela de entrada num
- * redirecionador: o login responderia "entrou" e levaria a pessoa para fora
- * com o endereco da sessao na barra de endereco.
+ * O destino vem da URL e o login redireciona depois de entrar: aceitar
+ * ?destino=https://outro-site transformaria a tela de entrada num redirecionador -- o login
+ * responderia "entrou" e levaria a pessoa para fora com o endereco da sessao na barra.
  */
 export function seguroInterno(valor: string): string {
     const v = (valor || '').trim();
@@ -62,11 +49,8 @@ export function seguroInterno(valor: string): string {
 }
 
 /**
- * O tema antes da primeira pintura, igual ao painel.
- *
- * Sem isto, quem esta no escuro ve um clara piscando na hora de digitar a
- * senha -- e a tela de entrada e' a ultima coisa que pode piscar, porque e'
- * onde a pessoa esta mais atent ao que aparece.
+ * Sem isto, quem esta no escuro ve um clara piscando na hora de digitar a senha -- e a tela de
+ * entrada e' a ultima coisa que pode piscar, porque e' onde a pessoa mais olha.
  */
 const HEAD_TEMA = `
                 // Sem isto, quem esta no escuro ve um clara piscando na hora de
@@ -83,23 +67,60 @@ const HEAD_TEMA = `
 `;
 
 /**
- * O CSS das telas de entrada.
+ * O botao de tema das telas de entrada, que e' a unica parte do sistema que
+ * RACHAva o tema: `HEAD_TEMA` so aplica o que esta salvo, sem dar onde trocar.
+ * Quem entrava de noite ficava no escuro com a tela de entrada e sem poder sair
+ * disso, e o nome do produto na tela de login e' fixo -- entao nao ha Configuracoes
+ * para mandar a pessoa trocar.
  *
- * Variavel, e nao tres copias: o login tem a metade de identidade, os fluxos
- * nao tem, e o que os dois compartilham e' o fundo e a caixa. Se a caixa
- * ganhasse uma regra so num dos arquivos, as telas de troca de senha e de
- * cadastro ficariam visualmente diferentes da de login -- e ninguem perceberia
- * a causa.
- *
- * O gradiente e' o que separa as metades sem precisar de borda, que em tela de
- * login parece divisoria de formulario. Sao tres camadas: um gradiente diagonal
- * ambar muito diluido, uma malha de pontos que da textura sem virar xadrez, e
- * dois circulos desfocados que suggestem movimento sem desenhar nada
- * reconhecivel.
- *
- * Tudo em color-mix com as Custom Properties do app.css -- entao acompanha o
- * tema escuro sem regra duplicada, e quem troca o acento no token ve a tela de
- * entrada mudar junto.
+ * A funcao e' a mesma do painel, com a mesma chave no `localStorage`: sao duas
+ * telas do mesmo produto e um unico interruptor na vida da pessoa.
+ */
+const SCRIPT_TEMA = `
+                function applyTheme(isDark) {
+                    document.documentElement.classList.toggle('dark', isDark);
+                    var icon = document.getElementById('themeIcon');
+                    if (icon) icon.className = isDark ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+                    var btn = document.getElementById('themeToggle');
+                    if (btn) btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+                }
+                function toggleTheme() {
+                    var isDark = !document.documentElement.classList.contains('dark');
+                    applyTheme(isDark);
+                    try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch (e) {}
+                }
+`;
+
+/**
+ * O botao em si, no canto da tela. Fica `fixed` e nao dentro do formulario porque
+ * a tela de entrada e' unica na pagina: nas outras telas o botao mora no cabecalho,
+ * que aqui nao existe.
+ */
+const BOTAO_TEMA = `
+                <button
+                    id="themeToggle"
+                    type="button"
+                    onclick="toggleTheme()"
+                    class="btn btn-ghost fixed top-4 right-4 z-20 px-2"
+                    title="Alternar tema claro/escuro"
+                    aria-label="Alternar tema claro/escuro"
+                    aria-pressed="false"
+                >
+                    <i id="themeIcon" class="fa-solid fa-moon"></i>
+                </button>
+`;
+
+/** O icone precisa nascer ja certo: quem entra no escuro ve o sol, nao a lua. */
+const AJUSTA_ICONE = `
+                document.documentElement.classList.contains('dark')
+                    ? document.getElementById('themeIcon').className = 'fa-solid fa-sun'
+                    : document.getElementById('themeIcon').className = 'fa-solid fa-moon';
+`;
+
+/**
+ * Variavel e nao tres copias: uma regra so num dos arquivos deixaria troca de senha e cadastro
+ * visualmente diferentes do login, e ninguem perceberia a causa. O gradiente separa as metades
+ * sem borda, que em login parece divisoria. Tudo em color-mix com os tokens do app.css.
  */
 const CSS_FLUXO = `
         .entrada-fundo {
@@ -176,16 +197,9 @@ const CSS_FLUXO = `
 
 export function renderLogin(d: DadosTelaLogin): string {
     /*
-     * O destino entra no script como JSON, e nao concatenado.
-     *
-     * Ele vem da URL -- quem clicou num link de dentro do painel e caiu no login
-     * precisa voltar para la. Concatenar cru transformaria um destino com
-     * aspas em codigo executavel.
-     *
-     * A restricao e' a mesma do login: so caminho interno. Aceitar
-     * https://site-do-cliente.com aqui faria a tela de entrada virar
-     * redirecionador -- o login responderia "entrou" e levaria a pessoa para fora
-     * com o endereco da sessao na barra de endereco.
+     * Entra no script como JSON, e nao concatenado: um destino com aspas viraria codigo
+     * executavel. A restricao e' a de seguroInterno -- so caminho interno, senao a tela de
+     * entrada vira redirecionador com o endereco da sessao na barra.
      */
     const destino = seguroInterno(d.destino);
     const script = SCRIPT_LOGIN.replace('"__DESTINO__"', JSON.stringify(destino));
@@ -208,6 +222,7 @@ export function renderLogin(d: DadosTelaLogin): string {
     <style>${CSS_FLUXO}</style>
 </head>
 <body>
+    ${BOTAO_TEMA}
     <div class="min-h-screen lg:grid lg:grid-cols-2">
 
         <!--
@@ -309,10 +324,9 @@ export function renderLogin(d: DadosTelaLogin): string {
                             placeholder: 'voce@email.com',
                             obrigatorio: true,
                             autofocus: true,
-                            // No primeiro acesso o e-mail ja esta preenchido: ele
-                            // e' o mesmo para toda instalacao nova, e pedir que a
-                            // pessoa digite o que o sistema acabou de criar e'
-                            // transformar um dado conhecido em trabalho.
+                            // No primeiro acesso o e-mail ja vem preenchido: e' o mesmo
+                            // para toda instalacao nova, e pedir que a pessoa digite o
+                            // que o sistema acabou de criar e' trabalho a toa.
                             valor: d.primeiroAcesso ? ADMIN_PADRAO : '',
                         })}
 
@@ -357,27 +371,16 @@ export function renderLogin(d: DadosTelaLogin): string {
         </section>
     </div>
 
-    <script>${script}</script>
+    <script>${SCRIPT_TEMA}${AJUSTA_ICONE}${script}</script>
 </body>
 </html>`;
 }
 
-/* ====================================================================
-   As telas de fluxo: troca de senha, cadastro e recuperacao.
-
-   Todas as tres reaproveitam a MESMA casca e os MESMOS componentes de campo.
-   Nenhuma delas repete o `<head>`, o script anti-flash, oCSS de fundo nem o
-   bloco de validacao: sao as mesmas linhas com outros campos, e reescrever
-   isso em tres lugares e' como uma delas fica com o contraste errado sem ninguem
-   notar.
-
-   Diferenca do login: sem a metade de identidade. Sao telas de uma tarefa so, e
-   a pessoa chega nelas porque JA esta no caminho -- mostrar a promessa do
-   produto de novo ali seria.delay sem informacao.
-
-   O CSS vive numa variavel e nao em tres copias pelo mesmo motivo. Ver o
-   comentario de `--animado` na casca do login.
-   ==================================================================== */
+/**
+ * As tres reaproveitam a MESMA casca e os MESMOS componentes, e nenhuma repete o head, o
+ * anti-flash nem o bloco de validacao: reescrever em tres lugares e' como uma delas fica com o
+ * contraste errado sem ninguem notar. Sem a metade de identidade, que ali seria repeticao.
+ */
 
 type DadosFluxo = {
     nomeNegocio: string;
@@ -407,6 +410,7 @@ function cascaFluxo(d: DadosFluxo): string {
     <style>${CSS_FLUXO}</style>
 </head>
 <body class="bg-bg">
+    ${BOTAO_TEMA}
     <div class="min-h-screen flex items-center justify-center px-5 py-10 sm:px-8">
         <div class="entrada-entra w-full max-w-md">
             <div class="flex items-center gap-3 mb-8">
@@ -434,7 +438,7 @@ ${d.conteudo}
         </div>
     </div>
 
-    <script>${d.script}</script>
+    <script>${SCRIPT_TEMA}${AJUSTA_ICONE}${d.script}</script>
 </body>
 </html>`;
 }
@@ -598,21 +602,15 @@ export function renderRecuperar(d: { nomeNegocio: string }): string {
     });
 }
 
-/* ====================================================================
-   O JavaScript das telas de entrada.
-
-   O que as quatro telas compartilham esta em COMUM; o que e' delas esta
-   abaixo. Sem essa separacao, "mostrar senha" estaria escrito quatro vezes e
-   valeria a pena em uma: a versao do cadastro, por exemplo, nao teria o foco
-   devolvido -- e a pessoa descobre que o foco sumiu so depois de achar o campo.
-   ==================================================================== */
+/**
+ * O que as quatro telas compartilham esta em COMUM; o que e' delas esta abaixo. Sem essa
+ * separacao, "mostrar senha" estaria escrito quatro vezes e valeria a pena em uma: a versao do
+ * cadastro nao teria o foco devolvido, e a pessoa descobre que ele sumiu so depois de achar o campo.
+ */
 
 /**
- * O bloco comum das quatro telas.
- *
- * As funcoes vao para `window` porque o script de cada tela as chama do escopo
- * global. Nao ha modulo nem closure aqui: e' HTML com script, o mesmo padrao do
- * painel (ver `APP_SCRIPTS` em views/layout.ts).
+ * As funcoes vao para window porque o script de cada tela as chama do escopo global. Nao ha
+ * modulo nem closure: e' HTML com script, o mesmo padrao do painel (ver APP_SCRIPTS em layout.ts).
  */
 const COMUM = `
                 /*
@@ -824,10 +822,9 @@ const SCRIPT_LOGIN = COMUM + `
                             });
 
                             if (r.ok) {
-                                // A sessao pode exigir troca antes de qualquer
-                                // outra coisa: o servidor recusa o painel com
-                                // essa flag, e sem ela a pessoa entraria com a
-                                // senha temporaria.
+                                // A sessao pode exigir troca antes de qualquer outra
+                                // coisa: sem isso a pessoa entraria com a senha
+                                // temporaria e o servidor recusaria o painel depois.
                                 location.href = r.data.trocarSenha ? '/trocar-senha' : r.data.destino;
                                 return;
                             }

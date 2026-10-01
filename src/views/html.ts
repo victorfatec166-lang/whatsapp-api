@@ -18,17 +18,9 @@ export function escapeHtml(value: unknown): string {
 }
 
 /**
- * Bytes em uma unidade que o dono le.
- *
- * Vive aqui, e nao dentro de uma view, porque e' o mesmo numero aparecendo em
- * telas diferentes -- a configuracao mostra hoje, e qualquer outra tela de
- * "saude do sistema" vai mostrar amanha. Duas copias divergem na primeira vez
- * que uma arredondar de um jeito e a outra de outro, e o dono ve dois numeros
- * para a mesma coisa.
- *
- * Uma casa decimal, e virgula: e' numero lido por pessoa, nao por maquina. Zero
- * e' "0 B" e nao "-", porque "0 B" responde a pergunta que o dono esta fazendo
- * e o tracinho so levanta outra.
+ * Vive aqui e nao em uma view porque e' o mesmo numero em telas diferentes: duas copias
+ * divergem na primeira vez que uma arredonda de um jeito e a outra de outro. Uma casa e
+ * virgula porque e' numero lido por pessoa -- e zero e' "0 B", nao o tracinho.
  */
 export function tamanhoLegivel(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';

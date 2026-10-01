@@ -12,18 +12,9 @@ import {
 import { REGRA_EMAIL_JS, REGRA_EMAIL_TS } from '../src/services/regras';
 
 /**
- * O que estes testes cobrem, e por que sao estes.
- *
- * A tela de login pode ser bonita e o sistema estar aberto. Estes testes existem
- * para a parte que ninguem ve: a senha nao e' reversivel, o e-mail nao revela
- * quem tem conta, o token de sessao nao volta do banco, e o login trava quando
- * alguem insiste.
- *
- * O que NAO e' testado aqui, e deveria ser: a gravacao no banco. O SQLite
- * compartilhado entre arquivos de teste ja causou colisao antes (da' o
- * `--test-concurrency=1` em package.json), e o caminho do banco e' o mesmo que
- * os outros 134 testes exercitam. Aqui o que muda e' a CRIPTOGRAFIA, e e' dela
- * que vem o risco.
+ * Cobre a parte que ninguem ve: senha nao reversivel, e-mail que nao revela quem
+ * tem conta, sessao que nao volta do banco, login que trava sob insistencia.
+ * A gravacao no banco fica de fora: e' o mesmo caminho dos outros testes.
  */
 
 test("a senha guardada nao e' a senha", async () => {
@@ -99,15 +90,9 @@ test("e-mail e' normalizado e validado", () => {
 });
 
 /*
- * O navegador e o servidor tem de concordar sobre o que e' um e-mail.
- *
- * Este teste existe por causa de um bug real: o primeiro acesso do produto e'
- * `admin@localhost`, o navegador recusou o endereco por falta de ponto no
- * dominio, e o painel ficou impossivel de abrir com tudo o mais funcionando.
- * Cada lado passava no seu proprio teste -- porque cada um testava a si mesmo.
- *
- * Aqui os dois sao testados com a MESMA lista. Se a regra mudar em um e nao no
- * outro, este teste quebra antes de a pessoa bater na parede.
+ * Navegador e servidor tem de concordar sobre o que e' um e-mail. O primeiro
+ * acesso e' `admin@localhost` e o navegador recusava o endereco: cada lado
+ * passava no proprio teste porque cada um testava a si mesmo. A lista e' a mesma.
  */
 test("a regra de e-mail do navegador e' a mesma do servidor", () => {
     // A tela carrega a regra como texto e monta o RegExp em tempo de execucao.
@@ -149,11 +134,9 @@ test('o limite de tentativas barra o excesso e passa o que cabe', () => {
     let passaram = 0;
 
     /*
-     * Resposta falsa, e nao um mock.
-     *
-     * O middleware chama `res.status(429).json(...)`: se o falso responder so a
-     * `json`, o teste passa a testar o mock e nao o codigo. Este tem a corrente
-     * inteira, e `estado()` le o que o codigo realmente respondeu.
+     * Resposta falsa, e nao um mock. Se responder so a `json`, o middleware
+     * quebra e o teste passa a testar o mock. `estado()` le o que o codigo
+     * respondeu de verdade.
      */
     const respostaFalsa = () => {
         let codigo = 200;

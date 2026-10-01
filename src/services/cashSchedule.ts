@@ -1,15 +1,14 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
+import { prisma as prismaGlobal } from '../database/prisma';
+import { comoLoja, exigeLoja } from './loja';
 import { startShift, closeShiftAuto } from './cash';
 import { logDoModulo } from './logger';
 const log = logDoModulo('cashSchedule');
 
 /**
  * Agenda automatica de abertura e fechamento do turno de caixa.
- *
- * Deliberadamente um tick periodico, e nao um `setTimeout` de disparo unico:
- * com `setTimeout`, reiniciar o servidor depois da hora agendada pulava o
- * evento silenciosamente (foi o que acontecia com o antigo reset de
- * meia-noite). Com tick, o agendamento se recupera sozinho.
+ * Tick periodico, e nao setTimeout de disparo unico: com setTimeout, reiniciar
+ * o servidor depois da hora agendada pulava o evento silenciosamente.
  */
 
 const TICK_MS = 30_000;
@@ -51,10 +50,18 @@ export type ScheduleOutcome =
  * Decide e executa a acao da agenda para este instante. Idempotente: pode
  * rodar a cada 30s sem duplicar turno, porque startShift recusa quando ja
  * existe um aberto e so fechamos o que esta aberto.
+ *
+ * A loja entra como parametro, e nao vem do contexto: este e' um agendador, nao
+ * uma requisicao, e ele roda uma vez por loja -- o horario de abertura e o turno
+ * sao coisas da loja, nao do sistema.
  */
-export async function runScheduleTick(now = new Date()): Promise<ScheduleOutcome> {
+export async function runScheduleTick(loja: string, now = new Date()): Promise<ScheduleOutcome> {
+    return comoLoja(loja, () => agendaDaLoja(now));
+}
+
+async function agendaDaLoja(now: Date): Promise<ScheduleOutcome> {
     const config = await prisma.config.findUnique({
-        where: { id: 'default' },
+        where: { id: exigeLoja() },
         select: { cashAutoOpen: true, cashAutoClose: true, cashDefaultFloat: true },
     });
     if (!config) return { action: 'nenhuma' };
@@ -104,13 +111,23 @@ export function startCashScheduler(onAction?: (o: ScheduleOutcome) => void): voi
 
     const tick = async () => {
         try {
-            const outcome = await runScheduleTick();
-            if (outcome.action === 'abriu') {
-                log.info(`Turno aberto automaticamente as ${new Date().toLocaleTimeString('pt-BR')}`);
-                onAction?.(outcome);
-            } else if (outcome.action === 'fechou') {
-                log.info(`Turno fechado automaticamente. Esperado R$ ${outcome.expected.toFixed(2)} (conferencia pendente)`);
-                onAction?.(outcome);
+            // Uma volta por loja: o agendador e' global, o horario de cada uma e'
+            // dela. Sem o laco, a loja B nunca abriria o turno -- e o primeiro
+            // sintoma seria o fechamento do dia dela dando errado.
+            const lojas = await prismaGlobal.tenant.findMany({ where: { ativo: true }, select: { id: true } });
+            for (const { id } of lojas) {
+                const outcome = await runScheduleTick(id);
+                if (outcome.action === 'abriu') {
+                    log.info(
+                        `Turno aberto automaticamente as ${new Date().toLocaleTimeString('pt-BR')} (loja ${id})`
+                    );
+                    onAction?.(outcome);
+                } else if (outcome.action === 'fechou') {
+                    log.info(
+                        `Turno fechado automaticamente (loja ${id}). Esperado R$ ${outcome.expected.toFixed(2)} (conferencia pendente)`
+                    );
+                    onAction?.(outcome);
+                }
             }
         } catch (error) {
             log.error('Erro no agendador de caixa:', error);

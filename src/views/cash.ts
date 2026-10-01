@@ -31,13 +31,9 @@ export type CashData = {
 
 
 /**
- * Tela de Caixa.
- *
- * Reune o que estava espalhado em tres lugares: abrir/fechar turno vivia no
- * PDV, o Z report em Relatorios e a agenda em Configuracoes. E inclui a
- * conferencia de turno fechado -- o endpoint ja existia mas nao havia tela,
- * entao a Home avisava "aguardando conferencia" sem oferecer caminho para
- * faze-la.
+ * Reune o que estava em tres lugares -- turno no PDV, Z report em Relatorios, agenda em
+ * Configuracoes. Inclui a conferencia de turno fechado: o endpoint ja existia sem tela, e a
+ * Home avisava "aguardando conferencia" sem oferecer caminho para faze-la.
  */
 export function renderCash(d: CashData): string {
     /* ---------------------------------------------------- turno aberto */

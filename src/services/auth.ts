@@ -3,45 +3,13 @@ import type { Request, Response, NextFunction } from 'express';
 import { prisma } from '../database/prisma';
 import { logDoModulo } from './logger';
 import { REGRA_EMAIL_TS } from './regras';
+import { comoLoja, exigeLoja, lojaDoBoot } from './loja';
 const log = logDoModulo('auth');
 
 /**
- * Autenticacao do painel: senha, sessao e o que impede forca bruta.
- *
- * TRES DECISOES QUE VALEM EXPLICAR
- *
- * 1. scrypt, e nao bcrypt nem argon2.
- *
- *    Vem do `node:crypto`, sem dependencia nova e sem binario nativo para
- *    compilar na maquina do cliente -- que e' um requisito do produto, porque a
- *    instalacao acontece numa loja de bairro e nao num servidor com build.
- *    scrypt e' a funcao de derivacao recomendada do OWASP quando o custo e' de
- *    memoria, e o Node a implementa nativamente. Um `hashSync` de SHA-256 com
- *    sal -- que e' o caminho que o programador ingênuo toma -- e' rapido demais
- *    para ser defesa: um notebook faz bilhoes por segundo.
- *
- * 2. Token de sessao guardado HASHSADO no banco.
- *
- *    O token vai inteiro no cookie HttpOnly. No banco fica so o SHA-256 dele.
- *    Se o arquivo do banco vazar -- e ele vaza, ele esta na pasta do programa
- *    -- o que o atacante encontra nao abre sessao nenhuma, porque hash nao se
- *    desfaz para o valor original. Guardar o token em claro tornaria o backup do
- *    cliente equivalente a um cadastro de senhas.
- *
- * 3. Cookie SameSite + token CSRF, e nao so o cookie.
- *
- *    SameSite=Lax ja barra o caso classico (um site terceiro que manda o
- *    navegador para uma rota de escrita). O que ele NAO barra e' o mesmo site
- *    em outra aba, ou um subdomain sob controle do atacante. Por isso as rotas
- *    que mudam o estado exigem tambem um token CSRF no corpo, guardado na
- *    sessao e comparado em tempo constante. Sao as duas defesas, porque cada uma
- *    cobre um buraco da outra.
- *
- * O QUE ESTE ARQUIVO NAO FAZ
- *
- * Nao define politica. Quem decide o que um papel pode fazer, quanto tempo a
- * sessao dura e quantas tentativas cabem sao as constantes no fim do arquivo --
- * num lugar so, e nao espalhadas em comparacao solta dentro do codigo.
+ * scrypt vem do node:crypto: sem binario nativo, porque a instalacao acontece
+ * numa loja sem build. Token de sessao fica HASHSADO -- arquivo vazado nao abre
+ * sessao. SameSite nao cobre o mesmo site em outra aba, entao escrita exige CSRF.
  */
 
 /* ------------------------------------------------------------- Constantes */
@@ -61,13 +29,8 @@ const SCRYPT = {
 export const SESSAO_MS = 12 * 60 * 60 * 1000; // 12 horas: um expediente
 
 /**
- * Onde a conta para de responder e comeca a levar o mesmo tempo para responder
- * de qualquer jeito.
- *
- * Comparar senha e' trabalho deliberado, e uma conta valida por tentativa leva
- * o dobro. O lockout corta isso, mas vira arma contra a pessoa legitima: e' o
- * proprio cliente sendo trancado fora por alguem que viu o e-mail dele. Por
- * isso o bloqueio e' curto e a senha nao revela nada.
+ * Lockout curto de proposito: longo demais tranca a pessoa legitima fora por
+ * culpa de quem viu o e-mail dela. A resposta de erro nao revela se a conta existe.
  */
 const MAX_TENTATIVAS = 5;
 const BLOQUEIO_MS = 5 * 60 * 1000; // 5 minutos
@@ -78,19 +41,9 @@ const NOME_CSRF = 'da_csrf';
 /* ------------------------------------------------------------- Senha */
 
 /**
- * Deriva o hash de uma senha.
- *
- * Devolve o par [hash, sal] para gravar em duas colunas separadas. Guardar o sal
- * dentro do hash (como faz o formato modulo do bcrypt) seria mais elegante, mas
- * exigiria uma coluna so e mudaria a forma de comparacao -- e aqui a comparacao
- * precisa refazer a derivacao com o sal da linha, entao as duas colunas sao o
- * caminho curto e sem estado.
- *
- * `timingSafeEqual` exige dois buffers do mesmo tamanho. Dois hashes de senhas
- * diferentes tem tamanho fixo, entao so faltaria o caso do hash vazio, que o
- * banco nunca devolve -- mas a checagem esta aqui porque a alternativa e' um
- * `===` silenciosamente variavel, e isso e' o tipo de coisa que so se nota
- * depois.
+* Sal e hash em colunas separadas, e nao embutidos como no bcrypt: a comparacao
+ * refaz a derivacao com o sal da linha, entao duas colunas sao o caminho sem
+ * estado. O tamanho e' conferido porque timingSafeEqual exige buffers iguais.
  */
 export async function derivaSenha(senha: string): Promise<{ hash: string; sal: string }> {
     const sal = crypto.randomBytes(TAMANHO_SAL).toString('hex');
@@ -120,12 +73,8 @@ export async function confereSenha(senha: string, hash: string, sal: string): Pr
 }
 
 /**
- * Senha gerada no primeiro boot.
- *
- * 16 caracteres de um alfabeto sem ambiguidade visual: sem `0`/`O`, sem `1`/`l`,
- * sem `I`. Senha gerada que a pessoa precisa digitar de um papel, olhando a tela,
- * nao pode ter caractere que se confunda com outro -- e a conta comeca bloqueada
- * na troca, entao ela vai digitar isso muitas vezes ate trocar.
+ * 16 caracteres sem ambiguidade visual (sem 0/O, 1/l, I): a pessoa digita isso
+ * de um papel, e a conta comeca bloqueada na troca -- vai digitar ate trocar.
  */
 export function senhaAleatoria(): string {
     const alfabeto = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -138,11 +87,8 @@ export function senhaAleatoria(): string {
 /* ------------------------------------------------------------- E-mail */
 
 /**
- * Normaliza o e-mail para a chave de login.
- *
- * Minuscula e sem espaco nas pontas. A unicidade do banco e' sobre o valor ja
- * normalizado: sem isso, "Dono@Loja.com" e "dono@loja.com" viram duas contas, e a
- * segunda conta e' a forma mais simples de sequestrar o acesso de alguem.
+ * A unicidade do banco e' sobre o valor normalizado: sem isso "Dono@Loja.com" e
+ * "dono@loja.com" viravam duas contas, e a segunda e' sequestro de acesso facil.
  */
 export function normalizaEmail(valor: string): string {
     return valor.trim().toLowerCase();
@@ -150,19 +96,9 @@ export function normalizaEmail(valor: string): string {
 
 export function emailValido(valor: string): boolean {
     /*
-     * A MESMA regra que a tela usa, e nao uma parecida.
-     *
-     * A versao do navegador vive em `views/ui/field.ts` (REGRA_EMAIL_JS), e as
-     * duas sao comparadas caso a caso em `tests/auth.test.ts`. Isso nao e'
-     * preciosismo: quando as duas eram diferentes, a conta do primeiro acesso
-     * (`admin@localhost`) era recusada pelo navegador e aceita pelo servidor --
-     * e o primeiro acesso do produto ficava impossivel, com o sistema inteiro
-     * funcionando. Cada lado passava no seu teste, porque cada um testava a si
-     * mesmo.
-     *
-     * Reutilizar o regex de la em vez de reescrever e' o que impede a volta do
-     * problema: os dois agora vem da mesma expressao, e um teste novo aqui
-     * invalida os dois de uma vez.
+     * A MESMA expressao que a tela usa (views/ui/field.ts), nao uma parecida:
+     * quando as duas divergiam, admin@localhost era recusado no navegador e
+     * aceito no servidor, e o primeiro acesso do produto ficava impossivel.
      */
     return REGRA_EMAIL_TS.test(normalizaEmail(valor));
 }
@@ -180,6 +116,8 @@ export type Sessao = {
     email: string;
     nome: string;
     papel: string;
+    /** A loja da pessoa. Vem do usuario, nunca da URL -- ver `sessaoDoRequest`. */
+    tenantId: string;
     precisaTrocarSenha: boolean;
 };
 
@@ -206,15 +144,9 @@ export async function criaSessao(
 }
 
 /**
- * Le a sessao do cookie.
- *
- * Devolve null em qualquer duvida: cookie ausente, token desconhecido, sessao
- * vencida, conta desativada. Quem chama trata tudo igual -- nao ha ramo que
- * diferencie "nao ha cookie" de "cookie invalido" para o navegador ver.
- *
- * A busca e' pelo HASH, que e' unico, entao uma consulta so. A conta vem junto
- * (`include`) para nao custar uma segunda consulta em cada requisicao -- sao
- * quatro campos, e o SQLite le isso de graca no mesmo bloco.
+ * Null em qualquer duvida -- cookie ausente, token desconhecido, sessao
+ * vencida, conta desativada -- para o navegador nao diferenciar os casos.
+ * A busca e' pelo hash, que e' unico, entao uma consulta so.
  */
 export async function sessaoDoRequest(req: Request): Promise<Sessao | null> {
     const token = cookie(req, NOME_COOKIE);
@@ -240,6 +172,17 @@ export async function sessaoDoRequest(req: Request): Promise<Sessao | null> {
         email: linha.user.email,
         nome: linha.user.nome,
         papel: linha.user.papel,
+        /*
+         * A loja vem AQUI, e nao de um cookie ou de um subdomain.
+         *
+         * Ler a loja do proprio usuario e' o que impede o acesso cruzado na
+         * pratica: a pessoa nao escolhe a loja, ela entra e a loja dela e' a que
+         * a sessao carrega. Um parametro na URL ("?loja=padaria") permitiria
+         * trocar de loja so mudando a barra de endereco -- e a loja alheia leria
+         * a propria loja com o cookie alheio, o que e' a forma mais facil de
+         * vazar dado em SaaS.
+         */
+        tenantId: linha.user.tenantId,
         precisaTrocarSenha: linha.user.precisaTrocarSenha,
     };
 }
@@ -277,13 +220,9 @@ function cookie(req: Request, nome: string): string {
 /* ------------------------------------------------------------- Cookies */
 
 /**
- * Coloca os cookies da sessao.
- *
- * `httpOnly` e' o que impede o JavaScript da pagina ler o token -- sem isso, um
- * erro de XSS no painel vaza a sessao. `sameSite=lax` barra o envio em
- * navegacao vinda de fora. `secure` so entra quando o servidor esta sob HTTPS:
- * em HTTP simples, um cookie marcado secure nunca volta, e a pessoa fica
- * presa fora do painel sem entender por que.
+ * httpOnly impede o JS da pagina ler o token -- sem isso um XSS vaza a sessao.
+ * secure so entra sob HTTPS: em HTTP simples o cookie nunca volta e a pessoa
+ * fica presa fora do painel sem entender por que.
  */
 export function aplicaCookies(res: Response, token: string, csrf: string, seguro: boolean): void {
     const comum = {
@@ -299,11 +238,6 @@ export function aplicaCookies(res: Response, token: string, csrf: string, seguro
     res.cookie(NOME_CSRF, csrf, comum);
 }
 
-export function limpaCookies(res: Response): void {
-    res.clearCookie(NOME_COOKIE, { path: '/' });
-    res.clearCookie(NOME_CSRF, { path: '/' });
-}
-
 export function csrfDoRequest(req: Request): string {
     return cookie(req, NOME_CSRF) || String(req.headers['x-csrf-token'] ?? '');
 }
@@ -316,31 +250,17 @@ export type ResultadoLogin =
     | { ok: false; motivo: 'credencial' | 'bloqueado' | 'inativo'; minutosRestantes?: number };
 
 /**
- * Autentica.
- *
- * Duas regras que mudam tudo aqui:
- *
- * 1. Mensagem de erro UNICA para e-mail errado e senha errada. Dizer "e-mail
- *    nao existe" entrega a lista de quem tem conta no sistema -- e o sistema
- *    e' de uma loja, entao a lista e' curta e adivinhavel. Dizer "conta bloqueada
- *    por 5 minutos" e' diferente, e justified: e' a unica resposta que impede a
- *    pessoa de continuar tentando e ajuda ela a saber que o problema e' espera,
- *    nao senha.
- *
- * 2. Bloqueio por tentativas, com prazo curto. Cinco erros e a conta para por
- *    cinco minutos. E' o bastante para tornar inviavel adivinhar uma senha de
- *    quatro digitos, e curto o bastante para nao trancar a pessoa fora de um
- *    pedido no meio do expediente.
+ * Erro unico para e-mail e senha errados: a lista de contas do sistema e' curta
+ * e adivinhavel. Bloqueio curto: 5 tentativas por 5 minutos torna inviavel uma
+ * senha de 4 digitos sem trancar a pessoa legitima no meio de um pedido.
  */
 export async function autentica(email: string, senha: string): Promise<ResultadoLogin> {
     const chave = normalizaEmail(email);
     const user = await prisma.user.findUnique({ where: { email: chave } });
 
     if (!user) {
-        // Ainda assim deriva uma senha, para o tempo de resposta nao dizer se o
-        // e-mail existe. Sem esta linha, "e-mail errado" voltaria em 1 ms e
-        // "senha errada" em 120 ms -- e a diferenca mede sozinha a lista de
-        // contas.
+        // Deriva mesmo assim: sem esta linha o tempo de resposta diz se o e-mail
+        // existe (1 ms contra 120 ms), e a diferenca mede a lista de contas.
         await scrypt(senha, 'inexistente-para-gastar-o-mesmo-tempo');
         return { ok: false, motivo: 'credencial' };
     }
@@ -384,6 +304,7 @@ export async function autentica(email: string, senha: string): Promise<Resultado
             email: user.email,
             nome: user.nome,
             papel: user.papel,
+            tenantId: user.tenantId,
             precisaTrocarSenha: user.precisaTrocarSenha,
         },
     };
@@ -401,14 +322,9 @@ declare global {
 }
 
 /**
- * Exige sessao. Redireciona quem nao tem para a tela de login, preservando o
- * destino -- quem clicou num link de WhatsApp e caiu no login precisa voltar
- * para a tela que queria, e nao para a Home.
- *
- * Duas recusas, e a segunda e' a que impede o acesso com a senha temporaria:
- * sem ela, quem recebe a senha gerada na instalacao loga e usa o painel inteiro
- * -- faturamento, caixa, usuarios -- ate que se lembre de trocar. O exchange de
- * `precisaTrocarSenha` manda para a troca e barra o resto ate ela acontecer.
+ * Preserva o destino no redirect: quem clicou num link de WhatsApp precisa
+ * voltar para a tela que queria. A segunda recusa e' a que impede o acesso com
+ * a senha temporaria -- sem ela o painel inteiro abre ate alguem lembrar de trocar.
  */
 export function exigeSessao(rotaDeLogin = '/entrar') {
     return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -435,17 +351,9 @@ export function exigeSessao(rotaDeLogin = '/entrar') {
 }
 
 /**
- * Exige sessao em rota de API.
- *
- * A diferenca para o de cima e' o que devolve: JSON 401, nao redirecionamento.
- * O `fetch` de uma tela que perdeu a sessao recebe o codigo, e a tela manda a
- * pessoa para o login -- em vez de o navegador seguir o 303 e trocar o HTML do
- * painel por uma pagina de login no meio de uma chamada de dados.
- *
- * O `sessaoExpirada` viaja na resposta porque e' ele que permite ao painel
- * distinguir "a sessao acabou" de "a acao falhou". Sem o campo, o `postJSON`
- * mostraria "nao foi possivel salvar" para uma sessao encerrada ha horas, e a
- * pessoa tentaria de novo pelo motivo errado.
+ * JSON 401 em vez de redirect: um fetch que perdeu a sessao receberia um 303 e
+ * trocaria o HTML do painel por uma pagina de login no meio de uma chamada de
+ * dados. sessaoExpirada no corpo distingue "a sessao acabou" de "a acao falhou".
  */
 export function exigeSessaoApi() {
     return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -484,15 +392,8 @@ export function exigeCsrf() {
         if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
             log.warn('CSRF recusado', { rota: req.path });
             /*
-             * Nao e' "sessao expirada": a sessao pode estar valendo, e nesse caso
-             * esta -- o que falhou foi o token. A pagina no navegador e' uma copia
-             * antiga, com o token de antes, enquanto o cookie ja e' o de agora. A
-             * pessoa le "sessao expirada", conclui que foi desconectada, entra
-             * com a senha de novo e o problema continua sendo a pagina velha.
-             *
-             * Dizer o que e' permite o conserto: recarregar. E o `postJSON` ja
-             * recarrega sozinho, entao este texto so aparece quando a pagina
-             * recarregou duas vezes e o token continuou errado.
+             * Nao e' "sessao expirada": o que falhou foi o token, e a pagina e' uma
+             * copia antiga. Dizer o que e' permite o conserto, que e' recarregar.
              */
             res.status(403).json({ error: 'Sua pagina ficou desatualizada. Recarregue e tente de novo.' });
             return;
@@ -515,17 +416,9 @@ export function exigeAdmin() {
 /* ------------------------------------------------------------- Limites */
 
 /**
- * Limite das tentativas de login, por IP.
- *
- * Diferente do `limitador` geral (services/rateLimit), que protege contra
- * write em massa, este e' o que protege contra TESTAR SENHA. As duas coisas sao
- * necessarias e nao se substituem: o lockout por conta impede tentativas contra
- * uma conta; este limita quantas cuentas distintas o mesmo IP pode sondar em
- * cinco minutos, o que e' o que acontece quando alguem tem uma lista de
- * e-mails e uma lista de senhas.
- *
- * O valor e' alto de proposito. Doze tentativas em cinco minutos nao atrapalha
- * quem digita a senha tres vezes seguidas, e corta o script que faz mil.
+ * Nao e' o limitador geral (rateLimit), que protege contra write em massa: este
+ * conta quantas contas distintas um IP pode sondar -- ataque de lista de senhas.
+ * O valor e' alto para nao atrapalhar quem erra a senha tres vezes seguidas.
  */
 export function limitePorTentativa(limite: { max: number; janelaMs: number }) {
     const tentativas = new Map<string, number[]>();
@@ -550,19 +443,12 @@ export function limitePorTentativa(limite: { max: number; janelaMs: number }) {
     };
 }
 
-/* ------------------------------------------------------------- Recuperação */
+/* ------------------------------------------------------------- Recuperacao */
 
 /**
- * Gera o codigo de recuperacao de uma conta.
- *
- * A senha nao muda aqui: o codigo so PROVA que quem pede tem acesso ao log do
- * servidor, e a troca acontece em `/api/auth/recuperar-confirmar`. Separar as
- * duas coisas e' o que permite gerar o codigo sem INVALIDAR a senha -- quem
- * pediu a recuperacao e' a pessoa real, e se a senha sumisse no primeiro passo,
- * um equivoco dela deixaria a loja sem acesso ate o administradordagora.
- *
- * O codigo vale uma hora e e' de uso unico: `geraCodigo` sobrescreve o
- * anterior, entao pedir duas vezes invalida o primeiro.
+ * A senha nao muda aqui: o codigo so PROVA acesso ao log do servidor, e a troca
+ * acontece em /api/auth/recuperar-confirmar -- pedir o codigo nao pode deixar a
+ * loja sem acesso. Pedir duas vezes invalida o primeiro, porque este sobrescreve.
  */
 export async function geraCodigo(email: string): Promise<string | null> {
     const user = await prisma.user.findUnique({ where: { email: normalizaEmail(email) } });
@@ -604,58 +490,64 @@ export async function recuperaComCodigo(email: string, codigo: string, senhaNova
 /* ------------------------------------------------------------- Primeiro boot */
 
 /**
- * O e-mail da conta que a instalacao cria.
- *
- * Exportado porque a tela de entrada mostra no primeiro acesso, e ela importa
- * daqui -- a dependencia vai da tela para o servico, nunca ao contrario. Um
- * valor duplicado nas duas pontas ja custou um primeiro acesso impossivel.
+ * Exportado porque a tela de entrada mostra no primeiro acesso: a dependencia
+ * vai da tela para o servico, nunca ao contrario. Valor duplicado nas duas
+ * pontas ja custou um primeiro acesso impossivel.
  */
 export const ADMIN_PADRAO = 'admin@localhost';
 
 /**
- * Cria o administrador inicial, uma vez so.
+ * Senha gerada e nao pedida: nao existe tela antes de existir usuario, e
+ * admin/admin e' a senha que todo mundo tenta primeiro. Aparece UMA vez no log
+ * e a conta nasce para troca obrigatoria. Roda em todo boot; se ha usuario, sai.
  *
- * Por que a senha e' gerada e nao pedida: nao existe tela para escolher senha
- * antes de existir usuario, e inventar uma (admin/admin) seria a pior das
- * opcoes -- e' a senha que todo mundo tenta primeiro. A gerada e' mostrada UMA
- * vez, no log, e a conta nasce marcado para troca obrigatoria: quem entra tem
- * que trocar antes de fazer qualquer outra coisa.
- *
- * Se ja existe usuario, nao faz nada. Roda em todo boot.
+ * Este e' o PRIMEIRO ponto do sistema que precisa de uma loja, e ele cria a
+ * propria: o boot nao tem requisicao e nao tem sessao, entao nao tem de onde
+ * tirar o tenant. A loja nasce daqui, com o id do ambiente -- "local" enquanto
+ * roda na propria maquina, e o subdominio quando existir o cadastro.
  */
 export async function garanteAdministrador(): Promise<void> {
-    const total = await prisma.user.count();
-    if (total > 0) return;
+    const LOJA_DO_BOOT = lojaDoBoot();
 
-    const senha = senhaAleatoria();
-    const { hash, sal } = await derivaSenha(senha);
+    const jaTem = await prisma.tenant.findUnique({ where: { id: LOJA_DO_BOOT } });
+    if (!jaTem) {
+        await prisma.tenant.create({
+            data: { id: LOJA_DO_BOOT, name: 'Minha loja', ativo: true },
+        });
+    }
 
-    await prisma.user.create({
-        data: {
-            email: ADMIN_PADRAO,
-            nome: 'Administrador',
-            senhaHash: hash,
-            senhaSalt: sal,
-            papel: 'admin',
-            precisaTrocarSenha: true,
-        },
+    await comoLoja(LOJA_DO_BOOT, async () => {
+        const total = await prisma.user.count();
+        if (total > 0) return;
+
+        const senha = senhaAleatoria();
+        const { hash, sal } = await derivaSenha(senha);
+
+        await prisma.user.create({
+            data: {
+                tenantId: exigeLoja(),
+                email: ADMIN_PADRAO,
+                nome: 'Administrador',
+                senhaHash: hash,
+                senhaSalt: sal,
+                papel: 'admin',
+                precisaTrocarSenha: true,
+            },
+        });
+
+        log.info('='.repeat(64));
+        log.info('USUARIO ADMINISTRADOR CRIADO');
+        log.info(`  e-mail .... ${ADMIN_PADRAO}`);
+        log.info(`  loja ...... ${LOJA_DO_BOOT}`);
+        log.info(`  senha ..... ${senha}`);
+        log.info('  Troca obrigatoria no primeiro acesso.');
+        log.info('='.repeat(64));
     });
-
-    log.info('='.repeat(64));
-    log.info('USUARIO ADMINISTRADOR CRIADO');
-    log.info('  e-mail .... admin@localhost');
-    log.info(`  senha ..... ${senha}`);
-    log.info('  Troca obrigatoria no primeiro acesso.');
-    log.info('='.repeat(64));
 }
 
 /**
- * Troca a senha e apaga as sessoes.
- *
- * Apagar as sessoes nao e' um detalhe: quem pediu a troca pode ser alguem que
- * descobriu a senha em papel alheio ou num log. Se as sessoas antigas
- * continuarem valendo, trocar a senha nao expulsou ninguem -- e' o mesmo erro
- * classico de "redefina sua senha" em quem nao tinha sessao para redefinir.
+ * Apagar as sessoes e' o que da sentido a troca: quem pediu pode ter achado a
+ * senha em papel alheio ou num log, e sessao antiga valendo nao expulsou ninguem.
  */
 export async function trocaSenha(userId: string, senhaNova: string): Promise<void> {
     const { hash, sal } = await derivaSenha(senhaNova);

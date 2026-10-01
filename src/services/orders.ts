@@ -1,26 +1,12 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { decrementStock, type Shortfall, type StockTx } from './stock';
 import { emFila } from './writeQueue';
+import { exigeLoja } from './loja';
 
 /**
- * Criacao de pedido.
- *
- * Existe este servico por um motivo pontual: pedido e baixa de estoque
- * precisam ser o MESMO commit.
- *
- * Antes, os dois sítios que criam pedido (o PDV em server.ts e o bot em
- * bot.ts) faziam prisma.order.create() e depois chamavam registerSale(),
- * que abria a transacao dela. Eram dois commits: se o processo morresse -- ou
- * a transacao do estoque falhasse -- ficava pedido gravado com o estoque
- * intacto. E o inverso tambem valia,overselling silencioso, porque o clamp em
- * JS transformava venda sem saldo em venda normal.
- *
- * Aqui os dois saem juntos ou nao saem. A regra de preco NAO mudou: quem
- * calcula continua sendo priceCart, no servidor, e o que chega aqui ja vem
- * pronto. Este modulo nao precifica nada, so grava.
- *
- * E' o ponto natural para o futuro multi-loja: quando existir um tenantId, ele
- * entra no filtro daqui e de todo o resto, sem tocar nos chamadores.
+ * Criacao de pedido. Este servico existe por um motivo pontual: pedido e baixa de
+ * estoque precisam ser o MESMO commit -- antes eram dois, e o sistema ficava
+ * mentindo sobre o saldo. Quem calcula preco continua sendo priceCart.
  */
 
 /** Dados do pedido. Espelha model Order, sem o que o banco calcula. */
@@ -39,17 +25,8 @@ export type NewOrder = {
     paymentMethod?: string | null;
     /**
      * Id do pedido no marketplace de origem, gravado no MESMO commit do insert.
-     *
-     * Precisa entrar aqui e nao num update depois, porque o indice unico
-     * (channel, externalId) so protege enquanto o valor estiver na linha. Com
-     * o update depois do commit, existe uma janela em que o pedido esta
-     * gravado com externalId nulo: um reenvio do marketplace nesse intervalo
-     * passa pelo indice, cria o mesmo pedido de novo e baixa o estoque duas
-     * vezes. A plataforma reenvia quando nao recebe o retorno, entao a janela
-     * e' real e nao teoria.
-     *
-     * NULL para WhatsApp e PDV, onde o id do banco e' suficiente. Vários NULL
-     * convivem no indice unico do SQLite, entao nao ha colisao.
+     * O indice unico (channel, externalId) so protege enquanto o valor estiver na
+     * linha: um update depois abre a janela de um reenvio criar o pedido duas vezes.
      */
     externalId?: string | null;
 };
@@ -61,11 +38,9 @@ export type CreatedOrder = {
 };
 
 /**
- * Trava de escrita do SQLite. Nao e' falha de negocio, e' concorrencia.
- *
- * O "timed out" entra aqui pelo mesmo motivo: com muitas escritas disputando,
- * o Prisma falha por tempo, e repetir resolve. Erro de dado ou disco nao entra
- * nesta lista, porque insistir nao conserta e ainda segura a fila.
+ * Trava de escrita do SQLite: nao e' falha de negocio, e' concorrencia, e repetir
+ * resolve. Erro de dado ou disco nao entra nesta lista -- insistir nao conserta e
+ * segura a fila.
  */
 function ehBancoTrancado(error: unknown): boolean {
     const msg = error instanceof Error ? error.message : String(error);
@@ -73,21 +48,9 @@ function ehBancoTrancado(error: unknown): boolean {
 }
 
 /**
- * Cria o pedido e baixa o estoque no mesmo commit.
- *
- * deductions vem de priceCart e ja vem resolvido nos componentes dos combos,
- * entao nao ha nada a resolver aqui.
- *
- * Retentativa
- *
- * SQLite serializa as escritas e devolve "database is locked" quando duas
- * secoes tentam escrever no mesmo instante. Isso acontece de verdade no pico:
- * balcao, bot do WhatsApp e fechamento de turno batem juntos. Como a leitura
- * do SQLITE_BUSY e' "tente de novo em um instante", repetir resolve quase
- * sempre, e um instante e' invisivel para quem esta na fila.
- *
- * So retentamos trava. Erro de dado ou disco sobe na hora, porque insistir
- * nao conserta e ainda atrasa o cliente na frente do balcao.
+ * Cria o pedido e baixa o estoque no mesmo commit. `deductions` vem de priceCart ja
+ * resolvido nos componentes. So retentamos travamento: "database is locked" e' sinal
+ * de "tente de novo em um instante"; erro de dado ou disco sobe na hora.
  */
 export async function createOrderWithStock(
     data: NewOrder,
@@ -115,6 +78,7 @@ async function criarComRetry(
                 async (tx) => {
                     const order = await tx.order.create({
                         data: {
+                            tenantId: exigeLoja(),
                             clientPhone: data.clientPhone,
                             clientName: data.clientName ?? null,
                             items: data.items,
@@ -155,12 +119,9 @@ async function criarComRetry(
     }
 
     /*
-     * A transacao inteira falhou, entao o pedido NAO foi criado. E' o ganho
-     * deste servico: antes, o pedido ja estava gravado quando a baixa de
-     * estoque falhava, e o sistema ficava mentindo sobre o saldo.
-     *
-     * Como nada foi criado, o caixa ou o cliente so tenta de novo. A excecao
-     * sobe para quem chamou, que decide como avisar.
+     * A transacao inteira falhou, entao o pedido NAO foi criado -- e' o ganho
+     * deste servico. Como nada foi criado, so tenta de novo; a excecao sobe para
+     * quem chamou, que decide como avisar.
      */
     throw ultimoErro;
 }

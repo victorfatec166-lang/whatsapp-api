@@ -1,6 +1,7 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { emFila } from './writeQueue';
 import { logDoModulo } from './logger';
+import { exigeLoja } from './loja';
 const log = logDoModulo('stock');
 
 export type MovementType = 'entrada' | 'saida' | 'perda' | 'ajuste';
@@ -37,11 +38,6 @@ export type StockRow = {
 
 /**
  * Status de estoque de um produto.
- * - "sem-controle" quando trackStock = false (produto de servico/receita).
- * - "zerado" quando controlado e sem unidades.
- * - "baixo" quando controlado, acima de zero e no ou abaixo do minimo.
- * - "ok" no resto.
- *
  * `minStock` igual a zero significa "minimo nao definido": o produto nao gera
  * alerta de reposicao. Use `needsMinStock` para sinalizar isso na interface.
  */
@@ -72,12 +68,9 @@ export const STOCK_STATUS_BADGE: Record<string, string> = {
 };
 
 /**
- * Registra um movimento de estoque e atualiza o saldo do produto na mesma
- * transacao, gravando o sinal real em `delta` para que o historico sempre
- * mostre a direcao (uma contagem que reduz precisa ficar registrada como
- * reducao, e nao como entrada).
- *
- * Nunca lanca excecao: uma falha de estoque nao pode derrubar a venda.
+ * Movimento e saldo na mesma transacao, com `delta` sempre com sinal: contagem
+ * que reduz precisa ficar registrada como reducao, e nao como entrada.
+ * Nunca lanca excecao: falha de estoque nao pode derrubar a venda.
  */
 export async function applyMovement(params: {
     productId: string;
@@ -107,6 +100,7 @@ export async function applyMovement(params: {
             await tx.product.update({ where: { id: product.id }, data: { stock: next } });
             await tx.stockMovement.create({
                 data: {
+                    tenantId: exigeLoja(),
                     productId: product.id,
                     type: params.type,
                     quantity: qty,
@@ -150,6 +144,7 @@ export async function setStockTo(params: {
             await tx.product.update({ where: { id: product.id }, data: { stock: target } });
             await tx.stockMovement.create({
                 data: {
+                    tenantId: exigeLoja(),
                     productId: product.id,
                     type: 'ajuste',
                     quantity: Math.abs(delta),
@@ -168,11 +163,8 @@ export async function setStockTo(params: {
 }
 
 /**
- * Cliente de transacao aceito pelas funcoes de estoque.
- *
- * E' o que permite a mesma operacao rodar dentro da transacao que cria o
- * pedido (orders.ts) ou abrir a dela sozinha. Sem isso, pedido e baixa de
- * estoque seriam dois commits independentes.
+ * Cliente de transacao aceito pelas funcoes de estoque: e' o que permite rodar
+ * dentro da transacao que cria o pedido (orders.ts) ou abrir a dela sozinha.
  */
 export type StockTx = {
     product: {
@@ -184,11 +176,8 @@ export type StockTx = {
 
 /**
  * Produto que ficou sem saldo no meio de uma venda.
- *
- * Nao bloqueia a venda: avisar e' melhor do que recusar. O saldo do sistema
- * envelhece -- alguem vendeu no balcao sem atualizar, ou o pedido anterior ja
- * tinha zerado -- e recusar um pedido valido no meio do almoço custa mais caro
- * do que vender e sinalizar. O dono ve o aviso e reponde.
+ * Nao bloqueia a venda: o saldo envelhece, e recusar pedido valido no meio do
+ * almoco custa mais caro do que vender e sinalizar.
  */
 export type Shortfall = {
     productId: string;
@@ -198,22 +187,9 @@ export type Shortfall = {
 };
 
 /**
- * Baixa o estoque dos itens vendidos, de forma atomica de verdade.
- *
- * A versao anterior lia o saldo com um SELECT e depois gravava um valor
- * absoluto (stock - qty). Duas vendas do mesmo produto ao mesmo tempo liam as
- * duas o mesmo saldo e gravavam as duas o mesmo resultado: a segunda baixa se
- * perdia e o estoque ficava um item acima do real. No almoço, com o balcao e
- * o bot batendo juntos, isso nao e hipotese.
- *
- * Aqui o decremento acontece dentro do proprio UPDATE, calculado pelo banco a
- * partir do valor atual da linha. Nao existe leitura em JS para ficar
- * desatualizada, porque o numero que entra na conta e' o do banco no momento
- * do UPDATE. O MAX(0, ...) mantem a garantia antiga de saldo nunca negativo, e
- * agora sem a janela entre ler e gravar.
- *
- * Em combos o abate e' sempre nos componentes: quem chega aqui ja recebeu a
- * lista de productId resolvida, nunca o id do combo.
+ * Baixa atomica de verdade: o decremento roda dentro do UPDATE, calculado pelo banco
+ * a partir do valor atual da linha -- ler em JS e gravar valor absoluto perdia uma
+ * baixa quando duas vendas batiam juntas. Em combo entra o componente, nunca o combo.
  */
 export async function decrementStock(
     tx: StockTx,
@@ -243,10 +219,17 @@ export async function decrementStock(
         const saldoAntes = before.get(productId);
         if (saldoAntes === undefined) continue; // produto sem controle de estoque
 
+        /*
+         * A loja entra no `WHERE` do proprio UPDATE. A baixa e' atomica porque o
+         * decremento roda dentro da consulta, e esse SQL cru nao passa pelo
+         * interceptor do Prisma -- sem este filtro, um `productId` vindo de outra
+         * loja derrubaria o saldo dela e o teste nao diria nada.
+         */
         await tx.$executeRawUnsafe(
-            'UPDATE "Product" SET "stock" = MAX(0, "stock" - ?) WHERE "id" = ?',
+            'UPDATE "Product" SET "stock" = MAX(0, "stock" - ?) WHERE "id" = ? AND "tenantId" = ?',
             qty,
-            productId
+            productId,
+            exigeLoja()
         );
 
         await tx.stockMovement.create({
@@ -270,13 +253,9 @@ export async function decrementStock(
 }
 
 /**
- * Baixa o estoque de uma venda abrindo a propria transacao.
- *
- * Use quando a venda NAO cria pedido junto. Para venda com pedido, use
- * createOrderWithStock, que faz as duas coisas no mesmo commit.
- *
- * Falha aqui nunca derruba a venda: o erro e' registrado e devolvido, porque o
- * pedido ja foi aceito e recusar depois seria pior.
+ * Para venda que NAO cria pedido junto -- com pedido, use createOrderWithStock.
+ * Falha nao derruba a venda: o erro volta registrado, porque recusar depois do
+ * pedido ja aceito custa mais caro.
  */
 export async function registerSale(
     items: Array<{ productId: string; qty: number }>,

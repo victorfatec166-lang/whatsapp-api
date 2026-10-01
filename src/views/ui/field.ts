@@ -1,25 +1,9 @@
 import { escapeHtml } from '../html';
 
 /**
- * A regra de e-mail, em um lugar so.
- *
- * Ela precisa existir em dois lados: o navegador, para dar a mensagem antes de
- * round-trip, e o servidor, que e' quem decide de verdade. E a versao do
- * servidor esta em `services/auth.ts` (emailValido).
- *
- * Ter as duas escrito a mao e' o que aconteceu: a conta do primeiro acesso e'
- * `admin@localhost`, o navegador recusou por falta de ponto no dominio, e o
- * primeiro acesso do produto ficou impossivel com o sistema inteiro funcionando.
- * Nao ha teste que pegue isso, porque cada lado passa no seu proprio teste.
- *
- * Por isso `tests/auth.test.ts` roda a MESMA lista de casos pelos dois lados e
- * exige o mesmo veredito. Divergir e' falha de teste, nao defeito em producao.
- *
- * A forma da regra: `local` para o primeiro acesso, e para o resto um dominio
- * com pontos onde CADA rotulo tem pelo menos um caractere e o ultimo e' so
- * letras com dois ou mais. Esse ultimo detalhe e' o que recusa `a@b..com`, que
- * a versao anterior aceitava: dominio com rotulo vazio nao existe em DNS, e o
- * teste que compara os dois lados foi o que achou isso.
+ * Mesma regra nos dois lados -- navegador e servidor -- porque ter as duas escritas a mao
+ * ja quebrou o primeiro acesso. tests/auth.test.ts roda a MESMA lista pelos dois lados:
+ * divergir e' falha de teste, e o ultimo rotulo so com letras recusa a@b..com.
  */
 
 /** A expressao, como texto, para o JavaScript da tela. */
@@ -30,17 +14,9 @@ export const REGRA_EMAIL_JS =
 export const REGRA_EMAIL_TS = /^(?:[^\s@]+@localhost|[^\s@]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})$/;
 
 /**
- * Os campos da tela de login.
- *
- * Ficam num modulo proprio porque sao a unica parte da tela de entrada que tem
- * regra de verdade -- rotulo, erro, obrigatoriedade, mostrar senha -- e essa
- * regra e' identica no login, na troca de senha e no cadastro. Escrever tres
- * vezes o mesmo bloco de `<label>` + erro e' o jeito mais rapido de divergir os
- * tres: o erro do cadastro fica sem `aria-describedby` e o leitor de tela anuncia
- * "campo de senha, inválido" sem dizer qual.
- *
- * Todos usam a classe `.input` do design system, que ja resolve fundo, cor e
- * borda nos dois temas. Nada aqui escreve cor de campo na mao.
+ * Modulo proprio porque e' a unica parte da tela de entrada com regra de verdade, e essa
+ * regra e' identica no login, na troca de senha e no cadastro. Escrever tres vezes o mesmo
+ * label+erro e' o jeito mais rapido de divergir: o erro do cadastro ficava sem aria-describedby.
  */
 
 /** Identificador unico por campo: dois campos com o mesmo id quebram o `for` do rotulo. */
@@ -62,16 +38,9 @@ export type Campo = {
 };
 
 /**
- * Mensagem de erro.
- *
- * Fica DENTRO do grupo do campo, e o `aria-describedby` do campo aponta para
- * ela. Fora do campo, o leitor de tela anuncia "campo de senha, inválido" e a
- * pessoa nao descobre se o e-mail ou a senha -- que e' justamente o que ela
- * precisa saber para corrigir.
- *
- * Nao depende so da cor: vem com icone e com a palavra do que aconteceu
- * ("invalido", "obrigatorio", "incorreta"), porque ~4% dos homens tem alguma
- * deficiencia de visao de cores e a cor, sozinha, nao chega.
+ * Fica DENTRO do grupo do campo porque o aria-describedby aponta para ela: fora, o leitor
+ * de tela anuncia "invalido" sem dizer qual campo. Nao depende so da cor -- vem com icone e
+ * com a palavra do que aconteceu, porque a cor sozinha nao chega para quem tem deficiencia.
  */
 export function erroDoCampo(texto: string | null, id: string): string {
     if (!texto) return '';
@@ -126,16 +95,9 @@ export function campoTexto(c: Campo, valorInvalido = false): string {
 }
 
 /**
- * Campo de senha com o botao de mostrar e esconder.
- *
- * O botao e' `type="button"`: dentro de um `<form>`, um botao sem type vira
- * submit, e clicar para ver a senha tentaria entrar no sistema. O icone troca
- * entre olho e olho-riscado, e o `aria-pressed` acompanha -- para quem usa
- * leitor de tela, "mostrar senha" e' um estado, nao um icone.
- *
- * O campo recebe o valor digitado de volta no JavaScript (`data-mirror`), e nao
- * no atributo: recarregar a pagina depois de errar a senha perderia o e-mail
- * digitado, que e' a parte longa e chata de digitar de novo.
+ * O botao e' type="button" porque dentro de um form um botao sem type vira submit, e
+ * clicar para ver a senha tentaria entrar no sistema. O valor digitado volta pelo
+ * data-mirror e nao no atributo: recarregar depois de errar perderia o e-mail.
  */
 export function campoSenha(c: Campo, erro: string | null = null): string {
     const id = `${c.id}-input`;
@@ -171,12 +133,8 @@ export function campoSenha(c: Campo, erro: string | null = null): string {
 }
 
 /**
- * Botao principal com estado de carregamento.
- *
- * O estado nao e' uma classe: e' `disabled` de verdade, mais o texto trocado. Um
- * botao que so muda de cor durante a espera deixa a pessoa clicar de novo -- e
- * clicar duas vezes em "Entrar" cria duas sessoes, das quais uma fica aberta
- * sem ninguem saber.
+ * O estado nao e' uma classe: e' disabled de verdade, mais o texto trocado. Botao que so
+ * muda de cor durante a espera aceita o segundo clique, e dois "Entrar" criam duas sessoes.
  */
 export function botaoEntrar(texto = 'Entrar'): string {
     return `        <button type="submit" data-botao-entrar
@@ -189,12 +147,9 @@ export function botaoEntrar(texto = 'Entrar'): string {
 }
 
 /**
- * Caixa de erro geral.
- *
- * Para o que nao pertence a um campo: "senha incorreta", "conta bloqueada por
- * cinco minutos", "nao foi possivel falar com o servidor". Fica acima do botao
- * e com `role="alert"`, que faz o leitor de tela anunciar na hora -- um erro que
- * so aparece por mudanca de cor nao e' erro acessivel.
+ * Para o que nao pertence a um campo: "senha incorreta", "conta bloqueada por cinco
+ * minutos". Fica acima do botao com role="alert", que faz o leitor de tela anunciar na
+ * hora -- erro que so aparece por mudanca de cor nao e' erro acessivel.
  */
 export function erroGeral(texto: string | null): string {
     if (!texto) return '';

@@ -1,37 +1,22 @@
 import { Router } from 'express';
 import { randomBytes } from 'node:crypto';
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { derivaSenha, exigeAdmin } from '../services/auth';
+import { exigeLoja } from '../services/loja';
 import { logDoModulo } from '../services/logger';
 const log = logDoModulo('usuariosRoutes');
 
 /**
- * Quem pode entrar no painel.
- *
- * Montado em /api/admin, entao ja passa pelo exigeSessaoApi e pelo
- * exigeCsrf do servidor -- nenhuma repeticao aqui. O que sobra e' a AUTHORIZACAO:
- * criar, desativar e redefinir senha de alguem e' ato de administrador, e a
- * tela esconde o botao de quem nao e'. Esconder nao e' proteger; por isso o
- * exigeAdmin esta aqui, e nao so na interface.
+ * Montado em `/api/admin`, entao ja passa pelo exigeSessaoApi e pelo exigeCsrf do
+ * servidor. O que sobra e' a AUTHORIZACAO: criar, desativar e redefinir senha e' ato
+ * de administrador -- esconder o botao nao protege, e o exigeAdmin e' o que protege.
  */
 const router = Router();
 
 /**
- * A tela inteira e' de administrador. Uma rota solta, em vez de repeticao.
- *
- * POR QUE ESTA LINHA VIROU UMA POR ROTA
- *
- * Era `router.use(exigeAdmin())`, e ela vazava. Montado em `/api/admin`, o `use`
- * sem caminho casa com TUDO que passa por ali, e nao so com as rotas deste
- * arquivo: qualquer router montado depois no mesmo prefixo herda a exigencia de
- * administrador. `/api/admin/chat` e' montada antes e por isso escapava; a de
- * backup, montada depois, respondia 403 "apenas o administrador" para um operador
- * -- e a causa sumia da tela, porque o erro era de arquivo.
- *
- * Pior do que o sintoma e' o jeito de descobrir: aparece como "a rota nova nao
- * funciona", e a tentacao e' ajeitar a rota nova. O certo e' nao vazar.
- *
- * O `exigeAdmin` em cada rota e' a unica forma de ele valer aqui e apenas aqui.
+ * Guarda por rota, e nao em `router.use(exigeAdmin())`: o `use` sem caminho casa
+ * com TUDO no prefixo `/api/admin`, e o router de backup, montado depois, respondia
+ * 403 a um operador. Por rota, o alcance e' o da rota.
  */
 const soAdmin = exigeAdmin();
 
@@ -44,17 +29,9 @@ router.get('/', soAdmin, async (_req, res) => {
 });
 
 /**
- * Desativa e reativa.
- *
- * Desativar e' o que tira acesso sem apagar historico: a conta continua
- * vinculada aos pedidos que a pessoa registrou, e o nome continua aparecendo
- * onde precisa aparecer. Apagar a conta deixaria o pedido sem ninguem.
- *
- * Tres recusas que nao sa' erro de validacao e sim defesa de estado:
- * ninguem desativa a si mesmo (a pessoa ficaria presa fora no proximo comando),
- * ninguem desativa o ultimo administrador ativo (o sistema ficaria sem quem
- * administre) e ninguem promove a si mesmo (senha trocada na mao vira poder
- * permanente).
+ * Desativar tira acesso sem apagar historico -- sem a conta, o pedido que a pessoa
+ * registrou fica com ninguem. Tres recusas sao defesa de estado: ninguem desativa a
+ * si mesmo, ninguem desativa o ultimo admin ativo, ninguem se promove.
  */
 router.post('/:id/alternar', soAdmin, async (req, res) => {
     const alvo = await prisma.user.findUnique({ where: { id: req.params.id } });
@@ -90,16 +67,9 @@ router.post('/:id/alternar', soAdmin, async (req, res) => {
 });
 
 /**
- * Redefine a senha de outra conta.
- *
- * Gera uma senha nova e a mostra UMA vez, na resposta. Nao ha e-mail para
- * mandar, entao a unica forma de a pessoa receber e' o administrador repassar
- * -- e um numero de telefone serve melhor do que e-mail para quem esta no
- * balcao.
- *
- * A conta nasce com precisaTrocarSenha, entao quem entra tem que trocar antes
- * de usar. Sem isso, a senha gerada viraria a senha definitiva, e ela passou
- * por um telefone na frente de outras pessoas.
+ * A senha nova aparece UMA vez, na resposta: nao ha e-mail para mandar, e telefone
+ * serve melhor para quem esta no balcao. A conta nasce com precisaTrocarSenha,
+ * senao a senha que passou na frente de outras pessoas viraria a definitiva.
  */
 router.post('/:id/gerar-senha', soAdmin, async (req, res) => {
     const alvo = await prisma.user.findUnique({ where: { id: req.params.id } });
@@ -161,17 +131,40 @@ router.post('/:id/trocar-papel', soAdmin, async (req, res) => {
  * esqueceu a sessao aberta em algum aparelho, e' o administrador que encerra.
  */
 router.post('/:id/encerrar-sessoes', soAdmin, async (req, res) => {
-    const r = await prisma.sessao.deleteMany({ where: { userId: req.params.id } });
-    log.info('Sessoes encerradas pelo administrador', { userId: req.params.id, quantas: r.count });
+    /*
+     * O filtro da loja e' explicito, e nao herdado, por dois motivos.
+     *
+     * `Sessao` nao tem `tenantId` -- a sessao e' global, indexada pelo hash do
+     * token -- entao ela fica de fora da injecao automatica e um `deleteMany` sem
+     * filtro apagaria as sessoes de TODO MUNDO.
+     *
+     * E `soAdmin` nao ajuda: ele diz "e' administrador", nao "e' administrador
+     * desta loja". Um admin da loja A que passasse o id de um usuario da loja B
+     * encerrava as sessoes alheias, sem erro e sem rastro. Por isso o alvo e'
+     * procurado dentro da loja antes de apagar.
+     */
+    const alvo = await prisma.user.findFirst({
+        where: { id: req.params.id, tenantId: exigeLoja() },
+        select: { id: true },
+    });
+    if (!alvo) {
+        res.status(404).json({ error: 'Conta nao encontrada.' });
+        return;
+    }
+
+    const r = await prisma.sessao.deleteMany({ where: { userId: alvo.id } });
+    log.info('Sessoes encerradas pelo administrador', {
+        userId: alvo.id,
+        loja: exigeLoja(),
+        quantas: r.count,
+    });
     res.json({ success: true, encerradas: r.count });
 });
 
 /**
- * Senha nova para repassar.
- *
- * Doze caracteres, sem caractere que se confunda com outro: o administrador vai
- * ler essa senha em voz alta ou digitar num telefone, e um O lido como zero faz
- * a pessoa errar tres vezes e achar que o sistema esta com defeito.
+ * Doze caracteres, e nenhum que se confunda com outro: o administrador vai ler
+ * essa senha em voz alta ou digitar num telefone, e um O lido como zero faz a
+ * pessoa errar tres vezes e achar que o sistema esta com defeito.
  */
 function senhaGerada(): string {
     const alfabeto = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';

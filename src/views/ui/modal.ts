@@ -1,40 +1,17 @@
 import { escapeHtml } from '../html';
 
 /**
- * Layout de janela pop-up, guardado em dados para ser reaproveitado.
- *
- * Por que um modulo so: ja existem varios pop-ups no projeto (menu do dia,
- * cadastro de produto, modificadores) e cada um reescreve o mesmo esqueleto --
- * fundo, painel, cabecalho com titulo e fechar, corpo, rodape com acoes. Isso
- * faz cada janela nascer um pouco diferente da outra, e para adicionar uma
- * nova e preciso copiar e remexer.
- *
- * Aqui o esqueleto e' gerado a partir de um `ModalSpec`. Uma janela nova vira
- * so uma declaracao de dados, e passa a seguir o mesmo visual sem tocar em
- * CSS. Os nomes de regiao sao fixos para que o JavaScript possa se ligar a
- * eles uma unica vez, para sempre:
- *
- *   #<id>            a janela inteira (fundo + painel)
- *   #<id>-body       a parte rolavel, onde vao os campos
- *   #<id>-submit     o botao de confirmar
- *   [data-modal-cancel]  qualquer botao que fecha a janela
- *
- * O comportamento (abrir, fechar com Esc, enviar) esta em views/layout.ts, e
- * `after` e' o gancho: o nome de uma funcao global chamada com (resposta, id)
- * depois do envio. E' ali que a janela decide o que fazer, para nao ter que
- * duplicar o envio. As janelas nunca mostram dinheiro: quem ve valor e' o
- * administrador, na aba Faturamento, que exige senha.
+ * Um modulo so porque cada pop-up reescrevia o mesmo esqueleto e nascia um pouco diferente do
+ * outro. Os nomes de regiao sao fixos para o JavaScript se ligar uma vez so. Janela nunca
+ * mostra dinheiro: valor so o administrador ve, na Faturamento, que exige senha.
  */
 export type ModalField = {
     name: string;
     label: string;
     /**
-     * 'money' so marca o prefixo visual; o valor nao e mascarado.
-     *
-     * 'select' exige `options`. Existe para o caso em que a pessoa escolhe em
-     * vez de digitar, e digitar o identificador certo e' justamente o que
-     * quebra em silencio: um item casado com o produto errado baixa o estoque
-     * do prato errado, e o erro so aparece no balcao.
+     * 'select' existe para a pessoa escolher em vez de digitar: identificador digitado
+     * errado casa item com o produto errado e baixa o estoque do prato errado, e o erro
+     * so aparece no balcao. 'money' so marca o prefixo visual, nao mascara o valor.
      */
     type?: 'text' | 'number' | 'textarea' | 'money' | 'select';
     /** Opcoes do 'select'. A primeira de valor vazio e' o "-- escolha --". */
@@ -50,11 +27,9 @@ export type ModalField = {
     /** Valor inicial, so para campo oculto. */
     value?: string;
     /**
-     * Campo que viaja no envio mas nao aparece.
-     *
-     * Serve para o valor que depende de como a janela foi aberta, e nao do
-     * que a pessoa digitou: Sangria e Deposito usam a mesma janela, entao o
-     * "saida" ou "entrada" precisa entrar no corpo sem campo visivel.
+     * Valor que depende de como a janela foi aberta, e nao do que a pessoa digitou:
+     * Sangria e Deposito usam a mesma janela, e o "saida" ou "entrada" entra no corpo
+     * sem campo visivel.
      */
     hidden?: boolean;
 };
@@ -66,11 +41,8 @@ export type ModalSpec = {
     /** Icone do cabecalho. */
     icon?: string;
     /**
-     * Campos do formulario.
-     *
-     * Opcional quando a janela traz bodyHtml: nesse caso os campos sao
-     * ignorados, e a ausencia deles e' o que impede o compilador de exigir um
-     * formulario que nao existe.
+     * Opcional quando a janela traz bodyHtml: nesse caso sao ignorados, e a ausencia
+     * deles e' o que impede o compilador de exigir um formulario que nao existe.
      */
     fields?: ModalField[];
     submitLabel: string;
@@ -86,15 +58,9 @@ export type ModalSpec = {
     /** Funcao global chamada com (resposta, spec) apos o envio. */
     after?: string;
     /**
-     * Corpo pronto, no lugar dos campos.
-     *
-     * Serve para janela que nao e' formulario -- a comanda da cozinha e'
-     * somente leitura, e inventar um campo desabilitado so para carregar um
-     * <pre> seria pior que falar o que a janela quer. Com isso, o esqueleto
-     * continua vindo do componente e so o miolo troca.
-     *
-     * Quando vem preenchido, `fields` e' ignorado e nao ha envio: a janela
-     * cuida do botao por conta propria.
+     * Janela que nao e' formulario: a comanda da cozinha e' somente leitura, e campo
+     * desabilitado so para carregar o <pre> seria pior que dizer o que a janela quer.
+     * Preenchido, fields e' ignorado e nao ha envio -- a janela cuida do botao sozinha.
      */
     bodyHtml?: string;
     /** Quando true, o formulario nao e' enviado, e o botao vira acao do window. */
@@ -104,15 +70,9 @@ export type ModalSpec = {
 };
 
 /**
- * Gera um campo.
- *
- * `janelaId` entra no id do input, e isso nao e cosmetico. Duas janelas na
- * mesma tela usam os mesmos nomes de campo -- Sangria e Deposito pedem
- * "amount" e "note" -- e id repetido no DOM e' HTML invalido: o `for` do label
- * aponta para o input errado e qualquer getElementById devolve a primeira
- * ocorrencia da pagina, nao a da janela que esta aberta. O `name` continua
- * igual, porque e' ele que o envio le, e o envio percorre o formulario da
- * janela, que ja e' o escopo certo.
+ * janelaId entra no id do input e nao e' cosmetico: Sangria e Deposito pedem os mesmos
+ * nomes de campo, e id repetido no DOM faz o for do label apontar para o input errado.
+ * O name continua igual porque e' ele que o envio le.
  */
 function field(f: ModalField, janelaId: string): string {
     const campoId = janelaId + '-' + f.name;
@@ -224,8 +184,7 @@ ${corpo}
 }
 
 /**
- * Comportamento padrao das janelas: fica em views/layout.ts, junto de postJSON
- * e flash, de onde vem o que o envio usa. Nao e' injetado aqui de proposito --
- * a pagina nao deve poder injetar esse script antes (ou depois) do seu, senao a
- * ordem entre os dois <script> passa a decidir se o botao funciona.
+ * Fica em views/layout.ts, junto de postJSON e flash, de onde vem o que o envio usa. Nao e'
+ * injetado aqui de proposito -- senao a ordem entre os dois script passa a decidir se o
+ * botao funciona.
  */

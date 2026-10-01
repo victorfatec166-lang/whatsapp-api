@@ -22,20 +22,28 @@ import { logDoModulo } from '../services/logger';
 import { problemaDaSenha } from '../services/regras';
 import { renderLogin, renderTrocaSenha, renderCriarConta, renderRecuperar, seguroInterno } from '../views/login';
 import { carregarConfig } from '../services/config';
+/** O nome que a tela de entrada mostra. E' o produto, e nao a loja -- ver o GET /entrar. */
+const NOME_DO_PRODUTO = 'DeliveryAdmin';
+
+import { lojaDoBoot } from '../services/loja';
 const log = logDoModulo('authRoutes');
 
 /**
- * Entrada, saida, troca de senha, cadastro e recuperacao.
+ * ESTE ARQUIVO USA O CLIENTE CRU, E NAO O COM LOJA.
  *
- * O login e' o UNICO endpoint do sistema onde uma senha pode ser testada mil
- * vezes, entao ele tem limite proprio por IP, alem do lockout por conta que
- * mora no servico. Os dois sao necessarios: o lockout impede tentativas contra
- * uma conta, e o limite por IP impede sondar uma lista de contas.
+ * Tudo aqui acontece ANTES de existir loja: e' a sessao que carrega a loja, e a
+ * sessao ainda nao foi criada quando a tela abre. O `prismaComLoja` estouraria em
+ * `user.count()` -- e a tela de entrada simplesmente nao abriria, que e' como o
+ * painel inteiro fica fora do ar por causa de uma tela que antecede o login.
  *
- * O CSRF do login nao pode vir do cookie de sessao -- ainda nao existe sessao.
- * Ele vem de um cookie de uso unico que este router cria ao servir a pagina, e
- * e' o que impede um site de terceiro de mandar o navegador da pessoa tentar
- * entrar com uma conta que o site's dono conhece.
+ * A excecao e' a criacao da conta, que recebe a loja do boot: uma conta sem loja
+ * nao existe, e `user.create` no cliente cru e' o unico jeito de dizer qual e'.
+ */
+
+/**
+ * Unico endpoint onde a senha pode ser testada ate o fim: por isso o limite por
+ * IP aqui, em cima do lockout por conta que mora no servico. O CSRF vem de um
+ * cookie de uso unico criado aqui, e nao da sessao -- ela ainda nao existe.
  */
 const router = Router();
 
@@ -53,12 +61,9 @@ function cookieBruta(req: Request, nome: string): string {
 }
 
 /**
- * Confere o token do formulario contra o cookie.
- *
- * A comparacao e' de igualdade simples, e nao `timingSafeEqual`: os dois
- * lados nao sao segredo -- o token esta no HTML que o navegador acabou de
- * receber e no cookie que o navegador acabou de mandar. O que se protege aqui
- * e' a origem do pedido, nao o valor.
+ * Comparacao simples, e nao `timingSafeEqual`: nenhum dos dois lados e' segredo
+ * -- o token veio no HTML que o navegador acabou de receber. Protege-se a origem
+ * do pedido, nao o valor.
  */
 function tokenConfere(req: Request): boolean {
     const doCookie = cookieBruta(req, NOME_CSRF_LOGIN);
@@ -67,12 +72,8 @@ function tokenConfere(req: Request): boolean {
 }
 
 /**
- * HTTPS de verdade: confia no cabecalho do proxy, e so se ele disser que sim.
- *
- * A checagem existe por causa do cookie com flag `secure`: marcado em HTTP
- * simples, ele nunca volta, e a pessoa fica presa na tela de login sem entender
- * por que. Pior que isso: a tela de login e' justamente onde a pessoa vai
- * descobrir que algo esta errado, e o sintoma seria "a conta nao entra".
+ * Existe por causa do cookie com flag `secure`: marcado em HTTP simples, ele
+ * nunca volta e a pessoa fica presa na tela de login sem entender o motivo.
  */
 function pedidoSeguro(req: Request): boolean {
     return req.secure || req.headers['x-forwarded-proto'] === 'https';
@@ -92,10 +93,24 @@ router.get('/entrar', async (req, res) => {
         return;
     }
 
-    const config = await carregarConfig();
+    /*
+     * O nome aqui e' o do PRODUTO, e nao o da loja, por dois motivos.
+     *
+     * O primeiro e' tecnico e nao tem como contornar: esta rota roda sem sessao,
+     * e sem sessao nao ha loja -- a loja vem da sessao. Ler o `Config` da loja
+     * aqui e' a consulta sem loja que a extensao recusa, e a tela de login
+     * simplesmente nao abriria.
+     *
+     * O segundo e' de privacidade, e e' o que faz a escolha correta e nao uma
+     *Limitacao: antes de autenticar, a tela nao tem como saber de quem e' a conta
+     * que esta entrando. Mostrar ali o nome da loja seria responder a pergunta
+     * "quem usa este sistema?" para qualquer visitante.
+     *
+     * O nome da loja aparece no painel, depois que a sessao existe.
+     */
     res.send(
         renderLogin({
-            nomeNegocio: config.businessName,
+            nomeNegocio: NOME_DO_PRODUTO,
             destino,
             primeiroAcesso: (await prisma.user.count()) === 0,
         })
@@ -103,23 +118,9 @@ router.get('/entrar', async (req, res) => {
 });
 
 /**
- * Serve o token do formulario.
- *
- * E' POST, e nao GET, por um motivo que ja custou uma tela morta: a rota era
- * GET e a tela chamava por `postJSON`, que faz POST. O navegador recebia 405,
- * o `fetch` nao lancava excecao, e o `catch` do envio mostrava "nao foi possivel
- * falar com o servidor" -- com o servidor no ar, respondendo, e a pessoa
- *_convicta de que era a maquina.
- *
- * POST tambem e' o metodo certo: a chamada muda estado, porque grava o cookie do
- * token. GET que escreve cookie e' o que faz o navegador recusar em alguns
- * cenarios e o que confunde quem le o codigo depois.
- *
- * O token volta no corpo e fica tambem num cookie HttpOnly, e sao os dois que
- * precisam bater na hora do envio. Nao ha segredo no valor: o que se protege e'
- * a ORIGEM do pedido. Quem consegue ler o corpo le o token, e quem consegue ler
- * o token le o corpo -- o que nao acontece de um site de terceiro, que nao tem
- * nenhum dos dois.
+ * POST, e nao GET: a tela envia por `postJSON`, e a rota GET respondia 405 sem o
+ * `fetch` lancar excecao. E' POST de verdade porque grava o cookie do token --
+ * GET que escreve cookie e' o que o navegador recusa em alguns cenarios.
  */
 router.post('/api/auth/token', (req, res) => {
     const token = randomBytes(24).toString('base64url');
@@ -151,13 +152,9 @@ router.post('/api/auth/login', limitePorTentativa({ max: 12, janelaMs: 5 * 60 * 
     const resultado = await autentica(email, senha);
 
     /*
-     * `=== false` e nao `!ok`.
-     *
-     * O encurtamento negando o discriminante nao questa versao do compilador
-     * estreita o uniao: na linha de baixo ele ainda via o ramo de sucesso, e o
-     * acesso a `motivo` era erro de compilacao. Comparar com `false` estreita
-     * nos dois sentidos, e deixa a intencao explicita -- que e' o que o leitor
-     * precisa ver num bloco que decide entre "entrou" e "nao entrou".
+     * `=== false` e nao `!ok`: so a comparacao estreita os dois sentidos do uniao.
+     * Com `!ok` o ramo de sucesso continuava aberto na linha de baixo, e o
+     * acesso a `motivo` virava erro de compilacao.
      */
     if (resultado.ok === false) {
         const texto =
@@ -240,12 +237,9 @@ router.post('/api/auth/trocar-senha', exigeSessao(), exigeCsrf(), async (req, re
     }
 
     /*
-     * A senha atual e' conferida mesmo quando a troca e' forcada.
-     *
-     * Sem esta linha, quem pegou a senha temporaria trocava a senha e tomava
-     * conta permanente sem nunca ter sabido a senha de verdade -- que e' o
-     * caminho mais curto para assumir um sistema. E o que faz a troca forcada
-     * servir para alguma coisa em vez de ser um formulario a mais.
+     * A senha atual e' conferida mesmo na troca forcada: quem pegou a senha
+     * temporaria trocaria a senha e ficaria com conta permanente sem nunca ter
+     * sabido a senha de verdade.
      */
     const confere = await autentica(sessao.email, atual);
     if (!confere.ok) {
@@ -255,10 +249,9 @@ router.post('/api/auth/trocar-senha', exigeSessao(), exigeCsrf(), async (req, re
 
     await trocaSenha(sessao.userId, nova);
 
-    // A troca apaga as sessoas -- inclusive a que esta fazendo a troca. Abri
-    // outra e devolvida: voltar a entrar e' o que a pessoa espera depois de
-    // trocar a senha, e deixar a sessao morta faria o painel recarregar e
-    // devolver para o login sem explicacao.
+    // A troca apaga as sessoes, inclusive a que esta trocando. Abrir outra e' o
+    // que a pessoa espera depois de trocar a senha; sessao morta recarrega o
+    // painel e devolve para o login sem explicacao.
     const { token, csrf } = await criaSessao(sessao.userId, req);
     aplicaCookies(res, token, csrf, pedidoSeguro(req));
     log.info('Senha trocada', { email: sessao.email });
@@ -269,21 +262,19 @@ router.post('/api/auth/trocar-senha', exigeSessao(), exigeCsrf(), async (req, re
 /* ---------------------------------------------------------------- Cadastro */
 
 /**
- * Cadastro de conta de OPERADOR.
- *
- * Deliberadamente nao cria administrador. O sistema e' de uma loja, e um
- * cadastro aberto que cria administrador e' um botao que qualquer pessoa com o
- * e-mail da loja pode apertar e tomar o painel. Quem administra e' quem criou o
- * primeiro acesso -- e o cadastro se fecha sozinho assim que a primeira conta
- * existe, sem ninguem precisar lembrar de fechar.
+ * Cadastro de conta de OPERADOR. Nunca de administrador: um cadastro aberto que
+ * cria admin e' um botao que qualquer pessoa com o e-mail da loja aperta para tomar
+ * o painel. E o cadastro se fecha sozinho assim que a primeira conta existe.
  */
 router.get('/criar-conta', async (req, res) => {
     if ((await prisma.user.count()) > 0) {
         res.redirect(303, '/entrar?cadastro=fechado');
         return;
     }
-    const config = await carregarConfig();
-    res.send(renderCriarConta({ nomeNegocio: config.businessName }));
+    // O nome do PRODUTO, e nao `carregarConfig()`: o `Config` e' da loja, e esta
+    // rota roda sem loja. A razao e' a mesma do GET /entrar, e o efeito seria o
+    // mesmo -- a tela nao abriria.
+    res.send(renderCriarConta({ nomeNegocio: NOME_DO_PRODUTO }));
 });
 
 router.post(
@@ -318,9 +309,16 @@ router.post(
             return;
         }
 
-        const { hash, sal } = await derivaSenha(senha);
+const { hash, sal } = await derivaSenha(senha);
         await prisma.user.create({
-            data: { email, nome, senhaHash: hash, senhaSalt: sal, papel: 'operador' },
+            data: {
+                tenantId: lojaDoBoot(),
+                email,
+                nome,
+                senhaHash: hash,
+                senhaSalt: sal,
+                papel: 'operador',
+            },
         });
         log.info('Conta de operador criada', { email });
 
@@ -331,25 +329,12 @@ router.post(
 /* -------------------------------------------------------- Recuperar senha */
 
 /**
- * Recuperacao sem e-mail, e a razao de existir e' ser honesta sobre o que o
- * sistema tem.
- *
- * Nao ha SMTP, nao ha conta de e-mail, e numa instalacao de loja isso seria mais
- * um servico para configurar antes de a pessoa usar o produto. Um botao
- * "esqueci minha senha" que pede um link que nunca chega e' pior do que nao ter
- * o botao: a pessoa espera, e a espera e' o defeito.
- *
- * O que existe: um codigo de uso unico, valido por uma hora, que sai no LOG do
- * servidor. Quem tem o log tem a maquina -- e quem nao tem pede ao administrador,
- * que redefine pela tela de usuarios.
- *
- * A senha nao muda no primeiro passo. O codigo so PROVA acesso ao log; a troca
- * acontece no segundo. Se a senha sumisse no primeiro, um equivoco da propria
- * pessoa deixaria a loja sem acesso.
+ * Sem SMTP, o que existe e' um codigo de uso unico, valido por uma hora, que sai
+ * no LOG do servidor. A senha so muda no segundo passo: o codigo prova acesso ao
+ * log, e trocar no primeiro deixaria a loja sem acesso por um equivoco.
  */
 router.get('/recuperar-senha', async (req, res) => {
-    const config = await carregarConfig();
-    res.send(renderRecuperar({ nomeNegocio: config.businessName }));
+    res.send(renderRecuperar({ nomeNegocio: NOME_DO_PRODUTO }));
 });
 
 router.post(

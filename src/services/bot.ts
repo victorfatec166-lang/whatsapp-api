@@ -6,16 +6,15 @@ import makeWASocket, {
 import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode-terminal';
 import pino from 'pino';
-import { prisma } from '../database/prisma';
-// DEFAULT_BOT_MESSAGES nao vem mais por aqui. Quem precisa dos textos padrao
-// (o servidor, para montar a lista de campos editaveis, e o botMessages, para
-// o cache) importa direto do botDefaults. Aqui ele nunca foi usado, e o
-// import mascarava de onde os textos realmente saem.
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
+// DEFAULT_BOT_MESSAGES nao vem por aqui: quem precisa dos textos padrao importa
+// direto do botDefaults. Aqui ele nunca foi usado, e mascarava a origem.
 import { loadBotMessages, getBotMessage } from './botMessages';
 import { createOrderWithStock } from './orders';
 import { loadProductFull, priceCart, linesToItemsField, type ProductFull } from './modifiers';
 import { buildBotMenu, renderBotMenuText } from './dailyMenu';
 import { confereAmarracao } from './maquina';
+import { comoLoja, lojaDoBoot } from './loja';
 import {
     botPodeResponder,
     guardaFoto,
@@ -52,26 +51,15 @@ type Session = {
     groupIndex?: number;
     picked?: Record<string, string[]>;
     /**
-     * Retrato da lista enviada ao cliente, na ordem em que ele a viu.
-     *
-     * O menu do dia muda enquanto o cliente escolhe. Sem este retrato, o
-     * numero que ele digitou passaria a apontar para outro prato depois de uma
-     * edicao na hora -- ele veria o Coxinha na posicao 2 e acabaria pedindo
-     * outra coisa.
+     * Retrato da lista enviada ao cliente, na ordem em que ele a viu: o menu do
+     * dia muda enquanto ele escolhe, e sem o retrato o numero digitado apontaria
+     * para outro prato depois de uma edicao na hora.
      */
     offered?: Array<{ id: string; name: string; price: number }>;
     /**
-     * O que a pessoa ja pediu, juntando.
-     *
-     * Antes o bot criava o pedido assim que o item era escolhido, e nao havia
-     * como pedir duas coisas -- "2 coxinhas e 1 refrigerante", que e' como
-     * gente pede comida, simplesmente nao existia. O carrinho e' o que faz a
-     * frase inteira virar um pedido so, e o preco continua sendo recalculado no
-     * servidor quando ela fecha (fechaCarrinho).
-     *
-     * Vive na sessao, em memoria, e morre com o servidor -- como todo o resto do
-     * estado do bot. O que o cliente ja pediu e' o que o painel mostra, e nao
-     * precisa sobreviver a reinicio para o bot atender direito.
+     * O que a pessoa ja pediu, juntando -- e' o que faz "2 coxinhas e 1
+     * refrigerante" virar um pedido so. Vive na sessao, em memoria: o preco
+     * continua sendo recalculado no servidor quando o pedido fecha.
      */
     carrinho?: LinhaCarrinho[];
 };
@@ -79,37 +67,20 @@ type Session = {
 const userSession: { [key: string]: Session } = {};
 
 /**
- * Assume a conversa pelo telefone, e devolve a conversa assumida.
- *
- * Existe como funcao porque `assumirConversa` do chat.ts trabalha por id de
- * conversa, e o bot so tem o telefone -- ele esta atendendo antes de a tela
- * existir. Buscar o id e chamar a funcao de verdade mantem o bot no mesmo
- * caminho do painel: os dois silenciao o bot do mesmo jeito, porque leem o
- * mesmo campo.
+ * AssumeConversa do chat.ts trabalha por id e o bot so tem o telefone -- ele
+ * atende antes de a tela existir. Buscar o id e chamar a funcao de verdade
+ * mantem bot e painel no mesmo caminho: os dois leem o mesmo campo.
  */
 async function assumirConversaPorTelefone(telefone: string): Promise<{ id: string } | null> {
-    const chat = await prisma.chat.findUnique({ where: { phone: telefone }, select: { id: true } });
+    const chat = await prisma.chat.findFirst({ where: { phone: telefone }, select: { id: true } });
     if (!chat) return null;
     return assumirConversa(chat.id);
 }
 
 /**
- * Interpreta a frase e soma o que ela pediu ao carrinho.
- *
- * Este e' o caminho pelo qual a pessoa pede do jeito natural, sem numero e sem
- * lista. E' ele que transforma "quero 3 coxinhas" em item, e "xburguer ao ponto
- * com bacon" em item com dois modificadores.
- *
- * Duas coisas que ele faz e que valem o comentario:
- *
- * 1. CARTAO QUE PRECISA DE MODIFICADOR VAI PERGUNTAR. Se a pessoa pediu "X-Burguer"
- *    sem dizer o ponto da carne e o grupo e' obrigatorio, o item nao entra
- *    errado: o bot pergunta, que e' o que a cozinha precisa. Entrar sem a escolha
- *    e' a forma de o pedido chegar errado.
- *
- * 2. O QUE NAO ENTENDEU VOLTA PARA A PESSOA. Encher o pedido com o que deu
- *    certo e engolir o resto faz a pessoa acreditar que pediu a coisa toda, e
- *    descobrir o erro no balcao, na frente do cliente.
+ * Caminho do pedido natural, sem numero e sem lista: transforma "quero 3 coxinhas"
+ * em item. Cartao que precisa de modificador pergunta em vez de entrar errado, e o
+ * que nao foi entendido volta para a pessoa em vez de sumir no balcao.
  */
 async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
     const catalogo = await catalogoParaInterpretar(jid);
@@ -140,11 +111,8 @@ async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
         if (!full) continue;
 
         /*
-         * Modificador obrigatorio que a frase nao cobriu: pergunta, e nao inventa.
-         *
-         * `priceCart` recusaria o pedido na hora de fechar, e o cliente receberia
-         * "faltou escolher" DEPOIS de ter escrito o pedido inteiro. Perguntar
-         * agora e' o momento em que a pessoa ainda lembra o que queria.
+         * Pergunta agora, e nao inventa: priceCart recusaria na hora de fechar, e o
+         * "faltou escolher" chegaria depois de o cliente escrever o pedido inteiro.
          */
         const faltando = full.modifierGroups.find(
             (g) => g.required && (item.modificadores[g.id] ?? []).length < Math.max(1, g.minSelect)
@@ -186,15 +154,9 @@ async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
 }
 
 /**
- * O catalogo no formato que o interpretador entende.
- *
- * Montado do MESMO retrato que o cliente recebeu, e nao do banco. Se o dono
- * editar o cardapio no meio da conversa, o que vale para o cliente continua
- * sendo a lista que ele viu -- casar a frase contra um produto recem-criado
- * faria ele pedir algo que nem estava na lista mostrada.
- *
- * Os grupos de modificador entram junto, porque sem eles o "ao ponto" e o
- * "bacon" nao teriam onde casar.
+ * Montado do MESMO retrato que o cliente recebeu, e nao do banco: se o dono editar o
+ * cardapio no meio da conversa, o cliente pediria algo que nem estava na lista mostrada.
+ * Os grupos de modificador entram junto, senao "ao ponto" e "bacon" nao tem onde casar.
  */
 async function catalogoParaInterpretar(jid: string): Promise<ItemCatalogo[]> {
     const offered = userSession[jid]?.offered;
@@ -239,14 +201,9 @@ async function sendModifierQuestion(
 }
 
 /**
- * Pega o carrinho da sessao, criando se ainda nao existe.
- *
- * Existe uma funcao e nao um campo opcional acessado solto, porque o erro desse
- * campo e' silencioso: `carrinho.length` em um carrinho indefinido derruba a
- * conversa inteira no meio de um pedido. Aqui o padrao e' a regra.
- *
- * A regra em si -- juncao, agrupamento, texto -- esta em `services/carrinho.ts`,
- * sem WhatsApp e sem banco, para poder ser provada por teste.
+ * Funcao e nao campo acessado solto: carrinho.length em carrinho indefinido derruba
+ * a conversa no meio do pedido, e o erro e' silencioso.
+ * A regra (juntar, agrupar, montar o texto) esta em carrinho.ts, sem WhatsApp e sem banco.
  */
 function carrinhoDe(jid: string): LinhaCarrinho[] {
     if (!userSession[jid]) userSession[jid] = { step: 'MENU' };
@@ -255,16 +212,9 @@ function carrinhoDe(jid: string): LinhaCarrinho[] {
 }
 
 /**
- * Fecha o carrinho em UM pedido, com preco recalculado pelo banco.
- *
- * Todo o preco vem de `priceCart`, que le os valores do banco e valida os
- * modificadores. O cliente nao manda preco -- ele manda ids e quantidades, e o
- * servidor descobre quanto custa. A frase livre que ele escreveu serve para
- * descobrir QUAL produto; nunca para dizer QUANTO custa.
- *
- * O total e' a soma das LINHAS, e nao o `subtotal` devolvido: com modificador
- * de acrescimo, o subtotal e' a soma dos precos base e o total e' esse acrescimo
- * junto. Pagar o valor base seria cobrar menos do que a cozinha vai produzir.
+ * Regra mais antiga: o cliente manda ids e quantidades, nunca preco -- a frase livre
+ * descobre QUAL produto, nunca QUANTO custa. O total e' a soma das LINHAS, nao o
+ * subtotal devolvido: com modificador de acrescimo, pagar o subtotal seria cobrar menos.
  */
 async function fechaCarrinho(jid: string, onOrderCreated?: () => void): Promise<void> {
     const carrinho = carrinhoDe(jid);
@@ -278,9 +228,9 @@ async function fechaCarrinho(jid: string, onOrderCreated?: () => void): Promise<
     const priced = await priceCart(pedido);
 
     if (priced.ok === false) {
-        // Recusa e volta para o pedido em aberto: e' a unica saida honesta quando
-        // falta um modificador obrigatorio. Dizer "pedido criado" e' pior do que
-        // dizer "faltou algo" -- e e' o que a cozinha receberia errado.
+        // Volta para o pedido em aberto: e' a unica saida honesta quando falta um
+        // modificador obrigatorio. Dizer "pedido criado" seria o que a cozinha
+        // receberia errado.
         await sock?.sendMessage(jid, { text: `⚠️ ${priced.error}` });
         userSession[jid].step = 'PEDINDO';
         return;
@@ -290,13 +240,9 @@ async function fechaCarrinho(jid: string, onOrderCreated?: () => void): Promise<
     const itemsField = linesToItemsField(priced.result.lines);
 
     /*
-     * Pedido e baixa de estoque no mesmo commit.
-     *
-     * Se a gravacao falhar, a excecao sobe e o catch de quem chamou avisara o
-     * cliente. O importante e' que nao exista o estado em que o pedido esta
-     * gravado e o estoque nao foi mexido: com o bot e o balcao vendendo o
-     * mesmo item ao mesmo tempo, esse estado fazia o estoque contar coisa que
-     * nao saiu.
+     * Mesmo commit: nao pode existir o estado em que o pedido esta gravado e o
+     * estoque nao foi mexido -- com o bot e o balcao vendendo o mesmo item ao
+     * mesmo tempo, o estoque contaria coisa que nao saiu.
      */
     const { order: newOrder, shortfalls } = await createOrderWithStock(
         {
@@ -315,9 +261,9 @@ async function fechaCarrinho(jid: string, onOrderCreated?: () => void): Promise<
     log.info(`✅ Pedido criado com sucesso ID: ${newOrder.id}`);
 
     /*
-     * Cliente que pediu item sem saldo ainda recebe o pedido. Recusar por causa
-     * de um contador velho, no meio do pico, joga a venda fora -- e quem sofre
-     * e' a cozinha, que ja produziu. O dono recebe a lista no log e reponde.
+     * Sem saldo ainda recebe o pedido: recusar por contador velho no meio do pico
+     * joga a venda fora, e quem sofre e' a cozinha, que ja produziu. O dono ve a
+     * lista no log e reponde.
      */
     if (shortfalls.length > 0) {
         log.warn(
@@ -347,16 +293,9 @@ async function fechaCarrinho(jid: string, onOrderCreated?: () => void): Promise<
     userSession[jid].offered = undefined;
 
     /*
-     * `replaceAll`, e nao `replace`.
-     *
-     * `String.replace` com string troca SO A PRIMEIRA ocorrencia. Escrever
-     * "{total}" duas vezes -- o que e' natural em "Total {total}, e o PIX e'
-     * para {total}" -- mandava o segundo "{total}" literal para o cliente. O
-     * mesmo para {items} em um texto que lista e depois resume.
-     *
-     * E' a razao de a tela de mensagens oferecer as variaveis como botao: a
-     * pessoa nao deveria ter que lembrar de um detalhe de substituicao para
-     * escrever uma frase natural.
+     * replaceAll e nao replace: replace com string troca SO A PRIMEIRA ocorrencia,
+     * e "Total {total}, e o PIX e' para {total}" mandava o segundo literal para o
+     * cliente. E' a razao de a tela oferecer as variaveis como botao.
      */
     const orderReceivedMsg = getBotMessage('orderReceived',
         '🎉 *Pedido Recebido com Sucesso!* \n\n' +
@@ -393,12 +332,9 @@ export type ConnectionState = {
     since: number | null;
     lastError: string | null;
     /**
-     * Preenchido quando a sessao em disco veio de outra maquina.
-     *
-     * E' o que a tela mostra em cima do QR, com o texto do que aconteceu. A
-     * alternativa -- ligar do mesmo jeito e avisar depois -- deixaria dois
-     * aparelhos com a mesma identidade ativa, e o desfecho possivel e' o
-     * WhatsApp derrubar um deles.
+     * Sessao em disco veio de outra maquina. A tela mostra em cima do QR, porque
+     * ligar do mesmo jeito e avisar depois deixaria dois aparelhos com a mesma
+     * identidade ativa -- e o WhatsApp pode derrubar um deles.
      */
     sessaoDeOutraMaquina: string | null;
 };
@@ -439,10 +375,9 @@ export function getConnectionState(): ConnectionState {
 
 function setConnection(patch: Partial<ConnectionState>): void {
     Object.assign(connection, patch);
-    // O aviso de sessao estranha e' reemitido em toda mudanca de estado, e nao
-    // so no boot. Sem isso, um reconnect -- que reseta a fase para
-    // "aguardando-qr" -- faria o aviso sumir da tela bem no momento em que a
-    // pessoa precisa dele para entender por que tem um QR na frente.
+    // Reemitido em toda mudanca de estado, e nao so no boot: um reconnect reseta a
+    // fase para aguardando-qr e o aviso sumiria bem quando a pessoa precisa dele
+    // para entender por que tem um QR na frente.
     connection.sessaoDeOutraMaquina = sessaoDeOutraMaquina?.motivo ?? null;
     const snapshot = getConnectionState();
     for (const listener of connectionListeners) {
@@ -461,13 +396,9 @@ function bindSocket(target: any, handler: (payload: any) => void) {
 }
 
 /*
- * Pasta da sessao do WhatsApp.
- *
- * Mora aqui, e nao em cada arquivo que precisa, por causa da amarracao de
- * maquina: `confereAmarracao` grava a marcacao AO LADO das chaves, entao quem
- * define a pasta precisa ser o mesmo que confere. Duas constantes iguais em
- * arquivos diferentes e' como os dois paths divergem sem ninguem notar -- e o
- * sintoma seria a marcacao sumir sozinha.
+ * Mora aqui e nao em cada arquivo que precisa: confereAmarracao grava a marcacao
+ * AO LADO das chaves, entao quem define a pasta precisa ser o mesmo que confere.
+ * Duas constantes iguais em arquivos diferentes divergem sem ninguem notar.
  */
 export const AUTH_DIR = process.env.BAILEYS_AUTH_DIR?.trim() || DIR_SESSAO_WHATSAPP;
 
@@ -476,17 +407,9 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
     /*
-     * Confere se esta sessao e' desta maquina, ANTES de abrir o socket.
-     *
-     * A ordem importa: se a sessao for de outro aparelho, o certo e' nao
-     * conectar e pedir o QR. Conectar primeiro e avisar depois deixaria dois
-     * aparelhos com a mesma identidade ativa por alguns segundos -- que e'
-     * exatamente a janela em que o WhatsApp pode derrubar um dos dois.
-     *
-     * Nao trava o app. A sessao pode ter vindo de outra maquina por um motivo
-     * legitimo -- reinstalacao do Windows, HD trocado -- e quem resolve e'
-     * escaneando o QR, em um minuto. Um bloqueio obrigaria a pessoa a apagar
-     * arquivo as maos sem nenhuma pista de por que.
+     * Antes de abrir o socket: conectar primeiro deixaria dois aparelhos com a mesma
+     * identidade ativa por instantes, e e' a janela em que o WhatsApp derruba um deles.
+     * Nao trava o app: sessao de outra maquina pode ser HD trocado, e quem resolve e' o QR.
      */
     const sessao = confereAmarracao(AUTH_DIR);
     sessaoDeOutraMaquina = sessao;
@@ -577,406 +500,366 @@ export async function startWhatsAppBot(onOrderCreated?: () => void) {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
-        for (const msg of messages) {
-            if (!msg.message || msg.key.fromMe) continue;
+        /*
+         * O bot roda FORA de uma requisicao: quem chamou foi o WhatsApp, nao uma
+         * pessoa com sessao. Sem `comoLoja` aqui, a primeira consulta do
+         * atendimento -- gravar a mensagem no historico -- estouraria e o cliente
+         * ficaria sem resposta.
+         *
+         * A loja e' a do AMBIENTE, e nao uma que o cliente possa escolher: o
+         * agente local atende uma loja por vez, e e' a `.env` que diz qual. E'
+         * por isso que a loja do webhook do marketplace e' descoberta pela
+         * assinatura e esta nao e' -- aqui o par (numero do WhatsApp, loja) foi
+         * ligado na maquina, e nao pela internet.
+         */
+        await comoLoja(lojaDoBoot(), async () => {
+            for (const msg of messages) {
+                if (!msg.message || msg.key.fromMe) continue;
 
-            const senderPhone = msg.key.remoteJid || '';
-            const messageText =
-                msg.message.conversation ||
-                msg.message.extendedTextMessage?.text;
+                const senderPhone = msg.key.remoteJid || '';
+                const messageText =
+                    msg.message.conversation ||
+                    msg.message.extendedTextMessage?.text;
 
-            if (!messageText) continue;
+                if (!messageText) continue;
 
-            const textLower = messageText.toLowerCase().trim();
+                const textLower = messageText.toLowerCase().trim();
 
-            /*
-             * O log registra QUEM escreveu, e nao o que escreveu.
-             *
-             * O texto ja esta gravado em `Message`, e a tela mostra um clique
-             * depois. Aqui ele virava uma segunda copia, em arquivo de texto
-             * plano, sem a mesma regra de validade: a mensagem some na virada
-             * do dia, mas a linha de log ficava no disco para sempre, e esse
-             * arquivo ninguem lembra de limpar. Texto de cliente em dois lugares
-             * com duas politicas de retencao diferentes e' o tipo de coisa que
-             * vaza sem ninguem decidir que vazou.
-             *
-             * Sobrar "quem" e "quando" e' o que fecha diagnostico: para saber
-             * por que o bot nao respondeu, a pergunta e' de quem veio e a que
-             * horas -- a resposta esta na tela.
-             */
-            log.info(`📩 Mensagem de ${senderPhone}`);
+                /*
+                 * Quem escreveu, e nao o que: o texto ja esta gravado em Message. Em log
+                 * plano virava segunda copia com outra retencao -- a mensagem some na
+                 * virada do dia, a linha de log fica para sempre.
+                 */
+                log.info(`📩 Mensagem de ${senderPhone}`);
 
-            /*
-             * Grava a mensagem ANTES de qualquer decisao do bot.
-             *
-             * A ordem importa e nao e' estetica: se o bot responder e a gravacao
-             * viesse depois, uma falha de escrita deixaria a resposta enviada
-             * sem rastro nenhum -- o cliente recebeu, e o painel nao mostra o
-             * que aconteceu. Gravando primeiro, o historico existe mesmo se o
-             * resto do caminho falhar.
-             *
-             * Quem decide se a loja responde e' quem esta com a conversa aberta
-             * no painel. Ver `botPodeResponder` e o bloco logo abaixo.
-             *
-             * `senderPhone` e' o ENDERECO, e pode ser um "192...@lid": o
-             * WhatsApp passou a entregar mensagens por um identificador de
-             * privacidade, que nao contem telefone. Enviar por ele funciona, e e'
-             * ele que fica guardado. O numero que o dono le vai em `telefone`,
-             * resolvido logo abaixo.
-             */
-            let telefone = '';
-            let nome = '';
-            let chatId = '';
-            try {
-                // `telefoneDoContato` espera o socket, e `nomeDoContato` le a
-                // store de contatos: um depende de rede e o outro nao. Rodam
-                // juntos porque em mensagem de verdade o socket ja esta pronto.
-                const [achado, quem] = await Promise.all([
-                    telefoneDoContato(msg),
-                    Promise.resolve(nomeDoContato(msg)),
-                ]);
-                telefone = achado;
-                nome = quem;
-                chatId = await registrarMensagem({
-                    phone: senderPhone,
-                    from: 'cliente',
-                    text: messageText,
-                    // O instante do WhatsApp, e nao o do servidor: se a fila
-                    // atrasar, o historico mostra a ordem em que aconteceu, e
-                    // nao a ordem em que o app gravou.
-                    sentAt: msg.messageTimestamp
-                        ? new Date(Number(msg.messageTimestamp) * 1000)
-                        : undefined,
-                    nome,
-                    telefone,
-                });
-            } catch (error) {
-                // Falha em gravar o historico nao pode derrubar o atendimento:
-                // o cliente esperando resposta e' pior do que um chat sem
-                // registro. O log deixa o problema visivel.
-                log.error(`Falha ao gravar mensagem de ${senderPhone} no historico:`, error);
-            }
-
-            /*
-             * Foto do perfil, uma vez por semana por cliente.
-             *
-             * Busca depois de gravar, e nao antes: se a busca falhar, a
-             * conversa ja esta salva e o cliente continua sendo atendido. E o
-             * `guardaFoto` respeita a data, entao este bloco nao vira uma
-             * chamada de rede por mensagem.
-             */
-            if (chatId && podeBuscarFoto()) {
+                /*
+                 * Grava ANTES de qualquer decisao do bot: respondendo antes, uma falha de
+                 * escrita deixaria a resposta enviada sem rastro. senderPhone e' o ENDERECO
+                 * e pode ser um 192...@lid, que nao contem telefone: enviar por ele funciona.
+                 */
+                let telefone = '';
+                let nome = '';
+                let chatId = '';
                 try {
-                    const mudou = await guardaFoto(chatId, () => fotoDoContato(senderPhone));
-                    if (mudou) notifyChat(chatId);
+                    // `telefoneDoContato` espera o socket, e `nomeDoContato` le a
+                    // store de contatos: um depende de rede e o outro nao. Rodam
+                    // juntos porque em mensagem de verdade o socket ja esta pronto.
+                    const [achado, quem] = await Promise.all([
+                        telefoneDoContato(msg),
+                        Promise.resolve(nomeDoContato(msg)),
+                    ]);
+                    telefone = achado;
+                    nome = quem;
+                    chatId = await registrarMensagem({
+                        phone: senderPhone,
+                        from: 'cliente',
+                        text: messageText,
+                        // O instante do WhatsApp, e nao o do servidor: se a fila
+                        // atrasar, o historico mostra a ordem em que aconteceu, e
+                        // nao a ordem em que o app gravou.
+                        sentAt: msg.messageTimestamp
+                            ? new Date(Number(msg.messageTimestamp) * 1000)
+                            : undefined,
+                        nome,
+                        telefone,
+                    });
                 } catch (error) {
-                    log.debug(`Foto de ${senderPhone} nao atualizada: ${String(error)}`);
-                }
-            }
-
-            if (!userSession[senderPhone]) {
-                userSession[senderPhone] = { step: 'MENU' };
-            }
-
-            const currentStep = userSession[senderPhone].step;
-
-            /*
-             * Alguem assumiu a conversa? Entao o bot cala.
-             *
-             * Sem este corte, o cliente que pediu para falar com uma pessoa
-             * receberia o cardapio inteiro do bot e a resposta da pessoa, uma
-             * por cima da outra. A opcao 3 do menu -- "falar com atendente" --
-             * hoje responde "um atendente vai chamar", e nao havia quem chamasse.
-             */
-            if (!(await botPodeResponder(senderPhone))) {
-                log.info(`Conversa com ${senderPhone} esta com humano; bot em silencio.`);
-                continue;
-            }
-
-            try {
-                if (['menu', 'oi', 'ola', 'olá', '0', 'inicio', 'início'].includes(textLower)) {
-                    userSession[senderPhone].step = 'MENU';
-                    userSession[senderPhone].offered = undefined;
-
-                    const mainMenu = getBotMessage('mainMenu',
-                        '🍔 *BEM-VINDO* 🍕\n' +
-                        '━━━━━━━━━━━━━━━━━━━━━\n' +
-                        'Escolha uma opção:\n\n' +
-                        '1️⃣ *Ver Cardápio e Pedir*\n' +
-                        '2️⃣ *Consultar Meus Pedidos*\n' +
-                        '3️⃣ *Falar com Atendente*\n\n' +
-                        '👉 *Responda com o número* da opção desejada:');
-
-                    await sock.sendMessage(senderPhone, { text: mainMenu });
-                    continue;
+                    // Falha em gravar o historico nao pode derrubar o atendimento:
+                    // o cliente esperando resposta e' pior do que um chat sem
+                    // registro. O log deixa o problema visivel.
+                    log.error(`Falha ao gravar mensagem de ${senderPhone} no historico:`, error);
                 }
 
                 /*
-                 * Comandos do pedido, que valem em qualquer etapa.
-                 *
-                 * Nao estao dentro de "se o passo for X" porque a pessoa nao
-                 * sabe em que passo o bot esta -- e nao tem por que saber. Ela
-                 * escreveu "3 coxinhas" e quer finalizar; se o bot exigir que ela
-                 * descubra que existe um passo intermediario, ela fica presa
-                 * num estado que nao consegue ver.
+                 * Foto depois de gravar, e nao antes: se a busca falhar, a conversa ja
+                 * esta salva e o cliente continua sendo atendido. guardaFoto respeita
+                 * a data, entao aqui nao vira chamada de rede por mensagem.
                  */
-                if (ehComandoFechar(textLower)) {
-                    await fechaCarrinho(senderPhone, onOrderCreated);
+                if (chatId && podeBuscarFoto()) {
+                    try {
+                        const mudou = await guardaFoto(chatId, () => fotoDoContato(senderPhone));
+                        if (mudou) notifyChat(chatId);
+                    } catch (error) {
+                        log.debug(`Foto de ${senderPhone} nao atualizada: ${String(error)}`);
+                    }
+                }
+
+                if (!userSession[senderPhone]) {
+                    userSession[senderPhone] = { step: 'MENU' };
+                }
+
+                const currentStep = userSession[senderPhone].step;
+
+                /*
+                 * Sem este corte, quem pediu para falar com uma pessoa receberia o
+                 * cardapio do bot e a resposta dela, uma por cima da outra.
+                 */
+                if (!(await botPodeResponder(senderPhone))) {
+                    log.info(`Conversa com ${senderPhone} esta com humano; bot em silencio.`);
                     continue;
                 }
 
-                if (ehComandoLimpar(textLower)) {
-                    carrinhoDe(senderPhone).length = 0;
-                    userSession[senderPhone].step = 'MENU';
-                    userSession[senderPhone].offered = undefined;
-                    userSession[senderPhone].productId = undefined;
-                    userSession[senderPhone].picked = undefined;
-                    userSession[senderPhone].groupIndex = 0;
-                    await sock.sendMessage(senderPhone, {
-                        text: '🧾 Pedido apagado. Comece de novo quando quiser.'
-                    });
-                    continue;
-                }
-
-                if (ehComandoVerCarrinho(textLower)) {
-                    await sock.sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
-                    continue;
-                }
-
-                if (currentStep === 'MENU') {
-                    if (textLower === '1') {
-                        const products = await buildBotMenu();
-
-                        if (products.length === 0) {
-                            await sock.sendMessage(senderPhone, {
-                                text: getBotMessage('menuEmpty', '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!')
-                            });
-                            continue;
-                        }
-
-                        userSession[senderPhone].step = 'PEDINDO';
-                        // Guarda o retrato da lista: e contra ela que o numero
-                        // digitado vai ser lido, mesmo que o dono edite o menu
-                        // antes da resposta.
-                        userSession[senderPhone].offered = products.map((p) => ({
-                            id: p.id,
-                            name: p.name,
-                            price: p.price,
-                        }));
-
-                        await sock.sendMessage(senderPhone, { text: renderBotMenuText(products) });
-                    }
-                    else if (textLower === '2') {
-                        const orders = await prisma.order.findMany({
-                            where: { clientPhone: senderPhone },
-                            orderBy: { createdAt: 'desc' }
-                        });
-
-                        if (orders.length === 0) {
-                            await sock.sendMessage(senderPhone, { text: getBotMessage('noOrders', '📦 Não encontrámos pedidos recentes. Digite *1* para ver o cardápio ou *menu*.') });
-                        } else {
-                            let text = '📦 *OS SEUS PEDIDOS RECENTES:*\n\n';
-                            orders.forEach(o => {
-                                text += `- *${o.items}* (R$ ${o.total.toFixed(2)}) ➡️ Status: *${o.status.toUpperCase()}*\n`;
-                            });
-                            text += '\nDigite *menu* para voltar ao início.';
-                            await sock.sendMessage(senderPhone, { text });
-                        }
-                    } 
-                    else if (textLower === '3') {
-                        /*
-                         * A promessa, cumprida.
-                         *
-                         * Este botao dizia "um atendente humano irá chamá-lo em
-                         * breve" e nao chamava ninguem: o bot continuava
-                         * respondendo, a conversa seguia sem o selo de "Você" no
-                         * painel, e ninguem era avisado. E' o mesmo defeito que
-                         * a tela de Configuracoes tinha -- o sistema anunciando
-                         * uma protecao que nao existe.
-                         *
-                         * `assumirConversa` e' o que silencia o bot de verdade:
-                         * `botPodeResponder` le o mesmo campo, entao assume aqui
-                         * e a proxima mensagem do cliente nao e' respondida. E
-                         * `notifyChat` empurra o evento, o que faz a conversa
-                         * aparecer na lista de quem atende.
-                         */
-                        const conversa = await assumirConversaPorTelefone(senderPhone);
-                        if (conversa) {
-                            await sock.sendMessage(senderPhone, {
-                                text: getBotMessage('attendantMessage',
-                                    '👨‍💻 Chamei um atendente para si. Ele vai responder aqui mesmo a partir de agora — o automático fica em silêncio nesta conversa.')
-                            });
-                        } else {
-                            await sock.sendMessage(senderPhone, {
-                                text: '⚠️ Não consegui abrir seu atendimento agora. Tente *3* de novo em um instante.'
-                            });
-                        }
-                    }
-                    else {
-                        /*
-                         * Nem número, nem comando: tenta entender a frase.
-                         *
-                         * Antes, qualquer coisa fora do menu recebia "Opção
-                         * inválida". Era a diferença entre o bot aceitar somente
-                         * os doze comandos que ele conhecia e aceitar a forma
-                         * como a pessoa fala.
-                         */
-                        await interpretaEAdiciona(senderPhone, textLower);
-                    }
-                }
-                else if (currentStep === 'PEDINDO') {
-                    if (!isNaN(Number(textLower)) && textLower !== '') {
-                        // Resolve pelo retrato da lista que o cliente recebeu,
-                        // nunca pelo menu atual: assim uma edicao no meio da
-                        // escolha nao troca o prato debaixo do numero.
-                        const session = userSession[senderPhone];
-                        const offered = session.offered;
-                        const index = Number(textLower) - 1;
-
-                        if (!offered || !offered[index]) {
-                            // Retrato perdido (reinicio do servidor): manda o
-                            // cardapio de novo em vez de adivinhar o prato.
-                            const fresh = await buildBotMenu();
-                            if (fresh.length === 0) {
-                                await sock.sendMessage(senderPhone, {
-                                    text: getBotMessage('menuEmpty', '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!'),
-                                });
-                                session.step = 'MENU';
-                                continue;
-                            }
-                            session.offered = fresh.map((p) => ({ id: p.id, name: p.name, price: p.price }));
-                            await sock.sendMessage(senderPhone, { text: renderBotMenuText(fresh) });
-                            await sock.sendMessage(senderPhone, {
-                                text: 'ℹ️ O cardápio mudou. Escolha novamente pelo número — ou escreva o nome do produto.',
-                            });
-                            continue;
-                        }
-
-                        const selected = offered[index];
-                        // O produto pode ter sido pausado depois de o cliente
-                        // ver o menu; nesse caso o id resolve e o preco e
-                        // recalculado no servidor.
-                        const full = await loadProductFull(selected.id);
-
-                        if (full) {
-                            // Produto com modificadores abre um fluxo de escolha.
-                            if (full.modifierGroups.length > 0) {
-                                userSession[senderPhone].step = 'ESCOLHENDO_MOD';
-                                userSession[senderPhone].productId = selected.id;
-                                userSession[senderPhone].groupIndex = 0;
-                                userSession[senderPhone].picked = {};
-                                await sendModifierQuestion(senderPhone, full, 0);
-                            } else {
-                                /*
-                                 * Entra no carrinho, e NAO vira pedido.
-                                 *
-                                 * Este era o limite antigo: escolher o item ja
-                                 * criava o pedido, entao nao havia como pedir
-                                 * duas coisas nem corrigir a primeira sem pedir de
-                                 * novo. Agora a pessoa junta o que quer e finaliza
-                                 * quando terminar.
-                                 */
-                                juntaItem(carrinhoDe(senderPhone), {
-                                    id: selected.id,
-                                    nome: selected.name,
-                                    qtd: 1,
-                                    modificadores: {},
-                                });
-                                await sock.sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
-                            }
-                        } else {
-                            await sock.sendMessage(senderPhone, {
-                                text: '⚠️ Esse item saiu do cardápio. Peça *1* para ver a lista atualizada.',
-                            });
-                            userSession[senderPhone].step = 'MENU';
-                        }
-                    } else {
-                        // Nao e' numero: e' frase. E o caminho que a pessoa
-                        // realmente usa -- "quero 3 coxinhas", "coxinha e
-                        // refrigerante", "xburguer ao ponto com bacon".
-                        await interpretaEAdiciona(senderPhone, textLower);
-                    }
-                }
-                else if (currentStep === 'ESCOLHANDO_MOD') {
-                    const session = userSession[senderPhone];
-                    const full = await loadProductFull(session.productId);
-                    if (!full) {
-                        session.step = 'MENU';
-                        await sock.sendMessage(senderPhone, { text: '⚠️ Produto indisponível. Digite *menu*.' });
-                        continue;
-                    }
-
-                    const group = full.modifierGroups[session.groupIndex];
-                    if (textLower === 'pular' || textLower === 'nenhum') {
-                        session.groupIndex += 1;
-                    } else if (group) {
-                        const choice = Number(textLower) - 1;
-                        if (isNaN(choice) || choice < 0 || choice >= group.options.length) {
-                            await sock.sendMessage(senderPhone, { text: '❌ Opção inválida. Responda com o número ou *pular*.' });
-                            continue;
-                        }
-                        const current: string[] = session.picked[group.id] ?? [];
-                        if (group.maxSelect <= 1) {
-                            session.picked[group.id] = [group.options[choice].id];
-                            session.groupIndex += 1;
-                        } else {
-                            if (current.includes(group.options[choice].id)) {
-                                session.picked[group.id] = current.filter((v) => v !== group.options[choice].id);
-                            } else {
-                                if (current.length >= group.maxSelect) {
-                                    await sock.sendMessage(senderPhone, { text: `❌ Máximo de ${group.maxSelect} opções em ${group.name}.` });
-                                    continue;
-                                }
-                                session.picked[group.id] = [...current, group.options[choice].id];
-                            }
-                            await sock.sendMessage(senderPhone, { text: `✅ *${group.name}*: ${current.length + 1}/${group.maxSelect} escolhida(s). Digite *pular* para seguir.` });
-                            continue;
-                        }
-                    }
-
-                    if (session.groupIndex < full.modifierGroups.length) {
-                        await sendModifierQuestion(senderPhone, full, session.groupIndex);
-                        continue;
-                    }
-
-                    // Todos os grupos respondidos: valida obrigatorios e fecha o pedido.
-                    const missing = full.modifierGroups.find(
-                        (g) => g.required && (session.picked[g.id] ?? []).length < Math.max(1, g.minSelect)
-                    );
-                    if (missing) {
-                        await sock.sendMessage(senderPhone, { text: `❌ Obrigatório escolher em *${missing.name}*. Digite *menu* para recomeçar.` });
+                try {
+                    if (['menu', 'oi', 'ola', 'olá', '0', 'inicio', 'início'].includes(textLower)) {
                         userSession[senderPhone].step = 'MENU';
+                        userSession[senderPhone].offered = undefined;
+
+                        const mainMenu = getBotMessage('mainMenu',
+                            '🍔 *BEM-VINDO* 🍕\n' +
+                            '━━━━━━━━━━━━━━━━━━━━━\n' +
+                            'Escolha uma opção:\n\n' +
+                            '1️⃣ *Ver Cardápio e Pedir*\n' +
+                            '2️⃣ *Consultar Meus Pedidos*\n' +
+                            '3️⃣ *Falar com Atendente*\n\n' +
+                            '👉 *Responda com o número* da opção desejada:');
+
+                        await sock.sendMessage(senderPhone, { text: mainMenu });
                         continue;
                     }
 
-                    const product = await prisma.product.findUnique({ where: { id: session.productId } });
-                    if (product) {
-                        /*
-                         * O item escolhido com modificadores entra no carrinho e
-                         * a pessoa continua escolhendo o proximo. Antes disto
-                         * criava o pedido e voltava ao menu: com o carrinho, ela
-                         * pode ter marcado o X-Burguer e ainda pedir o
-                         * refrigerante.
-                         */
-                        juntaItem(carrinhoDe(senderPhone), {
-                            id: product.id,
-                            nome: product.name,
-                            qtd: 1,
-                            modificadores: session.picked ?? {},
-                        });
-                        userSession[senderPhone].step = 'PEDINDO';
+                    /*
+                     * Comandos valem em qualquer etapa: a pessoa nao sabe em que passo o
+                     * bot esta, e nao tem por que saber. Se "3 coxinhas" exigisse o passo
+                     * intermediario, ela ficaria presa num estado que nao consegue ver.
+                     */
+                    if (ehComandoFechar(textLower)) {
+                        await fechaCarrinho(senderPhone, onOrderCreated);
+                        continue;
+                    }
+
+                    if (ehComandoLimpar(textLower)) {
+                        carrinhoDe(senderPhone).length = 0;
+                        userSession[senderPhone].step = 'MENU';
+                        userSession[senderPhone].offered = undefined;
                         userSession[senderPhone].productId = undefined;
                         userSession[senderPhone].picked = undefined;
                         userSession[senderPhone].groupIndex = 0;
-                        await sock.sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
+                        await sock.sendMessage(senderPhone, {
+                            text: '🧾 Pedido apagado. Comece de novo quando quiser.'
+                        });
+                        continue;
                     }
+
+                    if (ehComandoVerCarrinho(textLower)) {
+                        await sock.sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
+                        continue;
+                    }
+
+                    if (currentStep === 'MENU') {
+                        if (textLower === '1') {
+                            const products = await buildBotMenu();
+
+                            if (products.length === 0) {
+                                await sock.sendMessage(senderPhone, {
+                                    text: getBotMessage('menuEmpty', '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!')
+                                });
+                                continue;
+                            }
+
+                            userSession[senderPhone].step = 'PEDINDO';
+                            // Guarda o retrato da lista: e contra ela que o numero
+                            // digitado vai ser lido, mesmo que o dono edite o menu
+                            // antes da resposta.
+                            userSession[senderPhone].offered = products.map((p) => ({
+                                id: p.id,
+                                name: p.name,
+                                price: p.price,
+                            }));
+
+                            await sock.sendMessage(senderPhone, { text: renderBotMenuText(products) });
+                        }
+                        else if (textLower === '2') {
+                            const orders = await prisma.order.findMany({
+                                where: { clientPhone: senderPhone },
+                                orderBy: { createdAt: 'desc' }
+                            });
+
+                            if (orders.length === 0) {
+                                await sock.sendMessage(senderPhone, { text: getBotMessage('noOrders', '📦 Não encontrámos pedidos recentes. Digite *1* para ver o cardápio ou *menu*.') });
+                            } else {
+                                let text = '📦 *OS SEUS PEDIDOS RECENTES:*\n\n';
+                                orders.forEach(o => {
+                                    text += `- *${o.items}* (R$ ${o.total.toFixed(2)}) ➡️ Status: *${o.status.toUpperCase()}*\n`;
+                                });
+                                text += '\nDigite *menu* para voltar ao início.';
+                                await sock.sendMessage(senderPhone, { text });
+                            }
+                        } 
+                        else if (textLower === '3') {
+                            /*
+                             * assumirConversa silencia o bot de verdade: botPodeResponder le
+                             * o mesmo campo, e notifyChat traz a conversa para a lista de quem
+                             * atende. Antes o botao prometia atendente e nao chamava ninguem.
+                             */
+                            const conversa = await assumirConversaPorTelefone(senderPhone);
+                            if (conversa) {
+                                await sock.sendMessage(senderPhone, {
+                                    text: getBotMessage('attendantMessage',
+                                        '👨‍💻 Chamei um atendente para si. Ele vai responder aqui mesmo a partir de agora — o automático fica em silêncio nesta conversa.')
+                                });
+                            } else {
+                                await sock.sendMessage(senderPhone, {
+                                    text: '⚠️ Não consegui abrir seu atendimento agora. Tente *3* de novo em um instante.'
+                                });
+                            }
+                        }
+                        else {
+    /*
+                             * Nem número, nem comando: tenta entender a frase. Antes
+                              * isso recebia "Opcao invalida" -- a diferenca entre aceitar
+                              * os doze comandos conhecidos e a forma como a pessoa fala.
+                              */
+                            await interpretaEAdiciona(senderPhone, textLower);
+                        }
+                    }
+                    else if (currentStep === 'PEDINDO') {
+                        if (!isNaN(Number(textLower)) && textLower !== '') {
+                            // Resolve pelo retrato da lista que o cliente recebeu,
+                            // nunca pelo menu atual: assim uma edicao no meio da
+                            // escolha nao troca o prato debaixo do numero.
+                            const session = userSession[senderPhone];
+                            const offered = session.offered;
+                            const index = Number(textLower) - 1;
+
+                            if (!offered || !offered[index]) {
+                                // Retrato perdido (reinicio do servidor): manda o
+                                // cardapio de novo em vez de adivinhar o prato.
+                                const fresh = await buildBotMenu();
+                                if (fresh.length === 0) {
+                                    await sock.sendMessage(senderPhone, {
+                                        text: getBotMessage('menuEmpty', '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!'),
+                                    });
+                                    session.step = 'MENU';
+                                    continue;
+                                }
+                                session.offered = fresh.map((p) => ({ id: p.id, name: p.name, price: p.price }));
+                                await sock.sendMessage(senderPhone, { text: renderBotMenuText(fresh) });
+                                await sock.sendMessage(senderPhone, {
+                                    text: 'ℹ️ O cardápio mudou. Escolha novamente pelo número — ou escreva o nome do produto.',
+                                });
+                                continue;
+                            }
+
+                            const selected = offered[index];
+                            // O produto pode ter sido pausado depois de o cliente
+                            // ver o menu; nesse caso o id resolve e o preco e
+                            // recalculado no servidor.
+                            const full = await loadProductFull(selected.id);
+
+                            if (full) {
+                                // Produto com modificadores abre um fluxo de escolha.
+                                if (full.modifierGroups.length > 0) {
+                                    userSession[senderPhone].step = 'ESCOLHENDO_MOD';
+                                    userSession[senderPhone].productId = selected.id;
+                                    userSession[senderPhone].groupIndex = 0;
+                                    userSession[senderPhone].picked = {};
+                                    await sendModifierQuestion(senderPhone, full, 0);
+                                } else {
+                                    /*
+                                     * Entra no carrinho e NAO vira pedido: escolher o item ja
+                                     * criava o pedido, e nao havia como pedir duas coisas nem
+                                     * corrigir a primeira sem pedir tudo de novo.
+                                     */
+                                    juntaItem(carrinhoDe(senderPhone), {
+                                        id: selected.id,
+                                        nome: selected.name,
+                                        qtd: 1,
+                                        modificadores: {},
+                                    });
+                                    await sock.sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
+                                }
+                            } else {
+                                await sock.sendMessage(senderPhone, {
+                                    text: '⚠️ Esse item saiu do cardápio. Peça *1* para ver a lista atualizada.',
+                                });
+                                userSession[senderPhone].step = 'MENU';
+                            }
+                        } else {
+                            // Nao e' numero: e' frase. E o caminho que a pessoa
+                            // realmente usa -- "quero 3 coxinhas", "coxinha e
+                            // refrigerante", "xburguer ao ponto com bacon".
+                            await interpretaEAdiciona(senderPhone, textLower);
+                        }
+                    }
+                    else if (currentStep === 'ESCOLHANDO_MOD') {
+                        const session = userSession[senderPhone];
+                        const full = await loadProductFull(session.productId);
+                        if (!full) {
+                            session.step = 'MENU';
+                            await sock.sendMessage(senderPhone, { text: '⚠️ Produto indisponível. Digite *menu*.' });
+                            continue;
+                        }
+
+                        const group = full.modifierGroups[session.groupIndex];
+                        if (textLower === 'pular' || textLower === 'nenhum') {
+                            session.groupIndex += 1;
+                        } else if (group) {
+                            const choice = Number(textLower) - 1;
+                            if (isNaN(choice) || choice < 0 || choice >= group.options.length) {
+                                await sock.sendMessage(senderPhone, { text: '❌ Opção inválida. Responda com o número ou *pular*.' });
+                                continue;
+                            }
+                            const current: string[] = session.picked[group.id] ?? [];
+                            if (group.maxSelect <= 1) {
+                                session.picked[group.id] = [group.options[choice].id];
+                                session.groupIndex += 1;
+                            } else {
+                                if (current.includes(group.options[choice].id)) {
+                                    session.picked[group.id] = current.filter((v) => v !== group.options[choice].id);
+                                } else {
+                                    if (current.length >= group.maxSelect) {
+                                        await sock.sendMessage(senderPhone, { text: `❌ Máximo de ${group.maxSelect} opções em ${group.name}.` });
+                                        continue;
+                                    }
+                                    session.picked[group.id] = [...current, group.options[choice].id];
+                                }
+                                await sock.sendMessage(senderPhone, { text: `✅ *${group.name}*: ${current.length + 1}/${group.maxSelect} escolhida(s). Digite *pular* para seguir.` });
+                                continue;
+                            }
+                        }
+
+                        if (session.groupIndex < full.modifierGroups.length) {
+                            await sendModifierQuestion(senderPhone, full, session.groupIndex);
+                            continue;
+                        }
+
+                        // Todos os grupos respondidos: valida obrigatorios e fecha o pedido.
+                        const missing = full.modifierGroups.find(
+                            (g) => g.required && (session.picked[g.id] ?? []).length < Math.max(1, g.minSelect)
+                        );
+                        if (missing) {
+                            await sock.sendMessage(senderPhone, { text: `❌ Obrigatório escolher em *${missing.name}*. Digite *menu* para recomeçar.` });
+                            userSession[senderPhone].step = 'MENU';
+                            continue;
+                        }
+
+                        const product = await prisma.product.findUnique({ where: { id: session.productId } });
+                        if (product) {
+                            /*
+                             * Entra no carrinho e a pessoa continua escolhendo: antes
+                             * criava o pedido e voltava ao menu, e nao dava para pedir
+                             * o refrigerante depois do X-Burguer.
+                             */
+                            juntaItem(carrinhoDe(senderPhone), {
+                                id: product.id,
+                                nome: product.name,
+                                qtd: 1,
+                                modificadores: session.picked ?? {},
+                            });
+                            userSession[senderPhone].step = 'PEDINDO';
+                            userSession[senderPhone].productId = undefined;
+                            userSession[senderPhone].picked = undefined;
+                            userSession[senderPhone].groupIndex = 0;
+                            await sock.sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
+                        }
+                    }
+                } catch (err) {
+                    log.error('❌ Erro crítico ao processar mensagem do bot:', err);
+                    userSession[senderPhone].step = 'MENU';
+                    await sock.sendMessage(senderPhone, { text: '⚠️ Ocorreu um erro ao processar o seu pedido. Digite *menu* para reiniciar.' });
                 }
-            } catch (err) {
-                log.error('❌ Erro crítico ao processar mensagem do bot:', err);
-                userSession[senderPhone].step = 'MENU';
-                await sock.sendMessage(senderPhone, { text: '⚠️ Ocorreu um erro ao processar o seu pedido. Digite *menu* para reiniciar.' });
             }
-        }
+        });
     });
 }
 
@@ -1044,16 +927,9 @@ export async function sendWhatsAppMessage(remoteJid: string, text: string) {
 }
 
 /**
- * Envia uma mensagem que veio do painel, e devolve se saiu.
- *
- * Existe separada de sendWhatsAppMessage por causa do retorno. A outra engole
- * o erro e so loga, o que e' o certo para notificacao de status -- ali ninguem
- * esta esperando resposta. Aqui quem envia esta com o cursor no campo, e precisa
- * saber se pode limpar a caixa de texto ou se a frase ficou por conta propria.
- *
- * A gravacao no historico acontece em chat.ts, que marca `falhou` quando o envio
- * falha. Aqui nao grava: gravar duas vezes deixaria a mensagem duplicada na
- * conversa.
+ * Separada de sendWhatsAppMessage pelo retorno: a outra engole o erro e so loga, o
+ * que serve para notificacao de status. Aqui quem envia esta com o cursor no campo e
+ * precisa saber se pode limpar a caixa. A gravacao no historico e' de chat.ts.
  */
 export async function enviarMensagemDoPainel(remoteJid: string, text: string): Promise<boolean> {
     if (!sock) {
@@ -1075,26 +951,9 @@ export const initBot = startWhatsAppBot;
 /* ------------------------------------------------------- Identidade do cliente */
 
 /**
- * O WhatsApp nao entrega mais o telefone, e sim um identificador de privacidade.
- *
- * A mensagem chega com `remoteJid` no formato "192479311741143@lid". Esse
- * numero nao e' telefone de ninguem: e' um indice local do aplicativo, e ele
- * muda de um lado para o outro conforme a conta. Enviar por ele funciona, e por
- * isso ele continua sendo o endereco guardado. O que ele NAO serve e' para
- * mostrar na tela: o dono precisa ler o numero do cliente, nao o indice dele.
- *
- * A correspondencia real vem de tres lugares, nesta ordem de confianca:
- *
- * 1. `remoteJidAlt` / `remoteJidUsername`, que o Baileys preenche na propria
- *    chave da mensagem quando o servidor mandou junto.
- * 2. `signalRepository.lidMapping`, o mapa que o WhatsApp sincroniza entre
- *    dispositivos. E' a fonte que sobrevive a reinicio.
- * 3. O proprio contato salvo no celular, via `phoneNumber` da store.
- *
- * Quando nenhum dos tres entrega o numero, o retorno e' vazio e a tela diz que
- * o cliente nao esta identificado. Preencher com o lid seria pior que nada: um
- * telefone falso no meio de um atendimento custa mais caro que um telefone
- * faltando.
+ * O remoteJid pode ser "192479311741143@lid": indice local do app, nao telefone.
+ * Enviar por ele funciona, e e' por isso que segue sendo o endereco guardado. O numero real
+ * vem de remoteJidAlt/remoteJidUsername, do lidMapping ou do contato salvo; sem nenhum, vazio.
  */
 export async function telefoneDoContato(msg: {
     key: { remoteJid?: string | null; remoteJidAlt?: string | null; remoteJidUsername?: string | null };
@@ -1117,17 +976,9 @@ export async function telefoneDoContato(msg: {
 }
 
 /**
- * Juros do jid ate o numero.
- *
- * O jid do mapa lid->telefone vem como "5519971158843:0@s.whatsapp.net": o que
- * vem depois dos dois-pontes e' o DEVICE, nao parte do numero. Tirar so o
- * nao-digito -- que e' o que esta funcao fazia antes -- colava o `0` do device
- * no fim do telefone e produzia 55199711588430, com um digito a mais.
- *
- * Um telefone com um digito sobrando e' pior que nenhum: a pessoa liga, o numero
- * pertence a outra pessoa, e o erro se apresenta como erro do cliente, nao do
- * sistema. Por isso a ordem e' cortar o dominio, cortar o device, e so entao
- * exigir digitos.
+ * O jid do mapa vem como "5519971158843:0@s.whatsapp.net": o que vem depois dos
+ * dois-pontes e' o DEVICE, e tirar so o nao-digito colava esse 0 no telefone --
+ * erro que se apresenta como erro do cliente. Por isso a ordem e' dominio, device, digitos.
  */
 function soDigitos(jid: string): string {
     const semDominio = jid.split('@')[0];
@@ -1136,20 +987,9 @@ function soDigitos(jid: string): string {
 }
 
 /**
- * Nome do cliente, na ordem em que a pessoa reconhece.
- *
- * 1. O nome que o dono salvou no contato do WhatsApp. E' o que a tela mostra
- *    primeiro, porque e' como ele chama essa pessoa -- e o mesmo nome que ele
- *    usaria se telefonasse. Uma conversa de cliente recorrente vira "Dona
- *    Maria" em vez de um numero.
- * 2. O nome que o proprio cliente gravou no WhatsApp (`pushName`), que vem em
- *    cada mensagem mesmo de quem nunca foi salvo. Serve para cliente novo.
- * 3. Nada. A tela mostra o telefone, e para contato nao salvo nao ha nome
- *    nenhum para inventar.
- *
- * A ordem importa porque as duas fontes discordam com frequencia: o dono
- * salva como "Maria da Silva (pão)" e o cliente se chama "Marina". Quem opera
- * o painel e' o dono, entao o nome dele ganha.
+ * Contato salvo pelo dono primeiro, depois o pushName que o cliente gravou; nao ha
+ * terceiro nome para inventar. A ordem importa porque as fontes discordam com
+ * frequencia ("Maria da Silva (pao)" contra "Marina"), e quem opera e' o dono.
  */
 export function nomeDoContato(msg: { pushName?: string | null; key: { remoteJid?: string | null } }): string {
     const contato = lerContato(msg.key.remoteJid || '');
@@ -1203,13 +1043,8 @@ function lerContato(jid: string): { name?: string; notify?: string; phoneNumber?
 }
 
 /**
- * Foto do perfil, ou string vazia para quem nao tem.
- *
- * `preview` e' a variante pequena: a lista mostra 36px, e a imagem cheia pesa
- * alguns hundreds de KB que seriam baixados por elemento para virar um circulo.
- *
- * Devolve string vazia em vez de null porque a tela decide o que fazer com a
- * ausencia, e uma URL vazia nao quebra o atributo `src`.
+ * Foto do perfil, ou string vazia para quem nao tem. preview e' a variante
+ * pequena: a lista mostra 36px, e a imagem cheia seria baixada para virar circulo.
  */
 export async function fotoDoContato(jid: string): Promise<string> {
     if (!sock || !jid) return '';
@@ -1230,15 +1065,9 @@ export function podeBuscarFoto(): boolean {
 }
 
 /**
- * Resolve o telefone de um endereco ja guardado e grava na conversa.
- *
- * Mesma logica de `telefoneDoContato`, mas sem a mensagem em mao: quem chama
- * tem apenas o `phone`. Serve para recuperar conversas que ja estavam no banco
- * antes de o numero passar a ser guardado, que e' o caso de toda conversa
- * anterior a esta mudanca.
- *
- * Devolve o numero, ou string vazia. Grava sozinho: quem chamou so precisa
- * saber se veio algo.
+ * Mesma logica de `telefoneDoContato`, mas sem a mensagem em mao: quem chama so tem
+ * o `phone`. Existe para recuperar as conversas que ja estavam no banco antes de o
+ * numero passar a ser guardado. Devolve o numero, ou vazio.
  */
 export async function resolveTelefone(jid: string): Promise<string> {
     if (!jid) return '';
@@ -1318,24 +1147,9 @@ export async function logoutBot(): Promise<void> {
 }
 
 /**
- * Fecha o socket sem deslogar e sem reconectar.
- *
- * Terceira via, e a mais importante das tres. `reconnectBot` fecha e abre de novo
- * (serve para o botao "reconectar"), e `logoutBot` fecha e apaga as credenciais
- * (serve para "parear outro numero"). Nenhuma das duas serve para desligar o
- * servidor, e usar a errada e' caro:
- *
- *   - `logoutBot` no desligamento apagaria `auth_info_baileys`, e o proximo boot
- *     cairia no QR. O dono teria que escanear de novo para o bot voltar, e o
- *     downtime de um reinstalo comum vira um telefonema.
- *   - `reconnectBot` no desligamento abriria uma conexao nova no meio do
- *     desligamento, e o processo sairia com o socket tentando conectar, o que
- *     segura o event loop e alonga o restart.
- *
- * Aqui o socket fecha limpo, os listeners saem e o estado vai para offline. O
- * proximo boot encontra os credenciais intactos e conecta sozinho.
- *
- * Devolve se havia socket, para o log do desligamento ser honesto.
+ * Fecha o socket sem deslogar e sem reconectar. `logoutBot` no desligamento
+ * apagaria `auth_info_baileys` e o proximo boot cairia no QR -- reinstalo comum
+ * virava telefonema. `reconnectBot` seguraria o event loop. Devolve se havia socket.
  */
 export async function desconectaBot(): Promise<boolean> {
     if (!sock) return false;

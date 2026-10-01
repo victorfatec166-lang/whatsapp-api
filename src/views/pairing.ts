@@ -62,13 +62,9 @@ export function renderPairing(d: PairData): string {
     const connected = d.state.phase === 'conectado';
 
     /*
-     * `type="button"` explicito, e nao o padrao do navegador que decide.
-     *
-     * Um `<button>` sem `type` dentro de um `<form>` vira submit. Estes dois nao
-     * estao em form nenhum hoje, entao nao ha bug -- mas a regra vale para os
-     * botoes de tabela e de card, que a pessoa rearranja. Um botao de
-     * "Reconectar" que recarrega a pagina por acidente e' o tipo de defeito que
-     * so aparece quando alguem move o HTML.
+     * type="button" explicito: um button sem type dentro de um form vira submit. Estes dois nao
+     * estao em form nenhum hoje, mas a regra vale para os botoes de tabela e de card, que a
+     * pessoa rearranja -- e o defeito so apareceria quando alguem movesse o HTML.
      */
     const reconnectBtn =
         '<button type="button" onclick="reconnect()" class="btn btn-ghost">'
@@ -79,15 +75,9 @@ export function renderPairing(d: PairData): string {
         + '<i class="fa-solid fa-link-slash"></i> Desconectar e parear outro numero</button>';
 
     /*
-     * Aviso de sessao de outra maquina.
-     *
-     * Fica no topo do card de pareamento, e nao em um aviso generico no fim da
-     * tela, porque a pessoa chega aqui querendo entender por que o WhatsApp
-     * nao conectou. O aviso precisa estar antes do QR, e dizer o que fazer --
-     * que e' escanear de novo -- em vez de so accusear.
-     *
-     * Aparece antes do QR, e nao depois, porque o QR e' a solucao: quem leu o
-     * aviso le o QR em seguida.
+     * Fica no topo do card, antes do QR, e nao como aviso generico no fim da tela: a pessoa
+     * chega aqui querendo saber por que o WhatsApp nao conectou. Antes do QR porque o QR e' a
+     * solucao, e o aviso diz o que fazer em vez de so accusar.
      */
     const sessaoEstranha = d.state.sessaoDeOutraMaquina
         ? [
@@ -110,18 +100,9 @@ export function renderPairing(d: PairData): string {
     return [
         sessaoEstranha,
         /*
-         * Duas colunas: pareamento e, ao lado, o que se consulta uma vez.
-         *
-         * Antes as tres placas da direita -- Como conectar, Conta pareada e
-         * Atencao -- ficavam abertas empilhadas, e a coluna ficava mais alta que
-         * o QR. Isso empurrava os textos do bot para fora da tela, e quem abria a
-         * aba para conferir um texto do bot tinha de descer.
-         *
-         * Viraram tres blocos recolhidos, um sob o outro. A leitura e' a mesma,
-         * a altura nao: quem precisa do passo a passo clica e ele aparece; quem
-         * nao precisa, ve o rotulo e segue. E o aviso de seguranca continua
-         * aberto de proposito -- e a unica coisa da coluna que ninguem deve
-         * descobrir tarde demais.
+         * As tres placas da direita viraram blocos recolhidos: abertas, a coluna ficava mais alta
+         * que o QR e empurrava os textos do bot para fora da tela. O aviso de seguranca e' a
+         * excecao, e continua aberto: e' o que ninguem deve descobrir tarde demais.
          */
         '        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">',
 
@@ -139,17 +120,9 @@ export function renderPairing(d: PairData): string {
         '                </div>',
 
         /*
-         * Tres estados, nao dois: tem QR, esta esperando, ou ja esta pronto.
-         *
-         * A caixa de espera aparecia sempre que nao havia QR -- o que inclui o
-         * caso em que o celular JA ESTA CONECTADO. Ai nenhum QR ia chegar
-         * nunca, e a pessoa ficava olhando "Aguardando o WhatsApp emitir um
-         * codigo de pareamento" girando para sempre, num sistema que ja estava
-         * funcionando. E' a tela dizendo que espera algo que ela mesma sabe
-         * que nao vem.
-         *
-         * Conectado e' o estado terminal, e tem frase propria: o numero
-         * pareado, e nada para esperar.
+         * Tres estados e nao dois. A espera aparecia mesmo com o celular JA conectado, e nenhum
+         * QR viria nunca: a tela girando para sempre esperando algo que ela mesma sabia que nao
+         * vem. Conectado e' o estado terminal, com frase propria.
          */
         '                <div id="waitingBox" class="' + (showQr || connected ? 'hidden' : '') + ' py-8 text-center">',
         '                    <i class="fa-solid fa-circle-notch fa-spin text-3xl text-ink-3"></i>',
@@ -295,12 +268,9 @@ export const PAIRING_CLIENT_SCRIPT = [
     '        }',
     '        async function unpair() {',
     /*
-     * Titulo e verbo proprios, em vez de "Confirmar".
-     *
-     * A frase do aviso ja era boa; o que faltava era o botao dizer o que ele
-     * confirmava. "Confirmar" ao lado de "Desconectar e parear outro numero" e'
-     * um botao que exige duas leituras -- e a segunda e' a que a pessoa faz
-     * com o mouse ja a caminho de outro lugar.
+     * Titulo e verbo proprios em vez de "Confirmar": ao lado de "Desconectar e parear outro
+     * numero", o botao exigia duas leituras -- e a segunda e' a que a pessoa faz com o mouse ja
+     * a caminho de outro lugar.
      */
     '            confirmThen(',
     '                "Isso encerra a sessao atual e apaga os credenciais salvos deste numero. Para parear de novo, o painel vai pedir o QR outra vez.",',

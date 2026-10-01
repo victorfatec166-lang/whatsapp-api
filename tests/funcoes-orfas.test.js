@@ -1,44 +1,19 @@
 /*
- * funcoesOrfas: o detector de codigo morto do JavaScript embutido no painel.
- *
- * POR QUE ESTE TESTE EXISTE, E POR QUE IMPORTA A FUNCAO DE VERDADE
- *
- * A primeira versao do teste copiou a funcao para um arquivo proprio e testou a
- * copia. A copia estava desatualizada -- assinatura `(codigo, debug)` contra a
- * original `(codigo, html)` -- entao os seis casos passavam enquanto a funcao de
- * verdade devolvia lista vazia sempre. O `tsc` nao pega nada disso: o codigo
- * analisado vive dentro de `<script>` em template literal, que o TypeScript nao
- * inspeciona. E o verificador que roda no `npm run check` e' a propria funcao.
- * Testar a copia e' testar uma reimplementacao, e a reimplementacao sempre passa.
- *
- * POR QUE OS CASOS SAO TAO ESTRANHOS
- *
- * Cada caso abaixo e' um falso positivo que aconteceu de verdade neste projeto.
- * Nenhum deles e' hipotetico, e todos os seis apareceram com a implementacao
- * anterior, que era a "certa" no papel:
- *
- *   1. A propria declaracao contem o nome. `function orfa()` se defende sozinha e
- *      contava como usada. Nenhuma orfa era detectada, nunca.
- *   2. A funcao e' passada por REFERENCIA: `.then(aplicaPainel)`. Nao ha
- *      `aplicaPainel(` em lugar nenhum do painel, so `aplicaPainel` como valor.
- *   3. A funcao e' do LAYOUT, chamada por outra aba. `modalBind` so e' chamada
- *      por abas que tem janela; conferindo tela por tela, ela saia orfa nas outras.
- *   4. A funcao e' IIFE: `(function restauraAba() { ... })()`. Uma ocorrencia do
- *      nome no arquivo inteiro, e ela se executa no load mesmo assim.
- *   5. A chamada esta no HTML e so existe quando ha dado: o
- *      `onclick="cashReconcile('...')"` so e' renderizado quando existe turno.
- *   6. A funcao e' TypeScript do servidor, nao JavaScript de tela: `renderLogin`
- *      fica no mesmo arquivo que o script do navegador, e so aparece no `import`
- *      de `authRoutes.ts`.
- *
- * Os seis juntos dariam um verificador que acusa coisa funcionando em quase toda
- * tela -- e um verificador que acusa demais e' desligado na primeira semana, e
- * ai nao protege mais nada.
- *
- * NOTA SOBRE ASPAS: as mensagens de assertivo vao em aspas duplas de proposito.
- * O projeto nao usa acento e escreve "e'" para o "e", e um apostrofo dentro de
- * string simples fecha a string e derruba o arquivo inteiro -- ja aconteceu
- * quatro vezes no mesmo dia.
+ * Testar a funcao de verdade, e nao uma copia: a primeira versao do teste tinha
+ * assinatura `(codigo, debug)` contra a original `(codigo, html)`, e os seis
+ * casos passavam com a funcao devolvendo lista vazia. O `tsc` nao pega nada disso.
+ */
+
+/*
+ * Cada caso abaixo ja foi um falso positivo real: a declaracao contem o nome,
+ * a funcao vai por REFERENCIA, e' de layout chamada por outra aba, e' IIFE, so
+ * aparece quando ha dado, ou e' TypeScript do servidor so citado num import.
+ */
+
+/*
+ * E as mensagens de assertivo vao em aspas duplas de proposito: o projeto
+ * escreve "e'" para o "e", e um apostrofo em string simples fecha a string e
+ * derruba o arquivo inteiro -- ja aconteceu quatro vezes no mesmo dia.
  */
 
 const test = require('node:test');
@@ -95,11 +70,8 @@ test('TypeScript do servidor nao entra na conta de orfa', () => {
 
 test("funcao orfa e' achada mesmo com o resto do painel cheio de uso", () => {
     /*
-     * O caso que o painel real produz. O bug do detector nunca foi "acha demais"
-     * nem "acha de menos" em um caso isolado: foi um detector que devolvia vazio
-     * com a orfa plantada, e um que devolvia quinze nomes com o painel inteiro
-     * funcionando. Este caso amarra as duas pontas: tem de acusar a orfa E deixar
-     * em paz as quatro que tem referencia.
+     * O caso que o painel real produz: acusar a orfa plantada E deixar em paz as
+     * quatro que tem referencia. O detector ja falhou para os dois lados.
      */
     const codigo = [
         'function orfa(){return 1}',
@@ -119,12 +91,9 @@ test('declaracao em var/const tambem entra na conta', () => {
 });
 
 test("o verificador nao some quando o codigo e' grande e real", () => {
-    /*
-     * O corpus de verdade tem ~40 mil caracteres de JavaScript de tela, e o
-     * detector roda nele inteiro. Um regex com backtrack ruim passa nos casos
-     * pequenos e estoura no tamanho real -- e o tamanho real e' o unico que
-     * interessa, porque e' o que o `npm run check` faz.
-     */
+    // Regex com backtrack ruim passa nos casos pequenos e estoura no tamanho real,
+    // que e' o unico que interessa: sao os ~40 mil caracteres que o
+    // `npm run check` analisa.
     const partes = [];
     for (let i = 0; i < 300; i++) {
         partes.push(`function tela${i}(){ return ${i} }\n document.getElementById("x${i}").onclick = tela${i};`);

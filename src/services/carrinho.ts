@@ -1,21 +1,7 @@
 /*
  * O carrinho do cliente, e os comandos de fecha-lo.
- *
- * POR QUE ESTE ARQUIVO EXISTE, SENDO QUE O BOT JA FAZ ISSO
- *
- * Porque este e' o unico lugar onde mora a regra de um pedido de WhatsApp, e a
- * regra precisa de prova. As funcoes aqui nao conhecem WhatsApp, nao conhecem
- * banco e nao conhecem preco -- sao a parte de verdade, e o `bot.ts` e' a parte
- * de entrega. Com essa separacao, "a pessoa pediu a mesma coisa duas vezes, vira
- * uma linha ou duas?" e' uma pergunta de teste, e nao uma coisa que se
- * descobre falando com um cliente de verdade.
- *
- * E PRECO NAO ENTRA AQUI, DE PROPÓSITO
- *
- * Este arquivo soma quantidade e agrupa linha. Ele nao sabe quanto custa nada.
- * O preco vem do banco, recalculado em `priceCart`, e o total do pedido sai de
- * la. Se um dia alguem precisar "corrigir" um total aqui, o comentario
- * abaixo e' o aviso.
+ * A regra de um pedido de WhatsApp mora aqui e nao em bot.ts: estas funcoes nao
+ * conhecem WhatsApp, banco nem preco. Preco nao entra -- vem do banco, em priceCart.
  */
 
 export type LinhaCarrinho = {
@@ -43,19 +29,9 @@ export function mesmaCombinacao(a: Record<string, string[]>, b: Record<string, s
 }
 
 /**
- * Junta o item ao que ja estava pedido.
- *
- * Mesmo produto E mesma combinacao de modificadores somam quantidade. Qualquer
- * outra coisa vira linha nova.
- *
- * E' o que uma pessoa espera de um carrinho de verdade: pedir "coxinha" duas
- * vezes e' duas coxinhas numa linha so, e nao duas linhas iguais que o painel
- * mostra como dois produtos -- o que faria a cozinha preparar duas vezes sem
- * ninguem ter pedido duas vezes.
- *
- * Quantidade zero remove a linha em vez de deixar um "0x" na tela. E' o que
- * acontece quando o cliente escreve "0 coxinha" para desfazer, e uma linha com
- * zero e' pior que uma linha que nao existe: ela aparece no resumo e no total.
+ * Junta o item ao que ja estava pedido: mesmo produto E mesma combinacao somam
+ * quantidade; qualquer outra coisa vira linha nova.
+ * Qtd zero remove a linha -- "0 coxinha" para desfazer nao pode virar "0x" no total.
  */
 export function juntaItem(carrinho: LinhaCarrinho[], novo: LinhaCarrinho): LinhaCarrinho[] {
     if (novo.qtd <= 0) return carrinho;
@@ -66,15 +42,9 @@ export function juntaItem(carrinho: LinhaCarrinho[], novo: LinhaCarrinho): Linha
 
     if (indice >= 0) {
         /*
-         * Substitui a linha em vez de Somar nela.
-         *
-         * Somar mutaria o objeto que esta no array -- e esse objeto pode ser o
-         * mesmo que o chamador passou, ou um objeto de verdade compartilhado. O
-         * bug e' silencioso: o primeiro item pedido viraria "quantidade 2" em
-         * qualquer outro lugar que usasse aquela mesma linha, inclusive no
-         * resumo seguinte. Em teste isso apareceu na hora, com o fixture
-         * compartilhado entre casos; em producao seria a segunda vez que a
-         * pessoa pede a mesma coisa que aparece dobrada.
+         * Substitui a linha em vez de somar nela: somar mutaria um objeto que pode
+         * ser compartilhado com quem chamou, e a mutacao apareceria dobrada em
+         * outro lugar sem dar erro.
          */
         const existente = carrinho[indice];
         carrinho[indice] = { ...existente, qtd: existente.qtd + novo.qtd };
@@ -86,15 +56,9 @@ export function juntaItem(carrinho: LinhaCarrinho[], novo: LinhaCarrinho): Linha
 }
 
 /**
- * Texto do pedido em aberto, para a pessoa conferir.
- *
- * Aparece DEPOIS de cada adicao, e nao so no fim. E' o que permite perceber
- * que escreveu algo errado antes de fechar, e o que evita a surpresa de
- * receber tres pedidos em vez de um.
- *
- * O desconto nao existe aqui, e e' de proposito: o total mostrado e' a soma das
- * unidades, sem dinheiro. Quem mostra dinheiro para o cliente final e' o
- * servidor, no momento de fechar, com o preco do banco.
+ * Texto do pedido em aberto, mostrado DEPOIS de cada adicao -- e' o que permite
+ * ver o erro antes de fechar. Sem desconto: dinheiro so aparece no servidor, com o
+ * preco do banco.
  */
 export function textoDoCarrinho(carrinho: LinhaCarrinho[]): string {
     if (carrinho.length === 0) {
@@ -113,12 +77,8 @@ export function textoDoCarrinho(carrinho: LinhaCarrinho[]): string {
 
 /**
  * Rotulo legivel dos modificadores escolhidos.
- *
- * Os ids que chegam aqui nao dizem nada para a pessoa -- "a3f9" e' o que o
- * navegador tem, nao o que o cliente leu. Por isso a funcao recebe os NOMES
- * ja resolvidos, em vez de tentar descobrir sozinha: descobrir exigiria o
- * catalogo inteiro carregado para formatar uma frase, e o catalogo e' grande
- * demais para o ganho.
+ * Os ids que chegam nao dizem nada para a pessoa, entao a funcao recebe os NOMES
+ * ja resolvidos: descobrir sozinha exigiria o catalogo inteiro para uma frase.
  */
 export function rotuloDosModificadores(linha: LinhaCarrinho, nomes?: string[]): string {
     const ids: string[] = [];
@@ -132,17 +92,9 @@ export function rotuloDosModificadores(linha: LinhaCarrinho, nomes?: string[]): 
 /* ------------------------------------------------------------- os comandos */
 
 /*
- * Varias palavras para o mesmo comando.
- *
- * A pessoa digita "finalizar", "pode enviar", "fechar o pedido" ou "confirmar"
- * conforme o que lhe vem a cabeca. Um bot que so conhece uma delas volta a
- * dizer "nao entendi" justamente no momento em que a pessoa esta pronta a
- * fechar -- que e' onde custa mais caro perder a venda.
- *
- * A comparacao e' por IGUALDADE, e nao por "comeca com". "finalizar" e' o
- * comando; "finalizando" e' a pessoa pensando em voz alta, e nao deve fechar
- * um pedido por acidente. E a entrada ja vem normalizada do bot, em minuscula
- * e sem acento.
+ * Varias palavras para o mesmo comando: um bot que so conhece uma delas perde a
+ * venda na hora de fechar. A comparacao e' por IGUALDADE -- "finalizando" e' a
+ * pessoa pensando em voz alta, e nao deve fechar um pedido por acidente.
  */
 export function ehComandoFechar(t: string): boolean {
     return [

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import {
     CANAIS,
     ErroDeRegra,
@@ -25,20 +25,9 @@ function ehCanal(v: string): v is Canal {
 }
 
 /*
- * Rotas de marketplace.
- *
- * Duas coisas deliberadamente separadas aqui:
- *
- * 1. O webhook NAO fica sob /api/admin. Ele e' chamado pela internet pelo
- *    marketplace, nao pelo painel, e nao leva sessao. Se ficasse junto das
- *    rotas do painel, seria tentador proteger com a mesma coisa -- e ai
- *    quebraria: o marketplace nao esta autenticado, ele assina o corpo com o
- *    token. Deixando separado, a confianca fica explicita: um endpoint publico
- *    que so aceita o que tem assinatura valida.
- *
- * 2. O teste de comunicacao grava 'ativo' apenas depois de falar de verdade
- *    com o marketplace. Nao existe caminho que marque a conta como conectada
- *    sem ter feito a chamada.
+ * O webhook NAO fica sob `/api/admin`: quem chama e' o marketplace, que assina o
+ * corpo com o token -- proteger com sessao quebraria a integracao. E o teste de
+ * comunicacao so grava 'ativo' depois de falar de verdade com o marketplace.
  */
 
 /** Estado das contas, para a tela das duas abas. */
@@ -66,16 +55,9 @@ router.post('/api/admin/marketplace/:channel/credencial', async (req: Request, r
         res.json({ ok: true });
     } catch (error) {
         /*
-         * A mensagem de erro vai para o cliente porque aqui ela e' de negocio:
-         * "CHANNEL_SECRET nao configurado" e "informe a credencial" sao coisas que
-         * a pessoa precisa ler para corrigir, e esconder isso deixaria a tela
-         * mudando de estado sem explicar por que.
-         *
-         * O que nao pode e' o inverso -- um erro de banco ou de cifra chegando
-         * cru para quem esta na rede. A distincao e' feita pelo tipo: os erros
-         * de regra que `guardarCredencial` levanta tem `nomeDoErro`, e so eles
-         * passam. Qualquer outra coisa vira 500 com texto generico, e o
-         * detalhe fica no log.
+         * A mensagem so passa ao cliente quando e' `ErroDeRegra`: "CHANNEL_SECRET
+         * nao configurado" e' o que a pessoa precisa ler para corrigir. Erro de
+         * banco ou de cifra vira 500 generico, e o detalhe fica no log.
          */
         const msg = error instanceof Error ? error.message : 'Erro ao guardar credencial';
         const eDeRegra = error instanceof ErroDeRegra;
@@ -100,16 +82,9 @@ router.post('/api/admin/marketplace/:channel/apagar-credencial', async (req: Req
 });
 
 /**
- * Testa a comunicacao de verdade.
- *
- * Sem credencial, devolve falha explicita e NUNCA marca a conta como ativa.
- * Esse e' o ponto que separa esta tela de uma tela de enfeite: o status so
- * vira 'ativo' depois de uma resposta de verdade do outro lado.
- *
- * O marketplace tem endpoints diferentes conforme a fase do credenciamento, e
- * um pedido de homologacao exige conta de teste. Por isso o teste aqui
- * verifica o que da para verificar sem pedido -- e o que precisa de conta de
- * homologacao fica como passo manual, escrito na tela.
+ * Sem credencial, devolve falha explicita e NUNCA marca a conta como ativa: e' o
+ * que separa esta tela de uma tela de enfeite. Parte do teste exige conta de
+ * homologacao do marketplace, e o que precisa disso fica como passo manual na tela.
  */
 router.post('/api/admin/marketplace/:channel/testar', async (req: Request, res: Response) => {
     const { channel } = req.params;
@@ -126,13 +101,9 @@ router.post('/api/admin/marketplace/:channel/testar', async (req: Request, res: 
         }
 
         /*
-         * Aqui mora a chamada real de rede, quando houver o contrato do
-         * parceiro. Enquanto isso, o que o sistema pode afirmar de verdade e' o
-         * que ele proprio controla: existe credencial e existe token de webhook.
-         *
-         * A conta NAO e' marcada como ativa aqui, e o motivo esta' escrito:
-         * marcar antes de falar com o marketplace seria exatamente a mentira
-         * que a tela inteira existe para evitar.
+         * A conta NAO e' marcada como ativa aqui: marcar antes de falar com o
+         * marketplace seria a mentira que a tela inteira existe para evitar. Quando
+         * houver contrato do parceiro, a chamada de rede entra neste ponto.
          */
         const temToken = conta.temWebhookSecret;
         await registrarChecagem(channel, {
@@ -209,24 +180,17 @@ router.get('/api/admin/marketplace/:channel/pedidos', async (req: Request, res: 
 });
 
 /*
- * ---- Webhook: publico, assinado, e separado das rotas do painel ----
- *
- * Fora do /api/admin de proposito. Este endpoint nao usa sessao nenhuma: quem
- * chama e' o marketplace, e a confianca vem da assinatura do corpo. Se ele
- * estivesse junto das rotas do painel, a primeira tentacao seria proteger com a
- * mesma sessao, e isso quebraria a integracao inteira.
- *
- * Recusa por padrao: sem token configurado, nenhuma assinatura passa. Nao ha
- * "modo teste que aceita tudo", porque e' assim que pedido falso entra.
+ * Webhook publico e assinado, fora do `/api/admin` de proposito: quem chama e' o
+ * marketplace e a confianca vem da assinatura, e proteger com sessao quebraria a
+ * integracao. Recusa por padrao: sem token nada passa, e nao ha modo teste.
  */
 router.post('/webhook/marketplace/:channel', async (req: Request, res: Response) => {
     const { channel } = req.params;
     if (!ehCanal(channel)) return res.status(404).json({ error: 'Canal desconhecido.' });
 
-    // O corpo tem de ser o texto original. O express.json, montado antes, ja
-    // consumiu o fluxo -- por isso o raw no server.ts, montado antes de tudo.
-    // Re-serializar o JSON muda a ordem das chaves e a assinatura deixa de
-    // bater, e um webhook que nunca valida rejeita pedido legitimo.
+    // O corpo tem de ser o texto original: o express.json ja consumiu o fluxo, e e'
+    // por isso o raw montado no server.ts antes de tudo. Re-serializar o JSON muda
+    // a ordem das chaves e a assinatura deixa de bater, rejeitando pedido legitimo.
     const corpo = (req.body as Buffer | undefined)?.toString('utf8') || '';
     const cabecalhos: Record<string, string | undefined> = {};
     for (const [k, v] of Object.entries(req.headers)) cabecalhos[k.toLowerCase()] = Array.isArray(v) ? v[0] : v;
@@ -234,17 +198,21 @@ router.post('/webhook/marketplace/:channel', async (req: Request, res: Response)
     try {
         const r = await receberPedido(channel, corpo, cabecalhos);
 
-        if (!r.aceito) {
-            log.warn('Webhook recusado em ' + channel, { motivo: r.motivo });
+        // O estreitamento e' por `in`, e nao por `if (!r.aceito)`. Os dois leem
+        // igual, mas so o `in` prova para o compilador qual lado do union e' o
+        // caso -- e `r.motivo` abaixo depende dessa prova.
+        if (!('aceito' in r) || r.aceito !== true) {
+            const motivo = 'motivo' in r ? r.motivo : 'recusado';
+            log.warn('Webhook recusado em ' + channel, { motivo });
             return res.status(401).json({ error: 'Webhook recusado.' });
         }
-        if ('duplicado' in r && r.duplicado) {
+        if (r.duplicado) {
             // A plataforma reenvia quando nao recebe o retorno. Confirmar de
             // novo e' a resposta certa: o pedido ja esta no Kanban.
             return res.json({ ok: true, duplicado: true });
         }
 
-        log.info('Pedido recebido de ' + channel, { id: r.id });
+        log.info('Pedido recebido de ' + channel, { id: r.id, loja: r.loja });
         return res.json({ ok: true, id: r.id });
     } catch (error) {
         log.error('Erro ao processar webhook de ' + channel, { erro: String(error) });

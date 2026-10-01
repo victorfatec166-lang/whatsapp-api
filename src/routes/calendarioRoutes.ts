@@ -6,63 +6,23 @@ import { exigeCsrf, exigeSessaoApi } from '../services/auth';
 import { logDoModulo } from '../services/logger';
 
 /*
- * Rotas de lembrete do Calendario.
- *
- * EXTRAINDO DO MONOLITO, E O QUE ISSO MUDOU DE VERDADE
- *
- * Estas quatro rotas viviam em `src/server.ts` em `/api/calendar/lembretes`, e o
- * caminho era o motivo de elas NAO terem sessao: o `exigeSessaoApi()` so protege
- * `/api/admin`, e estas nao estavam la. Conferido nesta maquina com um pedido sem
- * cookie nenhum:
- *
- *   GET  /api/calendar/lembretes?mes=2026-09   -> 200, e o texto dos lembretes
- *   POST /api/calendar/lembretes                -> 200, cria anotacao
- *   POST /api/calendar/lembretes/:id/apagar     -> 200, apaga
- *
- * O sistema escuta em 0.0.0.0 por padrao e o proprio boot avisa que quem entra
- * precisa de senha. Essa parte do aviso era verdade para o painel e falsa para
- * estas rotas: qualquer aparelho da mesma rede lia a agenda de trabalho e podia
- * apagar lembretes de quem esta na loja. Ler o texto de uma anotacao interna e'
- * vazamento; apagar e' destruicao de dado de outra pessoa.
- *
- * A correcao nao e' reescrever a rota: e' montar o router ATRAS da sessao, como
- * os outros. Ver o `app.use` em `src/server.ts`, onde este router e' montado com
- * `exigeSessaoApi()` e `exigeCsrf()`.
- *
- * O caminho PUBLICO e' de proposito: o painel e' um SPA de SSR, o JavaScript da
- * tela do calendario ja chama `/api/calendar/lembretes` e mudar o caminho
- * obrigaria a mexer em template literal, que e' onde mora o JavaScript que o
- * `tsc` nao ve. Nao vale o risco por seguranca -- a sessao e' o que seguranca
- * precisa, e ela esta no middleware.
+ * Vieram de `/api/calendar/*`, fora do `/api/admin`, e respondiam 200 sem cookie:
+ * qualquer aparelho da mesma rede lia a agenda e apagava lembrete de quem esta na
+ * loja. O caminho publico continua -- quem chama e' o JS de dentro do template.
  */
 
 const log = logDoModulo('calendarioRoutes');
 const router = Router();
 
 /*
- * A guarda vai POR ROTA, e nao em `router.use(...)`.
- *
- * Este router e' montado na raiz (`app.use(calendarioRoutes)`), porque o caminho
- * publico das rotas e' `/api/calendar/lembretes` e mudar o caminho obrigaria a
- * mexer no JavaScript de dentro do template literal da tela. E ai esta o
- * problema: um `router.use()` sem caminho vale para TODO pedido que entra no
- * router, e o router entra em todo caminho. A sessao passava a ser exigida em
- * qualquer rota registrada DEPOIS -- inclusive em
- * `POST /api/servico/desligar`, que respondia 401 e nao desligava.
- *
- * E' a mesma armadilha que o `router.use(exigeAdmin())` do `usuariosRoutes`
- * armou antes: um `use` sem caminho nao protege o arquivo, protege a partir
- * dali. Por rota, o alcance e' o da rota.
+ * Guarda POR ROTA, e nao em `router.use(...)`: este router entra em todo caminho,
+ * e um `use` sem caminho passaria a exigir sessao de toda rota montada depois --
+ * inclusive `POST /api/servico/desligar`, que respondia 401 e nao desligava.
  */
 const sessao = exigeSessaoApi();
 const csrf = exigeCsrf();
 
-/**
- * Lista os lembretes de um mes.
- *
- * O `mes` e' "AAAA-MM". A validacao fica no servico, que e' quem sabe o que e' um
- * mes valido e o que e' meia-noite local -- a rota so repassa.
- */
+/** Lista os lembretes de um mes. O `mes` e' "AAAA-MM"; a meia-noite e' do servico. */
 router.get('/api/calendar/lembretes', sessao, csrf, async (req: Request, res: Response) => {
     const mes = typeof req.query.mes === 'string' ? req.query.mes : '';
     if (!/^\d{4}-\d{2}$/.test(mes)) {

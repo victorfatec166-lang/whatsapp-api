@@ -10,7 +10,6 @@ import calendarioRoutes from './routes/calendarioRoutes';
 import sistemaRoutes from './routes/sistemaRoutes';
 import backupRoutes from './routes/backupRoutes';
 import comandaRoutes from './routes/comandaRoutes';
-import chatRoutes from './routes/chatRoutes';
 import marketplaceRoutes from './routes/marketplaceRoutes';
 import { addClient, notifyClients, notifyConnection, getClientCount, fechaClientes } from './services/sse';
 // QR_TTL_MS saiu daqui: era usado para expire o QR antigo, e a sessao do
@@ -33,10 +32,9 @@ import { renderHome } from './views/home';
 // importando dava a impressao de que o servidor ainda as desenhava.
 import { renderFaturamento } from './views/faturamento';
 import { renderMarketplace } from './views/marketplace';
-import { renderChat } from './views/chat';
 import { renderUsuarios } from './views/usuarios';
 import { listarContas, listarItensCasados, temChaveDeCifra, type Canal } from './services/marketplace';
-import { listarConversas, totalNaoLidas } from './services/chat';
+import { totalNaoLidas } from './services/chat';
 import { loadHomeData, estimateMargin } from './services/home';
 import { validar, falhou, vendaPdv, mudancaStatus } from './services/validation';
 import { customerList, summarizeCustomers } from './services/customers';
@@ -93,7 +91,9 @@ import { montarPainel, DIAS_DE_ANTECEDENCIA } from './services/notificacoes';
 import { logDoModulo, pastaDeLogs } from './services/logger';
 import { csrfDoRequest, exigeCsrf, exigeSessao, exigeSessaoApi, garanteAdministrador, limpaSessoes } from './services/auth';
 import { limitador as limitePorJanela } from './services/rateLimit';
+import { exigeLoja, lojaDoBoot } from './services/loja';
 import { prisma } from './database/prisma';
+import { publicaLoja } from './middleware/publica-loja';
 import { DIR_UPLOADS, DIR_UPLOADS_PRODUTOS, DATA_DIR, criaArvoreDeDados } from './services/paths';
 const log = logDoModulo('server');
 
@@ -101,156 +101,96 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 /*
- * Limite de escrita.
- *
- * 30 requisicoes de escrita por 10 segundos. Calibrado contra o pior caso real
- * de uso na tela: uma pessoa cadastrando produto com foto e varios movimento
- * de estoque em sequencia, que e' a rajada mais longa que existe no painel.
- * Acima disso, ou e' gente nao vendo o resultado, ou nao e' pessoa.
+ * Limite de escrita: 30 requisicoes por 10s, calibrado contra a rajada mais longa
+ * do painel (cadastrar produto com foto e varios movimentos de estoque em
+ * sequencia). Acima disso nao e' pessoa.
  */
 const limiteEscrita = limitePorJanela({ max: 30, janelaMs: 10_000 });
 
 /**
- * A partir de quantos pedidos o painel avisa.
- *
- * 2000 e' cerca de seis meses de uma loja media. Antes disso a carga em memoria
- * e' irrelevante; depois disso a visita comeca a custar segundos, e o aviso
- * entra no log antes de alguem notar a lentidao. Ver o bloco em /admin.
+ * A partir de quantos pedidos o painel avisa: 2000, cerca de seis meses de uma
+ * loja media. Antes disso a carga em memoria e' irrelevante; depois disso a
+ * visita comeca a custar segundos. Ver o bloco em /admin.
  */
 const AVISO_VOLUME_PEDIDOS = 2000;
 
 const VALID_ORDER_STATUS: string[] = [...ORDER_STATUSES];
 
 /*
- * Corpo cru do webhook de marketplace, montado a ma'os.
- *
- * Precisa vir ANTES do express.json, e a ordem aqui e o que faz isso funcionar:
- * o body-parser marca o corpo como lido, entao o parser seguinte nao ve mais nada
- * e a rota receberia um objeto ja desserializado. Com o raw primeiro, a rota
- * recebe o Buffer com o texto original -- que e' o unico texto que a assinatura
- * cobre, porque re-serializar o JSON muda a ordem das chaves e o HMAC deixa de
- * bater.
- *
- * O comentario original dizia "precisa vir antes de qualquer parser" e estava
- * montado DEPOIS do express.json. O resultado era body-parser recusando o corpo
- * com 400 antes da rota rodar, e a confericao de assinatura nunca acontecia:
- * nao era o marketplace sendo barrado, era um erro de montagem.
- *
- * Sem `verify`: um corpo que nao e JSON nao e barrado aqui, e sim na rota, que
- * responde 401 pelo caminho de assinatura/json. Barrar no parser daria um 400
- * generico e, pior, indicaria um problema de transporte onde o problema real e'
- * assinatura invalida -- que e' a unica coisa que este endpoint precisa dizer.
+ * Corpo cru do webhook, montado antes do express.json: o body-parser marca o corpo
+ * como lido e o parser seguinte nao ve mais nada, e re-serializar muda a ordem das
+ * chaves -- o HMAC deixa de bater. Sem `verify`: o 401 vem da rota, nao do parser.
  */
 app.use(
     '/webhook/marketplace',
     express.raw({ type: ['application/json', 'application/*+json'], limit: '2mb' })
 );
 
+/* O raw acima so vale para o webhook; este json e' o parser geral e por isso vem depois. */
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 /*
- * Limite de requisicoes nas rotas que escrevem.
+ * Publica a loja da requisicao. Precisa vir AQUI, antes de qualquer rota, e
+ * precisa vir antes do `exigeSessao` porque e' ele que le a sessao: o que
+ * publica a loja e' justamente a sessao, entao quem monta a loja nao pode ser o
+ * mesmo que exige sessao -- seria circular.
  *
- * Montado aqui, e nao dentro de cada router, por dois motivos: a lista do que
- * protege fica num lugar so, e uma rota nova nasce protegida sem ninguem
- * lembrar.
- *
- * Escrita e' o que tem limite apertado. Ler nao tem limite nenhum de proposito:
- * quem abre o painel atualiza o Kanban, o estoque e o caixa na mesma visita, e
- * um limite de leitura derrubaria a tela no meio do expediente sem impedir
- * nada de ruim.
- *
- * Os numeros nao sao regulationos de seguranca, sao o ponto em que um laco
- * comeca a fazer estrago antes de alguem perceber. Uma pessoa com o dedo na
- * tela nao chega perto: digitar no campo de mensagem e' uma requisicao por
- * tecla, e o limite de envio esta bem acima disso.
+ * A leitura e' repetida (aqui e no `exigeSessao`), e o cache nao vale: a sessao
+ * pode ter sido revogada no caminho, e um cache de sessao seria o jeito mais
+ * facil de deixar alguem dentro depois de revocation.
+ */
+app.use(publicaLoja);
+
+/*
+ * Limite so no que escreve, montado aqui e nao em cada router, para a rota nova
+ * nascer protegida. Ler nao tem limite: o painel atualiza Kanban, estoque e
+ * caixa na mesma visita, e o limite derrubaria a tela no meio do expediente.
  */
 app.use('/api/admin', (req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
     return limiteEscrita(req, res, next);
 });
 
-// Fotos de produto ficam em public/uploads e sao servidas estaticamente.
+// Fotos de produto: `DIR_UPLOADS`, que aponta para a pasta de dados, e nao para
+// `public` do programa -- foto e' dado do dono e nao pode sumir numa atualizacao.
 app.use('/uploads', express.static(DIR_UPLOADS, { maxAge: '7d' }));
-// CSS compilado do design system (saida de `npm run build:css`).
-// Sem maxAge longo de proposito: o arquivo nao tem hash no nome, e um cache
-// fixo serviria estilo velho depois de uma recompilacao. O ETag padrao do
-// Express resolve com 304 cheaply.
+// CSS compilado do design system. Sem maxAge longo: o arquivo nao tem hash no nome
+// e um cache fixo serviria estilo velho; o ETag padrao resolve com 304.
 app.use('/styles', express.static(path.join(process.cwd(), 'dist', 'styles'), { etag: true, lastModified: true }));
 
 /*
- * As rotas de entrada ficam ANTES do bloqueio.
- *
- * `/entrar`, `/sair`, `/api/auth/*` e o painel de usuarios sao as unicas rotas
- * que funcionam sem sessao. Montadas depois do `exigeSessao`, elas responderiam
- * 401 para sempre -- inclusive a propria tela de login, que e' o unico jeito de
+ * Rotas de entrada ANTES do bloqueio: depois do `exigeSessao` elas responderiam 401
+ * para sempre -- inclusive a propria tela de login, que e' o unico jeito de
  * conseguir uma sessao.
- *
- * A ordem importa tambem para a leitura: quem abre este arquivo procura "onde
- * a porta esta fechada" e encontra logo abaixo de onde a porta e' aberta.
  */
 app.use(authRoutes);
 
 /*
- * Aqui comeca o painel fechado.
- *
- * `/admin` e' HTML: sem sessao, vira 303 para a tela de entrada guardando o
- * destino, e com senha provisoria vira 303 para a troca. `/api/admin` e' dado:
- * sem sessao vira 401 em JSON, porque um fetch seguido de 303 troca o HTML do
- * painel por uma pagina de login no meio de uma chamada.
- *
- * Sao dois middlewares e nao um com dois caminhos porque o corpo da resposta e'
- * diferente, e um unico middleware teria de decidir o formato olhando o
- * `Accept` -- e uma rota de API chamada por `fetch` sem `Accept: text/html`
- * receberia um redirecionamento em vez do codigo de erro que a tela sabe
- * tratar.
- *
- * O CSRF entra depois e so para quem muda estado: leitura do painel dispara
- * dezenas de requisicoes por visita, e exigir token em GET nao protege nada.
+ * Aqui comeca o painel fechado. `/admin` e' HTML: sem sessao, 303 para a tela de
+ * entrada. `/api/admin` e' dado: sem sessao, 401 em JSON -- um fetch seguido de
+ * 303 trocaria o painel por uma pagina de login. CSRF so onde muda estado.
  */
 app.use('/admin', exigeSessao('/entrar'));
 app.use('/api/admin', exigeSessaoApi());
 app.use(['/admin', '/api/admin'], exigeCsrf());
 app.use('/api/admin', adminRoutes);
-// Comanda da cozinha: saida para a impressora, com vida propria. Ver o
-// arquivo para por que a impressao em si nao acontece aqui.
+// Comanda da cozinha: saida para a impressora, com vida propria. Ver o arquivo
+// para por que a impressao em si nao acontece aqui.
 app.use('/api/admin', comandaRoutes);
-// Conversas do WhatsApp. Montado em /api/admin porque quem chama e' o painel, e
-// nao um parceiro -- ver a nota sobre a falta de senha em chatRoutes. As rotas
-// do arquivo sao relativas a este prefixo.
-app.use('/api/admin', chatRoutes);
+// Conversas do WhatsApp, em /api/admin porque quem chama e' o painel. As rotas do
+// arquivo sao relativas a este prefixo.
 /*
- * Usuarios, montado no prefixo que a tela usa.
- *
- * Estava em `/api/admin`, e ai as rotas do arquivo -- que sao `/` e
- * `/:id/...` -- respondiam em `/api/admin` e `/api/admin/123/alternar`, e nao em
- * `/api/admin/usuarios`, que e' o que o painel chama. A aba de Usuarios dava 404
- * para todo mundo, inclusive para o administrador. O que escondia o 404 era o
- * `router.use(exigeAdmin())` do arquivo, que pegava o caminho inteiro antes e
- * respondia 403 -- e um 403 em `/api/admin/usuarios` parece "voce nao e' admin",
- * que e' uma resposta plausivel demais para alguem ir investigar.
- *
- * Montar no prefixo completo deixa o caminho do arquivo e o caminho da tela
- * iguais, que e' a unica forma de os dois nao divergirem de novo.
+ * Usuarios, no prefixo completo. As rotas do arquivo sao `/` e `/:id/...`, entao em
+ * `/api/admin` a tela recebia 403 do exigeAdmin em vez do 404 de
+ * `/api/admin/usuarios` -- e 403 ali parece "voce nao e' admin".
  */
 app.use('/api/admin/usuarios', usuariosRoutes);
 
 /*
- * Calendario e estado do sistema, atras da MESMA sessao das rotas acima.
- *
- * Estes dois routers trazem o caminho `/api/...` dentro do arquivo, e nao o
- * prefixo `/api/admin` dos outros -- o caminho nao muda, porque quem chama e' o
- * JavaScript embutido na tela. O que muda e' o middleware: sem as duas linhas
- * abaixo, `POST /api/calendar/lembretes/:id/apagar` respondia 200 sem cookie
- * nenhum, e qualquer aparelho da mesma rede da loja apagava o lembrete de quem
- * estava trabalhando. Conferido antes da correcao, com pedido sem sessao:
- * 200 nos quatro verbos de lembrete e nas duas rotas de estado.
- *
- * Sao tres linhas para fechar um buraco que estava aberto desde que essas rotas
- * sairam do painel. A manutencao da fronteira e' o que impede ele de voltar:
- * qualquer rota nova que caia fora de `/api/admin` precisa de sessao por padrao,
- * e nao por lembranca.
+ * Calendario e estado atras da MESMA sessao das rotas acima. Trazem `/api/...` dentro
+ * do arquivo, e sem estas linhas `apagar` de lembrete respondia 200 sem cookie --
+ * qualquer aparelho da rede da loja apagava o lembrete de quem trabalhava.
  */
 app.use(calendarioRoutes);
 app.use(sistemaRoutes);
@@ -286,11 +226,9 @@ function endOfDay(d: Date): Date {
 }
 
 /*
- * A configuracao corrente.
- *
- * Delegada ao serviço, e nao lida aqui, porque a gravacao dela ja foi para o
- * mesmo lugar: duas leituras em um lugar e uma escrita em outro e' como os dois
- * lados divergem. A linha de fabrica e' criada pelo servico na primeira visita.
+ * A configuracao corrente. Delegada ao servico, e nao lida aqui, porque a
+ * gravacao ja foi para o mesmo lugar: duas leituras num lugar e uma escrita em
+ * outro e' como os dois lados divergem.
  */
 async function getConfig() {
     return carregarConfig();
@@ -339,35 +277,22 @@ function toStockRow(p: {
 
 /* --------------------------------- Coluna de concluidos (reset visual diario) */
 
-/* A coluna "Concluidos" e filtrada por dia na renderizacao do Kanban
-   (ver case 'kanban'), entao nao ha job de meia-noite: resetar o status dos
-   pedidos contaminaria os relatorios e devolveria itens a coluna de pendentes.
-   Se a loja quiser o dia Cortado antes da meia-noite, basta ajustar o
-   startOfToday gerado em renderKanbanData. */
+/* "Concluidos" e filtrado por dia na renderizacao (case 'kanban'), sem job de
+   meia-noite: resetar o status contaminaria os relatorios e devolveria itens a
+   pendentes. Para cortar o dia antes da meia-noite, ajuste `startOfToday`. */
 
 /* ------------------------------------------------------- API do dashboard */
 
 /*
- * O sino do topo e a situacao do WhatsApp sairam daqui para
- * `src/routes/sistemaRoutes.ts`.
- *
- * A razao de terem saido nao foi tamanho de arquivo. As duas rotas estavam em
- * `/api/*`, fora do `/api/admin` que o `exigeSessaoApi()` protege, e portanto
- * respondiam sem sessao nenhuma -- conferido com pedido sem cookie: 200 nas duas.
- * `/api/notificacoes` devolve o texto dos lembretes, o nome dos produtos zerados
- * e o estado de cada canal.
- *
- * Elas continuam no mesmo caminho, porque quem chama e' o JavaScript embutido na
- * tela. O que as protege agora e' o middleware, no `app.use` deste arquivo.
+ * Sino e estado do WhatsApp foram para `src/routes/sistemaRoutes.ts` por seguranca:
+ * estavam em `/api/*`, fora do `/api/admin` que o `exigeSessaoApi()` protege -- nao
+ * foi tamanho de arquivo. Mesmo caminho; o que protege agora e' o middleware do `app.use`.
  */
 
 /**
- * Tem sessao salva no disco?
- *
- * Procura `creds.json` pelo nome exato, e nao "qualquer .json". A pasta ganha
- * outros arquivos ao lado das chaves -- a marcacao de maquina, por exemplo --
- * e um "tem arquivo .json" responderia verdadeiro mesmo sem sessao pareada,
- * o que faria a tela mandar para um QR que nao tem o que parear.
+ * Procura `creds.json` pelo nome exato, e nao "qualquer .json": a pasta ganha
+ * outros arquivos ao lado das chaves (a marcacao de maquina), e "tem .json"
+ * responderia verdadeiro sem sessao pareada -- a tela abriria um QR vazio.
  */
 function hasSavedSession(): boolean {
     try {
@@ -440,17 +365,9 @@ app.get('/api/calendar/orders', async (_req, res) => {
 });
 
 /*
- * Lembretes do calendario sairam daqui para src/routes/calendarioRoutes.ts.
- *
- * A razao foi seguranca, e nao tamanho de arquivo. Estas quatro rotas viviam em
- * /api/calendar/lembretes, fora do /api/admin que o exigeSessaoApi() protege.
- * Conferido antes da correcao, com um pedido sem cookie nenhum: as quatro
- * respondiam 200 -- qualquer aparelho da mesma rede da loja lia a anotacao de
- * quem estava na frente da tela e podia APAGAR.
- *
- * O prefixo diferente foi de proposito e continua valendo: lembrete e' anotacao
- * da tela, nao dado de pedido, e um DELETE de lembrete nao deve passar perto de
- * um DELETE de pedido. O que faltava era a sessao, e ela vem do middleware.
+ * Lembretes foram para `src/routes/calendarioRoutes.ts` por seguranca: viviam
+ * fora do `/api/admin` do `exigeSessaoApi()` e qualquer aparelho da rede lia e
+ * apagava. O prefixo proprio e' de proposito: DELETE de lembrete nao e' de pedido.
  */
 app.get('/api/calendar.js', (_req, res) => {
     res.type('application/javascript').send(`
@@ -844,8 +761,7 @@ window.irPara = function (mes, ano) {
     avisaDiaForaDaVista();
     // Os lembretes sao do MES, entao mudar de mes e' o que torna a lista de
     // cima o que ela mostra. Sem esta chamada, a coluna da direita continuaria
-    // com os lembretes do mes anterior embaixo de uma grade que ja mudou -- a
-    // mesma razao pela qual o aviso de dia fora da vista existe.
+    // com os lembretes do mes anterior embaixo de uma grade que ja mudou.
     void carregaLembretes();
 };
 
@@ -948,13 +864,9 @@ carregaLembretes();
 app.post('/api/admin/pdv/orders', async (req, res) => {
     try {
         /*
-         * Forma primeiro, regra depois.
-         *
-         * O schema confere a FORMA: se items e' lista, se cada linha tem id, se
-         * a quantidade e' numero. A REGRA continua com o priceCart logo abaixo:
-         * se o produto existe, se esta disponivel, se o modificador pertence ao
-         * produto e quanto custa. Nao misturei as duas coisas, e de proposito --
-         * o preco nunca veio do navegador e nao vai passar a vir.
+         * O schema confere a FORMA (items e' lista, cada linha tem id, quantidade
+         * e' numero); a REGRA fica no priceCart logo abaixo (existe, disponivel,
+         * modificador pertence, preco). O preco nunca veio do navegador.
          */
         const checado = validar(vendaPdv, req.body);
         if (falhou(checado)) return res.status(400).json({ error: checado.error });
@@ -983,17 +895,9 @@ app.post('/api/admin/pdv/orders', async (req, res) => {
         const paymentMethod = PDV_PAYMENT_LABELS[paymentRaw] ? paymentRaw : 'pix';
 
         /*
-         * Pedido e baixa de estoque no mesmo commit.
-         *
-         * Antes eram dois: prisma.order.create() e depois registerSale(), que
-         * abria a transacao dela. Se o estoque falhasse, o pedido ficava
-         * gravado e o sistema contava uma venda que nao tinha baixado nada.
-         * createOrderWithStock faz as duas coisas juntas, entao agora nao existe
-         * esse estado intermediario.
-         *
-         * O preco continua sendo calculado acima, por computeTotals, sobre as
-         * linhas que priceCart ja precificou a partir do banco. Este bloco
-         * so grava.
+         * Pedido e baixa de estoque no mesmo commit: separados, o pedido ficava
+         * gravado e o sistema contava uma venda que nao baixou nada. O preco vem
+         * de priceCart, acima; este bloco so grava.
          */
         const { order, shortfalls } = await createOrderWithStock(
             {
@@ -1018,10 +922,9 @@ app.post('/api/admin/pdv/orders', async (req, res) => {
         notifyClients();
 
         /*
-         * shortfalls sao itens que venderam com saldo insuficiente. A venda foi
- * concluida de proposito: recusar um pedido no meio do almoço por causa
-         * de um saldo velho custa mais caro do que vender e avisar. O caixa ve
-         * isto na resposta e pode repor na hora.
+         * Saldo insuficiente nao derruba a venda: recusar no meio do almoço
+         * custa mais caro do que vender e avisar. O caixa ve shortfalls na
+         * resposta e pode repor na hora.
          */
         res.status(201).json({
             success: true,
@@ -1086,6 +989,7 @@ app.post('/api/admin/modifier-groups', async (req, res) => {
 
         const group = await prisma.modifierGroup.create({
             data: {
+                tenantId: exigeLoja(),
                 name,
                 minSelect,
                 maxSelect,
@@ -1101,6 +1005,7 @@ app.post('/api/admin/modifier-groups', async (req, res) => {
                 if (!on) continue;
                 await prisma.modifierOption.create({
                     data: {
+                        tenantId: exigeLoja(),
                         groupId: group.id,
                         name: on,
                         price: Math.max(0, toNumber(o.price, 0)),
@@ -1130,6 +1035,7 @@ app.post('/api/admin/modifier-groups/:id/options', async (req, res) => {
         const count = await prisma.modifierOption.count({ where: { groupId: group.id } });
         const option = await prisma.modifierOption.create({
             data: {
+                tenantId: exigeLoja(),
                 groupId: group.id,
                 name,
                 price: Math.max(0, toNumber(b.price, 0)),
@@ -1185,9 +1091,9 @@ app.post('/api/admin/products/:id/modifier-groups', async (req, res) => {
         } else {
             const count = await prisma.productModifierGroup.count({ where: { productId } });
             await prisma.productModifierGroup.upsert({
-                where: { productId_groupId: { productId, groupId } },
+                where: { tenantId_productId_groupId: { tenantId: exigeLoja(), productId, groupId } },
                 update: {},
-                create: { productId, groupId, sortOrder: count },
+                create: { tenantId: exigeLoja(), productId, groupId, sortOrder: count },
             });
         }
         res.json({ success: true, product: await loadProductFull(productId) });
@@ -1232,7 +1138,7 @@ app.post('/api/admin/products/:id/combo', async (req, res) => {
                 | undefined;
             const qty = Math.max(1, Math.min(99, Math.round(toNumber(raw?.quantity, 1))));
             await prisma.comboItem.create({
-                data: { comboId, componentId: unique[i], quantity: qty, sortOrder: i },
+                data: { tenantId: exigeLoja(), comboId, componentId: unique[i], quantity: qty, sortOrder: i },
             });
         }
         await prisma.product.update({ where: { id: comboId }, data: { isCombo: true } });
@@ -1483,6 +1389,7 @@ app.post('/api/admin/pdv/hold', async (req, res) => {
 
         await prisma.parkedSale.create({
             data: {
+                tenantId: exigeLoja(),
                 label: typeof b.label === 'string' ? b.label.trim().slice(0, 60) : null,
                 items: serializeParkedItems(clean),
             },
@@ -1707,6 +1614,7 @@ app.post('/api/admin/stock/tracking', async (req, res) => {
             const delta = stock - product.stock;
             await prisma.stockMovement.create({
                 data: {
+                    tenantId: exigeLoja(),
                     productId,
                     type: 'ajuste',
                     quantity: Math.abs(delta),
@@ -1795,10 +1703,9 @@ app.post('/admin/bot/reconnect', async (_req, res) => {
 app.post('/admin/bot/logout', async (_req, res) => {
     try {
         await logoutBot();
-        // A sessao em disco e apagada para que o proximo pareamento comece do zero.
         // Apaga TUDO da pasta, e nao so os .json: a marcacao de maquina tambem
-        // precisa ir, senao o proximo pareamento nasceria ja marcado com a
-        // identidade da sessao que acabou de ser desfeita. Ver src/services/maquina.ts.
+        // precisa ir, senao o proximo pareamento nasceria marcado com a identidade
+        // da sessao desfeita. Ver src/services/maquina.ts.
         try {
             if (fs.existsSync(AUTH_DIR)) {
                 for (const file of fs.readdirSync(AUTH_DIR)) {
@@ -1816,21 +1723,9 @@ app.post('/admin/bot/logout', async (_req, res) => {
 });
 
 /*
- * Salvar as configuracoes.
- *
  * A regra esta em `services/config.ts`, compartilhada com a API REST. Aqui nao
- * ha validacao nenhuma, de proposito: quando as duas rotas validavam por conta
- * propria, elas divergiram, e o dono pode ter salvo um estado que a API aceitaria
- * e a tela nao -- ou o contrario.
- *
- * minOrderValue, estimatedPrepMinutes e pixKey sairam do meio disso. Nenhum dos
- * tres era lido por nada: o bot criava pedido sem checar valor minimo, o tempo
- * de preparo nao aparecia em mensagem nenhuma, e a chave PIX so era lida pelo
- * checklist da Home -- que marcava "configurada" sem nunca ter chegado ao
- * cliente. As sete colunas foram removidas do schema na migration
- * 20260928173000_remove_colunas_config_sem_uso, junto com originAddress,
- * baseFee, feePerKm e googleApiKey. O motivo de cada grupo esta no comentario
- * do model Config, em schema.prisma.
+ * ha validacao, de proposito: quando as duas rotas validavam por conta propria
+ * divergiram. As colunas sem uso estao no comentario do model Config.
  */
 app.post('/admin/config/save', async (req, res) => {
     const r = await salvarConfig(req.body);
@@ -1843,18 +1738,9 @@ app.post('/admin/config/save', async (req, res) => {
 const ALLOWED_MESSAGE_KEYS = Object.keys(DEFAULT_BOT_MESSAGES);
 
 /**
- * Salva as mensagens editadas.
- *
- * So as chaves que VIERAM no corpo sao tocadas, e nunca a lista inteira. A
- * versao anterior gravava as 15 chaves com o que veio no formulario -- e, como
- * a tela mostrava os campos vazios para quem nunca editou nada, salvar uma
- * unica mensagem apagaria as outras catorze da tabela. Como o valor vazio caia
- * no padrao por acidente (o `||` do cache), o bot continuava mandando texto --
- * mas a tela ficava mostrando "sem edicao" para tudo, e a proxima vez que
- * alguém editasse ia apagar de novo.
- *
- * Agora a regra e' explicita: campo vazio e' "usar o padrao", e a funcao
- * `salvarMensagem` apaga a linha. Nao e' um efeito colateral do `||`.
+ * So as chaves que VIERAM no corpo sao tocadas: a tela mostra vazio para quem
+ * nunca editou, entao gravar a lista inteira apagaria as outras. Campo vazio e'
+ * "voltar ao padrao" e apaga a linha -- nao e' efeito colateral do `||` do cache.
  */
 app.post('/admin/bot-messages/save', async (req, res) => {
     try {
@@ -1893,14 +1779,8 @@ app.post('/admin/bot-messages/save', async (req, res) => {
 });
 
 /**
- * Volta as mensagens aos padroes.
- *
- * Um botao so para as 15, porque a pergunta "qual mensagem eu alterei?" e' a
- * que a pessoa faz quando o bot comeca a falar uma coisa estranha. O caminho
- * longo e' apagar as edicoes uma a uma; este e' para quando o estrago foi geral.
- *
- * Some com as edicoes de verdade, e nao grava o texto padrao por cima. Ver
- * `restaurarMensagem`.
+ * Some com as edicoes de verdade, e nao grava o texto padrao por cima: e' o que
+ * distingue "nunca editei" de "voltou ao padrao" na tela. Ver `restaurarMensagem`.
  */
 app.post('/admin/bot-messages/restaurar-todas', async (_req, res) => {
     try {
@@ -1985,10 +1865,9 @@ app.get('/admin', async (req, res) => {
         // Sem ?tab= a home e a primeira tela; "pedidos" segue acessivel pelo menu.
         const active: TabId = isTabId(rawTab) ? rawTab : 'home';
 
-        // `botMessage.findMany()` saiu daqui. As mensagens do bot so' interessam
-        // a aba do WhatsApp, e la' o texto vem de `mapaParaTela()`, que ja
-        // le' o banco. Trazer as linhas em toda visita ao painel era uma
-        // consulta a mais em cada pagina por um dado que quase ninguem abre.
+        // `botMessage.findMany()` saiu daqui: as mensagens so' interessam a aba
+        // do WhatsApp, que ja le' tudo por `mapaParaTela()`. Aqui era uma
+        // consulta a mais em cada visita ao painel.
         const [products, orders, config] = await Promise.all([
             prisma.product.findMany({ orderBy: { createdAt: 'asc' } }),
             prisma.order.findMany({ orderBy: { createdAt: 'desc' } }),
@@ -1996,30 +1875,9 @@ app.get('/admin', async (req, res) => {
         ]);
 
         /*
-         * Todos os pedidos ainda sao carregados em memoria, em toda visita.
-         *
-         * As ESTATISTICAS ja foram movidas para o banco (`computeStatsSql`,
-         * em src/services/statsSql.ts), que e' onde estava o custo de verdade: as
-         * somas e os agrupamentos saem de 4 mil linhas para 4. O que sobra
-         * aqui sao as listas que a tela desenha -- kanban, calendario, relatorio
-         * do periodo -- e cada uma delas tem uma janela que a tela ja impunha.
-         *
-         * A carga sem limite que restou e' a que o aviso abaixo mede.
-         *
-         * O numero que faz a conta: 300 pedidos por mes, ~250 bytes cada, sao
-         * 900 KB por pagina em um ano.
-         *
-         * A parte de TRUNCAR a lista continua fora de proposito, e agora por um
-         * motivo concreto: a receita total vem do SQL (`computeStatsSql`), e
-         * cortar esta lista afetaria o que as telas DESENHAM -- kanban, calendario
-         * -- sem mexer no total. Ou seja, o numero de dinheiro ficaria certo e o
-         * kanban perderia pedidos, que e' pior: a pessoa que olha a tela acredita
-         * que a coluna esta vazia, e o pedido existe.
-         *
-         * A solucao para o que resta e' dar janela por tela, com o filtro que a
-         * tela ja aplica, e nao um limite global. E' trabalho de tela por tela,
-         * e o aviso abaixo continua ate la: um aviso no log e' de graca, porque
-         * o dia que o painel comecar a demorar, o log ja diz por que.
+         * As ESTATISTICAS ja estao no banco (`computeStatsSql`); aqui ficam so
+         * as listas que a tela desenha. NUNCA truncar: a receita vem do SQL e o
+         * kanban perderia pedidos com o dinheiro certo. A saida e' janela por tela.
          */
         if (orders.length > AVISO_VOLUME_PEDIDOS) {
             log.warn(
@@ -2079,12 +1937,9 @@ app.get('/admin', async (req, res) => {
             }
 
             /*
-             * Quem tem acesso.
-             *
-             * O corpo so e' montado para administrador -- quem nao e' recebe o
-             * mesmo 403 que receberia pela API. Montar a tela e so esconder o
-             * botao deixaria a lista de e-mails de todo mundo no HTML de quem
-             * nao pode ver a lista.
+             * O corpo so e' montado para administrador: montar a tela e esconder
+             * so o botao deixaria a lista de e-mails de todo mundo no HTML de
+             * quem nao pode ver.
              */
             case 'usuarios': {
                 if (req.sessao!.papel !== 'admin') {
@@ -2170,15 +2025,9 @@ app.get('/admin', async (req, res) => {
                 };
 
                 /*
-                 * Telefone resolvido por endereco, para a coluna de cliente.
-                 *
-                 * Uma consulta para os enderecos deste periodo, indexada em
-                 * memoria. Sem ela, a lista de pedidos mostraria "192...@lid"
-                 * ao lado da lista de clientes mostrando o numero verdadeiro --
-                 * dois dados sobre a mesma pessoa, na mesma tela, discordando.
-                 *
-                 * O endereco continua no pedido: e' ele que o bot usa para
-                 * responder. Aqui e' so o que se mostra.
+                 * Uma consulta para resolver o telefone dos pedidos do periodo.
+                 * Sem ela a tela mostra "192...@lid" ao lado do numero verdadeiro
+                 * da lista de clientes: dois dados sobre a mesma pessoa, discordando.
                  */
                 const telefonesDoPeriodo = new Map<string, string>();
                 {
@@ -2216,16 +2065,9 @@ app.get('/admin', async (req, res) => {
                 body = renderFaturamento(
                     {
                         /*
-                         * As estatisticas vem do banco, nao de `computeStats(orders)`.
-                         *
-                         * A receita total, o "mais vendidos" e os graficos sao os
-                         * mesmos numeros -- `tests/stats-sql.test.ts` compara os
-                         * dois calculos campo a campo sobre o banco real. A
-                         * diferenca e' que a soma acontece em SQL, entao o custo
-                         * nao cresce com o historico.
-                         *
-                         * `orders` continua sendo carregado abaixo para a LISTA do
-                         * relatorio, que e' a tabela da tela, e nao e' truncada.
+                         * As estatisticas vem do SQL, nao de `computeStats(orders)`:
+                         * os numeros sao os mesmos (ver `tests/stats-sql.test.ts`) e
+                         * a soma deixa de crescer com o historico.
                          */
                         stats: await computeStatsSql(),
                         report: {
@@ -2364,18 +2206,6 @@ app.get('/admin', async (req, res) => {
                 break;
             }
 
-            case 'chat': {
-                // A lista vem do servidor, mas abrir e enviar vao por fetch: a
-                // tela nunca recarrega, para nao perder o que a pessoa esta
-                // digitando -- que e' justamente o conteudo desta tela.
-                body = renderChat({
-                    conversas: await listarConversas(),
-                    naoLidas: await totalNaoLidas(),
-                    botOnline: isBotOnline(),
-                });
-                break;
-            }
-
             case 'marketplace': {
                 // iFood e 99Food. O catalogo vem do mesmo `products` do resto da
                 // tela -- casar item e' escolher um produto que ja existe, e uma
@@ -2394,11 +2224,9 @@ app.get('/admin', async (req, res) => {
                     pedidos: { ifood: pedidosIfood, '99food': pedidos99 },
                     temChaveDeCifra: temChaveDeCifra(),
                     produtos: products.map((p) => ({ id: p.id, name: p.name, price: p.price })),
-                    // O endereco do webhook e' montado a partir do host da
-                    // requisicao, e nao de um .env: quem cadastra o endereco
-                    // no painel do parceiro e' a pessoa, e ela digita o que o
-                    // navegador mostra. Montar aqui evita a tela pedir para
-                    // configurar algo que ela acaba de ver na barra de endereco.
+                    // O endereco do webhook vem do host da requisicao, e nao de
+                    // um .env: quem cadastra no painel do parceiro digita o que
+                    // ve na barra do endereco. Pedir para configurar seria redundante.
                     webhookBase: `${req.protocol}://${req.get('host') ?? 'localhost'}`,
                 });
                 break;
@@ -2425,15 +2253,15 @@ app.get('/admin', async (req, res) => {
                 productCount: products.length,
                 botOnline: isBotOnline(),
                 businessName: config.businessName,
-                counters: {
+counters: {
                     pdv: products.length,
                     kanban: orders.filter((o) => o.status !== 'concluido').length,
                     estoque: products.filter((p) => p.trackStock && p.stock <= p.minStock).length,
-                    // Conversas nao lidas, no mesmo formato dos outros
-                    // contadores da sidebar. E' o unico contador que muda sozinho
-                    // enquanto a pessoa trabalha em outra aba, entao e' ele que
-                    // faz a aba de chat parecer viva.
-                    chat: active === 'chat' ? undefined : await totalNaoLidas(),
+                    // As conversas nao lidas foram parar no item do WhatsApp: a tela
+                    // delas saiu da barra, mas o bot continua atende e o contador
+                    // perdura. Sem ele, um dono com tres mensagens esperando nao tem
+                    // onde ver isso no painel.
+                    whatsapp: await totalNaoLidas(),
                 },
                 body,
                 scripts: active === 'whatsapp' ? PAIRING_CLIENT_SCRIPT : undefined,
@@ -2452,30 +2280,16 @@ app.get('/admin', async (req, res) => {
 });
 
 /*
- * Endereco de escuta.
- *
- * Padrao "0.0.0.0": todas as interfaces, o que permite abrir o painel pelo
- * celular ou por outro computador da loja. E' o que o dono precisa.
- *
- * O painel tem senha, o que muda o que este padrao significa. Antes, escutar
- * em 0.0.0.0 era a mesma coisa que "abrir para qualquer maquina da rede ver
- * receita". Agora e' "aceitar login de qualquer maquina da rede" -- a fronteira
- * virou a tela de entrada, e o risco restante e' o da senha ser fraca, nao o de
- * nao existir.
- *
- * "127.0.0.1" deixa o painel so nesta maquina. Quem usa o PDV no balcao e nao
- * precisa de acesso de fora tem aqui o corte de uma linha no .env.
+ * "0.0.0.0" escuta em todas as interfaces, para o painel abrir no celular da
+ * loja. Como ha senha, isso significa "aceitar login de qualquer maquina da
+ * rede": o risco e' a senha fraca. "127.0.0.1" corta o acesso de fora.
  */
 const HOST = process.env.HOST?.trim() || '0.0.0.0';
 
 /*
- * O servidor HTTP guardado por var.
- *
- * `app.listen()` devolve o servidor, e e' ele quem diz quando parou de aceitar
- * conexao nova. Sem esta referencia, o desligamento so poderia matar o processo,
- * e matar o processo e' o modo mais brusco de encerrar: quem estava no meio de um
- * pedido ve a conexao cair sem resposta, e a tela fica girando ate o navegador
- * desistir.
+ * O servidor guardado por var porque `app.listen()` o devolve: e' ele quem diz
+ * quando parou de aceitar conexao. Sem a referencia, o desligamento so poderia
+ * matar o processo -- quem estava no meio de um pedido veria a tela girar.
  */
 const servidor = app.listen(PORT, HOST, async () => {
     log.info(`Servidor HTTP escutando em ${HOST}:${PORT}`);
@@ -2487,14 +2301,9 @@ const servidor = app.listen(PORT, HOST, async () => {
     log.info(`API REST:  http://${paraNavegar}:${PORT}/api/admin`);
     if (HOST === '0.0.0.0' || HOST === '::') {
         /*
-         * O aviso mudou de assunto: nao e' mais "SEM SENHA".
-         *
-         * Antes ele era o unico aviso de seguranca do boot, e dizia que qualquer
-         * maquina da mesma rede via receita e caixa. Isso deixou de ser verdade
-         * -- agora ha senha. O que continua verdade e' o outro lado: a tela de
-         * entrada e' a fronteira, e o mesmo TOKEN de sessao vale para quem
-         * entra pela rede e para quem entra nesta maquina. Por isso o aviso e'
-         * sobre o que a senha NAO protege, e nao sobre a falta dela.
+         * O aviso e' sobre o que a senha NAO protege: a tela de entrada e' a
+         * fronteira, e o mesmo TOKEN vale para quem entra pela rede e por quem
+         * entra nesta maquina.
          */
         log.warn(
             'Escutando na rede local. Quem entrar precisa de e-mail e senha, e a sessao vale ' +
@@ -2513,7 +2322,11 @@ const servidor = app.listen(PORT, HOST, async () => {
     await limpaSessoes();
     setInterval(() => void limpaSessoes(), 60 * 60 * 1000).unref();
 
-    await loadBotMessages();
+    // Os textos do bot sao da loja, e o cache e' por loja. Este agente local
+    // atende uma loja por vez -- a mesma que `garanteAdministrador` criou -- entao
+    // so a dela entra no cache. Carregar todas seria trabalho que nenhuma leitura
+    // aqui vai pedir.
+    await loadBotMessages(lojaDoBoot());
     // Espelha o estado de conexao do bot para o painel via SSE.
     onConnectionChange((state) => notifyConnection(JSON.stringify(state)));
 
@@ -2521,36 +2334,24 @@ const servidor = app.listen(PORT, HOST, async () => {
     // turno abre ou fecha sozinho, para a tela atualizar sem recarregar.
     startCashScheduler(() => notifyClients());
 
-    // Backup do banco: uma copia no startup e outra a cada 6h. O negocio todo
-    // cabe num arquivo SQLite, e perder esse arquivo nao tem conserto.
-    //
-    // Aguardado de proposito: a virada do dia logo abaixo escreve no banco, e o
-    // backup do startup e' justamente a copia que ainda tem o dia anterior --
-    // que e' o que se recupera se a poda mener a conversation errada. Um backup
-    // que corresse junto com a poda seria consistente e inutil.
+    // Backup no startup e a cada 6h: o negocio inteiro cabe num arquivo SQLite.
+    // Aguardado de proposito -- a virada do dia abaixo escreve no banco, e e' o
+    // backup do startup que ainda tem o dia anterior, se a poda aprender errado.
     await startBackupScheduler();
     log.info(`Backups em: ${backupDir()}`);
 
     /*
-     * A arvore de dados e' criada aqui, no boot, e nao no primeiro pedido.
-     *
-     * A pasta vem de `DELIVERYADMIN_DATA`, que o instalador escreve. Criar logo
-     * deixa o dono vendo que existe log antes do primeiro cliente aparecer -- e
-     * uma pasta que so aparece depois da primeira venda e' pasta que falha sem
-     * aviso quando o disco esta cheio.
+     * A pasta vem de `DELIVERYADMIN_DATA` e e' criada no boot, nao no primeiro
+     * pedido: quem so a cria na primeira venda falha sem aviso quando o disco
+     * enche, e o log nem existe para dizer que falhou.
      */
     criaArvoreDeDados();
     log.info(`Dados em: ${DATA_DIR}`);
 
     /*
-     * Virada do dia: apaga o que e' de ontem -- mensagens, conversas da
-     * lista, backups e log -- e compacta o banco.
-     *
-     * Este primeiro tick roda no boot e e' ele que cobre o servidor que ficou
-     * desligado a noite: o corte e' sempre a meia-noite de hoje, entao as 09:00
-     * de uma manha o resultado e' o mesmo que teria sido a meia-noite. E'
-     * tambem o que vai mexer no `dev.db` de desenvolvimento assim que o servidor
-     * subir com esta versao, apagando as mensagens de ontem que ele tem agora.
+     * O primeiro tick roda no boot e e' ele que cobre o servidor que ficou
+     * desligado a noite: o corte e' sempre a meia-noite de hoje, entao o
+     * resultado e' o mesmo. Cuidado: ele mexe no `dev.db` no primeiro start.
      */
     startPodador();
 
@@ -2565,42 +2366,18 @@ const servidor = app.listen(PORT, HOST, async () => {
 /* ---------------------------------------------------------------- Desligar */
 
 /**
- * Desliga o servidor sem deixar nada pela metade.
- *
- * POR QUE ISTO EXISTE, E O QUE ACONTECIA SEM ISTO
- *
- * "Sair e' so o fim do processo" parece suficiente ate a primeira vez em que a
- * maquina reinstala no meio do expediente. O processo morre na hora: conexao
- * SSE cai, o navegador fica recarregando sozinho sem entender, o SQLite abre a
- * transacao do meio e o proximo boot acha registro pela metade. Num sistema que
- * vende e baixa estoque, escrita pela metade e' venda fantasma ou oversell.
- *
- * A ORDEM IMPORTA, e e' a ordem em que cada coisa deixa de depender da anterior:
- *
- *   1. Para de aceitar conexao nova. A partir daqui ninguem comeca um pedido.
- *   2. Fecha as conexoes SSE avisando. Sem o aviso, a aba do painel fica morta.
- *   3. Deixa as requisicoes que ja entraram terminarem. E' o que evita a
- *      transacao pela metade: o pedido que ja entrou no banco sai inteiro.
- *   4. Backup. Feito DEPOIS de acabar as requisicoes, e por isso e' a copia
- *      consistente -- o mesmo cuidado do backup do startup em relacao a virada
- *      do dia. Antes das requisicoes, o arquivo seria o de um pedido no meio.
- *   5. Fecha o WhatsApp e o banco, que sao as duas conexoes que ficam abertas.
- *
- * O TEMPO LIMITE e' o que impede um shutdown infinito. Uma requisicao travada
- * segura o passo 3 para sempre, e um programa que nao desliga e' um programa
- * que precisa ser morto a mao -- que e' o que a gente queria evitar.
+ * Desligar sem escrever pela metade: no meio de um pedido, matar o processo
+ * deixa venda fantasma. A ordem dos passos e' o que garante isso -- backup
+ * depois das requisicoes, e o tempo limite para o desligamento sempre acabar.
  */
 
 /** Quantos segundos cada etapa pode levar antes de o desligamento desistir. */
 const LIMITE_POR_ETAPA_MS = 8000;
 
 /**
- * Espera uma promessa, mas nunca para sempre.
- *
- * Sem isto, uma etapa que trava (um `server.close()` com conexao pendurada, um
- * socket do WhatsApp que nao responde) segura o processo inteiro, e o Windows
- * acaba matando o processo a forca depois de dois minutos -- o mesmo resultado
- * feio que o shutdown existia para evitar.
+ * Espera uma promessa, mas nunca para sempre: uma etapa travada segura o
+ * processo e o Windows mata a forca depois de dois minutos -- o mesmo resultado
+ * que o desligamento existia para evitar.
  */
 function comTempoLimite(p: Promise<unknown>, ms: number, rotulo: string): Promise<string> {
     return new Promise((resolve) => {
@@ -2620,12 +2397,8 @@ function comTempoLimite(p: Promise<unknown>, ms: number, rotulo: string): Promis
 }
 
 /**
- * A mesma espera, mas respondendo se a promessa ja resolveu.
- *
- * Sem isso, o desligamento nao sabe distinguir "a porta fechou em 50 ms" de "a
- * porta deu timeout", e sem essa distincao ele nao sabe se precisa forcar. Como
- * `comTempoLimite` so devolve um texto para o log, quem decide precisa de um
- * sinal que nao passa pelo texto.
+ * A mesma espera, devolvendo booleano: quem decide precisa saber se a porta
+ * fechou ou deu timeout, e `comTempoLimite` so devolve um texto para o log.
  */
 function fechouDentroDe(p: Promise<unknown>, ms: number): Promise<boolean> {
     return new Promise((resolve) => {
@@ -2652,19 +2425,9 @@ async function desliga(motivo: string): Promise<void> {
     log.info(`Desligando: ${motivo}`);
 
     /*
-     * A ordem destes tres passos e' o que separa um desligamento de 1 segundo de um
-     * 17, e a ordem invertida era o erro:
-     *
-     * `server.close()` so resolve quando TODA conexao acaba. A conexao SSE do
-     * painel e' uma delas, e ela nao acaba sozinha -- e' um `text/event-stream`,
-     * que fica aberto por design. Então esperar o close ANTES de fechar o SSE e'
-     * esperar por algo que so fecharia depois: os dois caem no tempo limite de
-     * 8 segundos, o painel fica 8 segundos sem resposta, e o desligamento leva o
-     * dobro do tempo em nada.
-     *
-     * A ordem que funciona: chama o close (a partir daqui ninguem comeca nada),
-     * fecha o SSE, e só entao espera a promessa -- que agora resolve, porque nao
-     * ha mais o que segurar a porta.
+     * `server.close()` so resolve quando TODA conexao acaba, e o SSE fica
+     * aberto por design -- por isso o close e' chamado ANTES de fechar o SSE: na
+     * ordem invertida os dois caem no tempo limite e o desligamento dobra.
      */
     const fechouPorta = new Promise<void>((resolve) => {
         servidor.close(() => resolve());
@@ -2680,19 +2443,9 @@ async function desliga(motivo: string): Promise<void> {
     log.info(portaFechada ? 'porta HTTP e requisicoes: ok' : `porta HTTP e requisicoes: passou de ${LIMITE_POR_ETAPA_MS / 1000}s, seguindo`);
 
     /*
-     * O que sobrou e' conexao ociosa, e nao pedido em andamento.
-     *
-     * Medido: mesmo com o SSE fechado na hora, `server.close()` levava os 8
-     * segundos ate o tempo limite. O que segura e' o socket keep-alive do
-     * navegador -- o `res.end()` encerra a RESPOSTA, mas o socket continua de pe
-     * para a proxima requisicao, e `close()` espera ele.
-     *
-     * `closeAllConnections()` existe exatamente para isto e e' o que a propria
-     * documentacao do Node recomenda depois da janela de graca: nada de novo
-     * entra (a porta ja fechou), e o que estava ocioso e' derrubado. Cortar uma
-     * requisicao que ainda esta rodando seria perigoso -- e' a transacao pela
-     * metade que este desligamento existe para evitar -- mas a essa altura a
-     * janela de 8 segundos ja passou, e quem ficou e' ociosidade.
+     * O que sobra e' socket keep-alive ocioso, nao pedido em andamento: o
+     * `res.end()` encerra a resposta mas o socket fica de pe. A janela de 8s ja
+     * passou e a porta ja fechou, entao derrubar o que sobrou e' seguro.
      */
     if (!portaFechada) {
         log.warn('A porta nao fechou no tempo; derrubando conexao ociosa que sobrou.');
@@ -2731,25 +2484,9 @@ process.on('SIGINT', () => void desliga('SIGINT (Ctrl+C)'));
 process.on('SIGTERM', () => void desliga('SIGTERM'));
 
 /*
- * Desligamento por HTTP, que e' o caminho que funciona NO WINDOWS.
- *
- * O motivo de existir: testado nesta maquina, `Stop-Process` no processo do
- * servidor NAO entrega SIGTERM -- o processo sobreviveu sem executar o handler.
- * E' o comportamento do Windows, nao um defeito do codigo: o SO encerra com
- * TerminateProcess, que nao da chance de rodar nada, e o handler de SIGINT so
- * entra pelo Ctrl+C de um console de verdade. Quem precisa parar o servidor
- * programaticamente -- o instalador, o launcher, o "reiniciar agora" -- nao tem
- * console, entao o handler nunca roda.
- *
- * A rota fica FORA de `/api/admin` de proposito: ela nao pede sessao nem CSRF,
- * porque quem chama e' o proprio programa, e nao uma pessoa. O que pede e' o
- * token, que o launcher gera a cada start e passa por variavel de ambiente --
- * nunca por arquivo, nunca por URL, e nunca a mesma entre duas execucoes.
- *
- * E a unica rota deste arquivo que nao exige `exigeSessao`, entao convem saber
- * porque: e' a fronteira de controle, e ela e' protegida por segredo em vez de
- * por login. Se algum dia aparecer outra rota assim, ela precisa do mesmo
- * cuidado.
+ * Desligamento por HTTP porque no Windows `Stop-Process` nao entrega SIGTERM e
+ * quem para programaticamente nao tem console. Fora de `/api/admin` de proposito:
+ * quem chama e' o programa, entao o unico pedido e' o token, que vem do ambiente.
  */
 app.post('/api/servico/desligar', (req, res) => {
     const esperado = process.env.DELIVERYADMIN_SHUTDOWN_TOKEN ?? '';
@@ -2763,13 +2500,9 @@ app.post('/api/servico/desligar', (req, res) => {
     }
 
     /*
-     * Comparacao de tamanho fixo, como a do CSRF.
-     *
-     * Comparar string direto com `===` devolve falso assim que os tamanhos
-     * diferem, e esse tempo de resposta e' o que permite adivinhar o token byte
-     * a byte. O `timingSafeEqual` exige o mesmo tamanho de entrada, que e'
-     * exatamente o que o comparador de verdade resolve -- e aqui a defesa e'
-     * cheap de fazer.
+     * `===` devolve falso assim que os tamanhos diferem, e esse tempo de
+     * resposta e' o que deixa adivinhar o token byte a byte. O
+     * `timingSafeEqual` exige o mesmo tamanho de entrada -- a defesa e' cheap.
      */
     const a = Buffer.from(recebido);
     const b = Buffer.from(esperado);
@@ -2782,12 +2515,9 @@ app.post('/api/servico/desligar', (req, res) => {
     }
 
     /*
-     * So de dentro da maquina.
-     *
-     * O token impede quem nao tem o segredo. Isto impede o caso em que o
-     * segredo vaza -- o valor esta no ambiente do processo, e um `tasklist /v`
-     * de outro usuario da rede o mostra. A Combination das duas e' o que fecha o
-     * caminho; nenhuma sozinha fecha.
+     * Alem do token, so de dentro da maquina: o valor esta no ambiente do
+     * processo e um `tasklist /v` de outro usuario da rede o mostra. As duas
+     * checagens juntas fecham o caminho; nenhuma sozinha fecha.
      */
     const ip = req.socket.remoteAddress ?? '';
     if (!ip.startsWith('127.') && ip !== '::1' && ip !== '::ffff:127.0.0.1') {

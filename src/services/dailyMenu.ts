@@ -1,13 +1,11 @@
-import { prisma } from '../database/prisma';
+import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { getBotMessage } from './botMessages';
+import { exigeLoja } from './loja';
 
 /**
- * Menu do dia.
- *
- * Regra central: `buildBotMenu` e a UNICA fonte da lista numerada que o bot
- * envia e que o bot usa para interpretar a resposta do cliente. Se essas duas
- * coisas divergirem, o cliente pede o prato errado -- por isso nao existem duas
- * funcoes de listagem aqui.
+ * Menu do dia. Regra central: `buildBotMenu` e a UNICA fonte da lista numerada
+ * que o bot envia e que ele usa para interpretar a resposta -- se as duas
+ * divergirem, o cliente pede o prato errado.
  */
 
 /** Meia-noite local do dia de `d`. */
@@ -50,7 +48,7 @@ function toDateKey(d: Date): string {
 
 export async function getDailyMenu(input?: Date | string | null): Promise<DailyMenuView | null> {
     const date = normalizeDate(input);
-    const menu = await prisma.dailyMenu.findUnique({
+    const menu = await prisma.dailyMenu.findFirst({
         where: { date },
         include: {
             items: {
@@ -107,15 +105,15 @@ export async function setDailyMenu(params: {
     const note = typeof params.note === 'string' ? params.note.trim().slice(0, 140) : null;
 
     const menu = await prisma.dailyMenu.upsert({
-        where: { date },
+        where: { tenantId_date: { tenantId: exigeLoja(), date } },
         update: { note },
-        create: { date, note },
+        create: { tenantId: exigeLoja(), date, note },
     });
 
     await prisma.$transaction(async (tx) => {
         await tx.dailyMenuItem.deleteMany({ where: { menuId: menu.id } });
         await tx.dailyMenuItem.createMany({
-            data: ids.map((productId, i) => ({ menuId: menu.id, productId, sortOrder: i })),
+            data: ids.map((productId, i) => ({ tenantId: exigeLoja(), menuId: menu.id, productId, sortOrder: i })),
         });
     });
 
@@ -130,7 +128,7 @@ export async function copyDailyMenu(params: {
     const from = normalizeDate(params.from);
     const to = normalizeDate(params.to ?? new Date());
 
-    const source = await prisma.dailyMenu.findUnique({
+    const source = await prisma.dailyMenu.findFirst({
         where: { date: from },
         include: { items: { orderBy: { sortOrder: 'asc' } } },
     });
@@ -184,11 +182,9 @@ export type BotMenuEntry = {
 };
 
 /**
- * Lista numerada enviada ao cliente: pratos do menu do dia primeiro, depois o
- * restante do cardapio, sem repetir o que ja entrou na secao do dia.
- *
- * Usada tanto para renderizar a mensagem quanto para resolver o numero
- * digitado -- por isso o bot guarda tambem um retrato dessa lista na sessao.
+ * Lista numerada: menu do dia primeiro, depois o restante do cardapio, sem repetir.
+ * Serve para renderizar a mensagem e para resolver o numero digitado -- por isso o
+ * bot guarda tambem um retrato desta lista na sessao.
  */
 export async function buildBotMenu(now = new Date()): Promise<BotMenuEntry[]> {
     const available = await prisma.product.findMany({
@@ -197,7 +193,7 @@ export async function buildBotMenu(now = new Date()): Promise<BotMenuEntry[]> {
         select: { id: true, name: true, price: true, description: true },
     });
 
-    const menu = await prisma.dailyMenu.findUnique({
+    const menu = await prisma.dailyMenu.findFirst({
         where: { date: startOfDay(now) },
         include: { items: { orderBy: { sortOrder: 'asc' }, select: { productId: true } } },
     });

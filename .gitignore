@@ -59,12 +59,18 @@ scripts/misc/
 # Log do dia, gerado por src/services/logger.ts. Arquivo local da maquina.
 logs/
 
-# O instalador montado. payload e' a copia de producao do programa (274 MB,
-# 4.500 arquivos, com o node.exe dentro) e dist e' a saida do Inno Setup.
-# Sao artefatos de build: o codigo que os produz e' montar.ps1 e
-# DeliveryAdmin.cs, e ambos versionados. Versionar 274 MB no git deixaria o
+# O instalador montado. `payload` e' a copia de producao do programa (274 MB,
+# 4.500 arquivos, com o node.exe dentro), `build` e' o configurador compilado que
+# o `.iss` le, e `release` e' o instalador final. Sao artefatos de build: o
+# codigo que os produz e' montar.ps1, compilar-instalador.ps1 e
+# DeliveryAdmin.cs, e todos versionados. Versionar 274 MB no git deixaria o
 # historico inchado de um jeito que nao volta atras.
+#
+# `installer/dist/` e `installer/entrega/` nao existem mais: eram a via do ZIP,
+# morta em favor do Inno Setup. Ficam aqui para o caso de reaparecerem por uma
+# ferramenta antiga -- sao resquicio, e o que esta dentro e' de 101 MB.
 installer/payload/
 installer/dist/
 installer/build/
 installer/entrega/
+release/

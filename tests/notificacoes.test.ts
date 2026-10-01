@@ -1,31 +1,36 @@
 /*
- * O sino so mostra o que da para atender hoje.
- *
- * Este teste existe por causa de um defeito que nao dava erro nenhum: a janela
- * de antecedencia era de DOIS dias, e uma pessoa anotou "comprar carne" para o
- * dia 14 num dia 29. O lembrete estava salvo, aparecia no Calendario, e nunca
- * aparecia no sino -- que e' exatamente onde ela procurou. Nada no sistema
- * avisava que aquele aviso nao existia, entao a unica conclusao possivel era
- * que o sistema tinha perdido a anotacao.
- *
- * A janela de sete dias e' a correcao, e ela tem um preco proprio: sem
- * agrupamento, sete lembretes empurram para baixo os avisos de bot parado e de
- * estoque zerado, que sao os que custam dinheiro. Por isso os dois formatos
- * sao testados juntos -- linha a linha para o que e' hoje, uma linha so para o
- * resto.
- *
- * O teste grava no banco de verdade e apaga so o que ele mesmo criou, com ids
- * anotados, pelo mesmo motivo do teste de retencao: um teste nao pode apagar a
- * anotacao de quem esta testando.
+ * O sino so mostra o que da para atender hoje. Com janela de DOIS dias, quem
+ * anotou "comprar carne" para o dia 14 num dia 29 via o lembrete no Calendario e
+ * nunca no sino -- sem aviso, a unica conclusao era que a anotacao sumiu.
  */
 
-import test from 'node:test';
+/*
+ * A janela de sete dias e' a correcao, e tem preco: sem agrupamento, sete lembretes
+ * empurram para baixo os avisos de bot parado e estoque zerado, que custam dinheiro.
+ * Por isso os dois formatos -- linha a linha para hoje, uma linha so para o resto.
+ */
+
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
-import { PrismaClient } from '@prisma/client';
 
 import { montarPainel, DIAS_DE_ANTECEDENCIA } from '../src/services/notificacoes';
+import { prismaComLoja } from '../src/database/prisma-com-loja';
+import { comoLoja } from '../src/services/loja';
 
-const prisma = new PrismaClient();
+const prisma = prismaComLoja;
+
+/** A loja do teste: lembrete e produto pertencem a uma loja, e o painel le dela. */
+const LOJA = process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
+
+/*
+ * O painel de notificacoes le lembrete e produto com o cliente da loja, entao o
+ * arquivo inteiro roda dentro de uma. O embrulho e' no `test` porque sao dezenas de
+ * chamadas: o que este arquivo exercita e' a regra de agrupamento, e a loja e' a
+ * condicao para ela rodar.
+ */
+const test = ((nome: string, fn: (t: never) => unknown) =>
+    nodeTest(nome, (t: never) => comoLoja(LOJA, () => fn(t)))) as typeof nodeTest;
+Object.assign(test, nodeTest);
 
 /** Data local em "AAAA-MM-DD", o fuso de quem olha a tela. */
 function diasDaFrente(n: number): Date {
@@ -37,12 +42,9 @@ function diasDaFrente(n: number): Date {
 const criados: string[] = [];
 
 /**
- * Tira do banco so o que este arquivo criou.
- *
- * Sem isso os testes se enxergam: a linha agrupada mostra uma previa de tres
- * lembretes, entao um teste que cria o quarto descobre que "o meu lembrete
- * nao apareceu" -- quando o que sumiu foi a previa, nao o aviso. Cada teste
- * comeca limpo pelo mesmo motivo pelo qual o arquivo apaga tudo no fim.
+ * Tira do banco so o que este arquivo criou. Sem isso os testes se enxergam: a
+ * linha agrupada mostra previa de tres lembretes, entao um teste que cria o
+ * quarto descobre que "o meu lembrete nao apareceu" quando o que sumiu foi a previa.
  */
 async function limpaTeste(): Promise<void> {
     if (criados.length > 0) {
@@ -160,13 +162,9 @@ test('lembrete concluido e lembrete de ontem somem do sino', async () => {
 
 test('a ordem e por gravidade, e nao por chegada', async () => {
     /*
-     * A ordem do sino e' a de quem doi mais. O teste monta o pior caso -- bot
-     * parado, produto zerado, lembrete de hoje e lembrete da semana -- e exige
-     * a ordem certa, e nao so "tem lembrete".
-     *
-     * Dois vermelhos que empatam na gravidade sao desempatados pela ordem em que
-     * foram montados, e nao por um relogio lido em instantes diferentes: foi
-     * assim que bot parado e estoque trocaram de lugar de um dia para o outro.
+     * A ordem do sino e' a de quem doi mais, e dois vermelhos empatados sao
+     * desempatados pela ordem em que foram montados, nao por um relogio lido em
+     * instantes diferentes: foi assim que bot parado e estoque trocaram de lugar.
      */
     await limpaTeste();
     const hoje = await anota(0, 'teste prioridade: lembrete de hoje');
@@ -200,14 +198,9 @@ test('a ordem e por gravidade, e nao por chegada', async () => {
 
 test('a borda da janela e o contrato que o Calendario anuncia', async () => {
     /*
-     * O limite de uma semana aparece em dois lugares: no filtro do sino e na
-     * mensagem que o Calendario mostra depois de anotar. Se um mudar sem o outro,
-     * a pessoa e avisada de uma regra que o sistema nao cumpre -- que e'
-     * exatamente como o defeito original se resolveu, em silencio.
-     *
-     * Por isso o teste e de BORDA, e nao de valor: o dia limite entra, o dia
-     * seguinte fica de fora. Fixar o numero aqui so criaria mais um lugar para
-     * esquecer de atualizar.
+     * A janela de sete dias aparece no filtro do sino e na mensagem do Calendario.
+     * Se um mudar sem o outro, a pessoa e avisada de uma regra que o sistema nao
+     * cumpre. Por isso o teste e' de BORDA, e nao do valor: o limite entra.
      */
     await limpaTeste();
     const dentro = 'teste borda: ultimo dia da janela';
@@ -222,7 +215,11 @@ test('a borda da janela e o contrato que o Calendario anuncia', async () => {
     assert.ok(!texto.includes(fora), 'um dia a mais ja e agenda, e o Calendario avisa isso');
 });
 
-test.after(async () => {
-    await limpaTeste();
-    await prisma.$disconnect();
-});
+// O `after` e' registrado a parte, porque o embrulho cobre os testes e nao as
+// ganchos: a limpeza tambem precisa da loja.
+test.after(() =>
+    comoLoja(LOJA, async () => {
+        await limpaTeste();
+        await prisma.$disconnect();
+    })
+);

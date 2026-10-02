@@ -1,12 +1,11 @@
 /**
- * O cliente do Prisma que injeta a loja em toda consulta: sao 197 pontos e um
- * `tenantId` esquecido daria resultado errado em vez de erro -- por isso o proxy
- * le a loja no `get`, que roda na fila do chamador (no interceptor o Prisma veria `null`).
+ * O cliente do Prisma que injeta a loja em toda consulta: um `tenantId` esquecido
+ * daria resultado errado em vez de erro -- por isso o proxy le a loja no `get`, que
+ * roda na fila do chamador. Nao cria cliente proprio: dois clientes sao dois pools.
  */
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { SEM_LOJA, exigeLoja } from '../services/loja';
-
-const base = new PrismaClient();
+import { prisma as base } from './prisma';
 
 /** Modelos que NAO tem loja e por isso ficam de fora da injecao. */
 const SEM_TENANT = new Set([SEM_LOJA, 'Sessao']);

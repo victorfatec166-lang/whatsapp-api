@@ -26,7 +26,7 @@
  */
 
 import { spawnSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -53,13 +53,19 @@ function passo(msg) {
     console.log(`\n${COR.ciano}==>${COR.reset} ${msg}`);
 }
 
-/** Roda um comando do Prisma e devolve se deu certo. */
+/** Roda um comando do Prisma e devolve se deu certo, com a saida de pe para ser lida. */
 function prisma(args) {
-    return spawnSync('npx', ['prisma', ...args], {
+    const r = spawnSync('npx', ['prisma', ...args], {
         cwd: RAIZ,
-        stdio: 'inherit',
+        encoding: 'utf8',
         shell: true,
     });
+    // O `P1001` vai para o stderr, e e' a unica pista do deploy cair por IPv6: com
+    // stdio herdado ele ia para o log do Render e o codigo nunca o via, entao a
+    // orientacao do pooler ficava de fora justamente quando era ela que resolvia.
+    const saida = (r.stdout || '') + (r.stderr || '');
+    if (saida) process.stdout.write(saida);
+    return { ...r, saida };
 }
 
 /**
@@ -74,14 +80,49 @@ function prisma(args) {
  * schema nem sistema. O aviso abaixo serve para quem esta na maquina e ainda nao
  * criou o arquivo, e some sozinho quando a variavel existe.
  */
-function envPronto() {
-    if (process.env.DATABASE_URL) return true;
+/** O valor de uma chave no `.env` da pasta, ou null. Le o arquivo, nao adivinha. */
+function leEnv(chave) {
+    let texto;
+    try {
+        texto = readFileSync(resolve(RAIZ, '.env'), 'utf8');
+    } catch {
+        return null;
+    }
+    for (const linha of texto.split('\n')) {
+        const limpa = linha.trim();
+        if (limpa.startsWith('#') || limpa === '') continue;
+        const igual = limpa.indexOf('=');
+        if (igual < 1 || limpa.slice(0, igual).trim() !== chave) continue;
+        let valor = limpa.slice(igual + 1).trim();
+        const comAspas =
+            valor.length > 1 &&
+            ((valor.startsWith('"') && valor.endsWith('"')) || (valor.startsWith("'") && valor.endsWith("'")));
+        return comAspas ? valor.slice(1, -1) : valor;
+    }
+    return null;
+}
 
-    const caminho = resolve(RAIZ, '.env');
-    if (existsSync(caminho)) {
-        erro('O .env existe, mas nao tem DATABASE_URL, ou a variavel nao chegou ao processo.');
+function envPronto() {
+    /*
+     * A variavel do processo tem prioridade, mas o `.env` conta tambem: quem roda na
+     * maquina tem a configuracao no arquivo e o `process.env` vazio -- o Prisma le
+     * o arquivo por conta propria, e este script roda antes dele. Exigir so o
+     * processo recusava a maquina do dono, que era o caso mais comum.
+     */
+    const doProcesso = process.env.DATABASE_URL?.trim();
+    const doArquivo = doProcesso ? null : leEnv('DATABASE_URL')?.trim();
+    const valor = doProcesso || doArquivo;
+    if (valor) {
+        // O resto do script e o Prisma ainda nao tem a variavel do arquivo; larga
+        // ela no ambiente para que a migration e o servidor vejam a mesma config.
+        if (!doProcesso) process.env.DATABASE_URL = valor;
+        return true;
+    }
+
+    if (existsSync(resolve(RAIZ, '.env'))) {
+        erro('O .env existe, mas nao tem a linha DATABASE_URL.');
         console.log('');
-        console.log('Confira a linha DATABASE_URL no .env, e o restart do servidor depois de editar.');
+        console.log('Confira no .env e rode de novo -- o arquivo so e lido no boot.');
         return false;
     }
 
@@ -143,6 +184,40 @@ function confereBuild() {
     return true;
 }
 
+/**
+ * O que fazer quando o banco nao respondeu.
+ *
+ * "P1001" e "Can't reach database server" e' rede, nao senha: revirar a senha
+ * nao resolve e faz a pessoa perder tempo no lugar errado. No Supabase a causa
+ * quase sempre e' o host direto, que so tem IPv6 -- e o Render nao tem IPv6.
+ */
+function explicaBancoInalcancavel(saida) {
+    const naoAlcancou = /P1001|Can't reach database server/i.test(saida);
+    if (!naoAlcancou) return false;
+
+    const url = process.env.DATABASE_URL || '';
+    const eSupabase = /supabase\.(co|com)/i.test(url);
+    const direto = /@db\.[^@]+\.supabase\.co/i.test(url);
+
+    erro('O banco nao respondeu -- e isso e' + ' rede, nao senha.');
+    console.log('');
+
+    if (eSupabase && direto) {
+        console.log('O host do Supabase direto so tem IPv6, e este servidor nao tem IPv6.');
+        console.log('Troque pela linha do POOLER, que tem IPv4. No painel do Supabase:');
+        console.log('Settings > Database > Connection string > URI, e pegue a que comeca');
+        console.log('por "aws-0-", e nao por "db.".');
+        console.log('');
+        console.log('Repare que no pooler o usuario leva o prefixo "postgres." antes do projeto:');
+        console.log('  postgresql://postgres.PROJETO:SENHA@aws-0-REGIAO.pooler.supabase.com:5432/postgres');
+    } else {
+        console.log('Confira o host e a porta em DATABASE_URL, e se a rede deste servidor');
+        console.log('chega ate la. Em container, firewall e porta bloqueada aparecem assim.');
+    }
+    console.log('');
+    return true;
+}
+
 function aplicaMigrations() {
     passo('Preparando o banco');
 
@@ -154,13 +229,14 @@ function aplicaMigrations() {
         encoding: 'utf8',
         shell: true,
     });
-    const saida = status.stdout || '';
+    const saida = (status.stdout || '') + (status.stderr || '');
     if (/migration\(s\) are not applied/i.test(saida)) {
         aviso('Ha migration pendente: ela cria ou ajusta tabelas, sem apagar os seus dados.');
     }
 
     const r = prisma(['migrate', 'deploy']);
     if (r.status !== 0) {
+        if (explicaBancoInalcancavel(r.saida)) return false;
         erro('A migration falhou. O banco nao foi alterado.');
         console.log('');
         console.log('Se a mensagem for sobre "database is locked", o painel pode estar aberto em outro lugar.');

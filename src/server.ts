@@ -1933,12 +1933,6 @@ app.get('/admin', async (req, res) => {
                     ? (sub as 'resumo' | 'caixa' | 'clientes' | 'pedidos')
                     : 'resumo';
 
-                const [shift, history, customerRows] = await Promise.all([
-                    openShift(),
-                    shiftHistory(30),
-                    customerList(),
-                ]);
-
                 const dayStartF = startOfDay(new Date());
                 const hojeOrders = orders.filter((o) => o.createdAt >= dayStartF);
                 const receitaHoje = Math.round(hojeOrders.reduce((a, o) => a + o.total, 0) * 100) / 100;
@@ -1956,6 +1950,33 @@ app.get('/admin', async (req, res) => {
                         (!relStatus || o.status === relStatus)
                 );
 
+                /*
+                 * O filtro do relatorio roda em memoria, sobre os pedidos que a pagina
+                 * ja trouxe: a lista de telefones e' conhecida ANTES de qualquer consulta,
+                 * e por isso entra no mesmo `Promise.all` das outras.
+                 */
+                const jids = [...new Set(filtrados.map((o) => o.clientPhone.trim()).filter(Boolean))];
+
+                const [shift, history, customerRows, stats, chats] = await Promise.all([
+                    openShift(),
+                    shiftHistory(30),
+                    customerList(),
+                    computeStatsSql(),
+                    /*
+                     * Uma consulta para resolver o telefone dos pedidos do periodo.
+                     * Sem ela a tela mostra "192...@lid" ao lado do numero verdadeiro
+                     * da lista de clientes: dois dados sobre a mesma pessoa, discordando.
+                     */
+                    jids.length > 0
+                        ? prisma.chat.findMany({ where: { phone: { in: jids } }, select: { phone: true, telefone: true } })
+                        : [],
+                ]);
+
+                const telefonesDoPeriodo = new Map<string, string>();
+                for (const ch of chats) {
+                    if (ch.telefone) telefonesDoPeriodo.set(ch.phone, ch.telefone);
+                }
+
                 const badge: Record<string, string> = {
                     pendente: 'badge-amber',
                     preparando: 'badge-orange',
@@ -1963,24 +1984,6 @@ app.get('/admin', async (req, res) => {
                     concluido: 'badge-slate',
                 };
 
-                /*
-                 * Uma consulta para resolver o telefone dos pedidos do periodo.
-                 * Sem ela a tela mostra "192...@lid" ao lado do numero verdadeiro
-                 * da lista de clientes: dois dados sobre a mesma pessoa, discordando.
-                 */
-                const telefonesDoPeriodo = new Map<string, string>();
-                {
-                    const jids = [...new Set(filtrados.map((o) => o.clientPhone.trim()).filter(Boolean))];
-                    if (jids.length > 0) {
-                        const chats = await prisma.chat.findMany({
-                            where: { phone: { in: jids } },
-                            select: { phone: true, telefone: true },
-                        });
-                        for (const ch of chats) {
-                            if (ch.telefone) telefonesDoPeriodo.set(ch.phone, ch.telefone);
-                        }
-                    }
-                }
 
                 const rowsHtml = filtrados
                     .map(
@@ -2008,14 +2011,16 @@ app.get('/admin', async (req, res) => {
                          * os numeros sao os mesmos (ver `tests/stats-sql.test.ts`) e
                          * a soma deixa de crescer com o historico.
                          */
-                        stats: await computeStatsSql(),
+                        stats,
                         report: {
                             rowsHtml,
                             count: filtrados.length,
                             total: filtrados.reduce((a, o) => a + o.total, 0),
                             from: relDe.toISOString().slice(0, 10),
                             to: relAte.toISOString().slice(0, 10),
-                            shifts: await shiftHistory(15),
+                            // Os 15 primeiros da lista de 30: o relatorio mostra menos
+                            // turnos, e refazer a consulta devolvia exatamente os mesmos.
+                            shifts: history.slice(0, 15),
                         },
                         cash: {
                             shift,

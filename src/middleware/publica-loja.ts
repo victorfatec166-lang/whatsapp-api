@@ -20,6 +20,10 @@ export function publicaLoja(req: Request, res: Response, next: NextFunction): vo
             next();
             return;
         }
+        // Guardada na requisicao porque este middleware e' o primeiro de todos: o
+        // `exigeSessao` consultava a MESMA sessao de novo, uma ida a mais ao banco
+        // em cada pagina do painel, sem nenhum ganho.
+        req.sessao = sessao;
         comoLoja(sessao.tenantId, next);
     })();
 }

@@ -181,10 +181,21 @@ export async function sessaoDoRequest(req: Request): Promise<Sessao | null> {
     };
 }
 
-/** Registra o uso, sem esperar. Antigo demais e' a sessao esquecida. */
-export async function tocaSessao(id: string): Promise<void> {
-    await prisma.sessao
-        .update({ where: { id }, data: { usadoEm: new Date() } })
+/**
+ * Registra o uso, sem esperar e no maximo uma vez por intervalo.
+ *
+ * A espera importava: cada GET pagava um UPDATE ate o Postgres antes de responder. A
+ * condicao no WHERE e' a mesma ida, mas so escreve quando a marca esta velha.
+ */
+const INTERVALO_DE_USO_MS = 5 * 60 * 1000;
+
+export function tocaSessao(id: string): void {
+    const agora = new Date();
+    void prisma.sessao
+        .updateMany({
+            where: { id, usadoEm: { lt: new Date(agora.getTime() - INTERVALO_DE_USO_MS) } },
+            data: { usadoEm: agora },
+        })
         .catch(() => {});
 }
 
@@ -322,7 +333,7 @@ declare global {
  */
 export function exigeSessao(rotaDeLogin = '/entrar') {
     return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
-        const sessao = await sessaoDoRequest(req);
+        const sessao = (req.sessao ??= await sessaoDoRequest(req));
         if (!sessao) {
             if (req.accepts('html') && req.method === 'GET') {
                 const destino = encodeURIComponent(req.originalUrl || '/admin');
@@ -339,7 +350,7 @@ export function exigeSessao(rotaDeLogin = '/entrar') {
         }
 
         req.sessao = sessao;
-        await tocaSessao(sessao.id);
+        tocaSessao(sessao.id);
         next();
     };
 }
@@ -351,7 +362,7 @@ export function exigeSessao(rotaDeLogin = '/entrar') {
  */
 export function exigeSessaoApi() {
     return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
-        const sessao = await sessaoDoRequest(req);
+        const sessao = (req.sessao ??= await sessaoDoRequest(req));
         if (!sessao) {
             res.status(401).json({ sessaoExpirada: true, error: 'Sessao expirada. Entre novamente.' });
             return;
@@ -366,7 +377,7 @@ export function exigeSessaoApi() {
         }
 
         req.sessao = sessao;
-        await tocaSessao(sessao.id);
+        tocaSessao(sessao.id);
         next();
     };
 }

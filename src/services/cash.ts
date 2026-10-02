@@ -267,28 +267,45 @@ export async function shiftHistory(limit = 30): Promise<ShiftHistoryRow[]> {
         where: { closedAt: { not: null } },
         orderBy: { closedAt: 'desc' },
         take: limit,
-        include: { movements: true },
+    });
+    if (shifts.length === 0) return [];
+
+    /*
+     * Uma consulta de pedidos para todos os turnos, e nao uma por turno.
+     *
+     * `Promise.all` nao encurta a ida e volta ao Postgres: so muda a ordem. Trinta
+     * turnos eram trinta consultas, e o Faturamento pedia a lista duas vezes.
+     */
+    const datas = shifts.map((s) => s.openedAt.getTime());
+    const fechadas = shifts.map((s) => s.closedAt!.getTime());
+    const pedidos = await prisma.order.findMany({
+        where: { createdAt: { gte: new Date(Math.min(...datas)), lte: new Date(Math.max(...fechadas)) } },
+        select: { createdAt: true, total: true },
     });
 
-    return Promise.all(
-        shifts.map(async (s) => {
-            const orders = await prisma.order.findMany({
-                where: { createdAt: { gte: s.openedAt, lte: s.closedAt! } },
-                select: { total: true },
-            });
-            return {
-                id: s.id,
-                openedAt: s.openedAt.toLocaleString('pt-BR'),
-                closedAt: s.closedAt!.toLocaleString('pt-BR'),
-                openingFloat: s.openingFloat,
-                expectedCash: s.expectedCash,
-                countedCash: s.countedCash,
-                difference: s.difference,
-                revenue: round(orders.reduce((a, o) => a + o.total, 0)),
-                orders: orders.length,
-            };
-        })
-    );
+    return shifts.map((s) => {
+        const abriu = s.openedAt.getTime();
+        const fechou = s.closedAt!.getTime();
+        let receita = 0;
+        let quantos = 0;
+        for (const o of pedidos) {
+            const quando = o.createdAt.getTime();
+            if (quando < abriu || quando > fechou) continue;
+            receita += o.total;
+            quantos += 1;
+        }
+        return {
+            id: s.id,
+            openedAt: s.openedAt.toLocaleString('pt-BR'),
+            closedAt: s.closedAt!.toLocaleString('pt-BR'),
+            openingFloat: s.openingFloat,
+            expectedCash: s.expectedCash,
+            countedCash: s.countedCash,
+            difference: s.difference,
+            revenue: round(receita),
+            orders: quantos,
+        };
+    });
 }
 
 /* --------------------------------------------- Movimentos de caixa (dia) */

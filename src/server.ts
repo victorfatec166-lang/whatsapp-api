@@ -166,6 +166,13 @@ app.use('/uploads', express.static(DIR_UPLOADS, { maxAge: '7d' }));
 app.use('/styles', express.static(path.join(process.cwd(), 'dist', 'styles'), { etag: true, lastModified: true }));
 
 /*
+ * A raiz manda para o painel. Sem esta linha a pagina inicial do dominio
+ * respondia "Cannot GET /", que e' o 404 padrao do Express e parece servidor
+ * quebrado. O `/admin` abaixo ja decide entre a tela de login e o painel.
+ */
+app.get('/', (_req, res) => res.redirect(302, '/admin'));
+
+/*
  * Rotas de entrada ANTES do bloqueio: depois do `exigeSessao` elas responderiam 401
  * para sempre -- inclusive a propria tela de login, que e' o unico jeito de
  * conseguir uma sessao.

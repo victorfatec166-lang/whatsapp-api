@@ -1247,6 +1247,47 @@ app.post('/api/admin/products/:id/sku', async (req, res) => {
 
 const UPLOAD_DIR = DIR_UPLOADS_PRODUTOS;
 const MAX_IMAGE_BYTES = 400_000; // base64: ~300KB de binario
+const TIPOS_FOTO: Record<string, string> = {
+    png: 'image/png',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+};
+
+/**
+ * Serve a foto do produto. Os bytes vao no Postgres porque a nuvem nao tem disco
+ * que sobreviva ao deploy -- em arquivo, a foto sumia na atualizacao seguinte.
+ * O ETag evita retransferir a mesma imagem a cada passagem de tela.
+ */
+app.get('/api/admin/products/:id/photo', async (req, res) => {
+    try {
+        const id = req.params.id;
+        if (!/^[A-Za-z0-9-]{6,64}$/.test(id)) return res.status(400).end();
+
+        const product = await prisma.product.findUnique({
+            where: { id },
+            select: { imageData: true, imageMime: true, updatedAt: true },
+        });
+        if (!product?.imageData) {
+            // Foto antiga, gravada em arquivo antes dos bytes irem para o banco.
+            for (const ext of Object.keys(TIPOS_FOTO)) {
+                const legado = path.join(UPLOAD_DIR, path.basename(id) + '.' + ext);
+                if (fs.existsSync(legado)) return res.type(TIPOS_FOTO[ext]).sendFile(legado);
+            }
+            return res.status(404).end();
+        }
+
+        const etag = `W/"${product.updatedAt.getTime()}"`;
+        if (req.headers['if-none-match'] === etag) return res.status(304).end();
+
+        res.setHeader('ETag', etag);
+        res.type(product.imageMime && TIPOS_FOTO[product.imageMime] ? product.imageMime : 'image/jpeg');
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        res.send(Buffer.from(product.imageData));
+    } catch (error) {
+        log.error('Erro ao servir foto do produto:', error);
+        res.status(500).end();
+    }
+});
 
 app.post('/api/admin/products/:id/photo', async (req, res) => {
     try {
@@ -1268,13 +1309,12 @@ app.post('/api/admin/products/:id/photo', async (req, res) => {
             return res.status(400).json({ error: 'Id de produto invalido.' });
         }
 
-        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-        const ext = match[1] === 'jpg' ? 'jpeg' : match[1];
-        const fileName = `${id}.${ext}`;
-        fs.writeFileSync(path.join(UPLOAD_DIR, fileName), buffer);
-
-        const imageUrl = `/uploads/produtos/${fileName}`;
-        await prisma.product.update({ where: { id }, data: { imageUrl } });
+        const mime = TIPOS_FOTO[match[1] === 'jpg' ? 'jpeg' : match[1]];
+        const imageUrl = `/api/admin/products/${id}/photo`;
+        await prisma.product.update({
+            where: { id },
+            data: { imageData: buffer, imageMime: mime, imageUrl },
+        });
         res.json({ success: true, imageUrl });
     } catch (error) {
         log.error('Erro ao salvar foto do produto:', error);
@@ -1285,16 +1325,17 @@ app.post('/api/admin/products/:id/photo', async (req, res) => {
 app.delete('/api/admin/products/:id/photo', async (req, res) => {
     try {
         const id = req.params.id;
-        const product = await prisma.product.findUnique({ where: { id }, select: { imageUrl: true } });
-        if (product?.imageUrl) {
-            const file = path.join(UPLOAD_DIR, path.basename(product.imageUrl));
+        // Apaga o arquivo legado tambem: ele deixa de ser lido, mas continuaria
+        // ocupando espaco para sempre sem ninguem apontar para ele.
+        for (const ext of Object.keys(TIPOS_FOTO)) {
+            const legado = path.join(UPLOAD_DIR, path.basename(id) + '.' + ext);
             try {
-                if (fs.existsSync(file)) fs.unlinkSync(file);
+                if (fs.existsSync(legado)) fs.unlinkSync(legado);
             } catch {
                 // arquivo orfao nao impede de limpar o campo
             }
         }
-        await prisma.product.update({ where: { id }, data: { imageUrl: null } });
+        await prisma.product.update({ where: { id }, data: { imageUrl: null, imageData: null, imageMime: null } });
         res.json({ success: true });
     } catch (error) {
         res.status(400).json({ error: 'Erro ao remover foto' });

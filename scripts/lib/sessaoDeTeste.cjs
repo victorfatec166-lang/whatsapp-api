@@ -63,6 +63,11 @@ async function garanteConta() {
         return;
     }
 
+    // `User` exige a loja: e' ela que diz de quem e' a conta no painel. A linha
+    // da loja ja existe -- quem garante e' o boot do servidor, que sobe antes.
+    const loja = process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
+    await prisma.tenant.upsert({ where: { id: loja }, update: {}, create: { id: loja, name: 'Loja de teste', ativo: true } });
+
     const { hash, sal } = await derivaSenha(SENHA);
     await prisma.user.create({
         data: {
@@ -73,6 +78,7 @@ async function garanteConta() {
             papel: 'operador',
             ativo: true,
             precisaTrocarSenha: false,
+            tenant: { connect: { id: loja } },
         },
     });
 }

@@ -77,6 +77,11 @@ model Product {
   sku         String?
   /// Caminho da imagem em /uploads, ou null.
   imageUrl    String?
+  /// Os bytes da foto, no banco. Em disco ela sumia a cada deploy na nuvem, que
+  /// nao tem disco; aqui ela sobrevive porque o Postgres e' de fora.
+  imageData   Bytes?
+  /// Tipo do que esta em `imageData`, para a rota servir com o Content-Type certo.
+  imageMime   String?
   price       Float
   /// Preco de compra. Com ele a margem real passa a ser calculavel.
   costPrice   Float    @default(0)

@@ -119,6 +119,12 @@ export type Sessao = {
     /** A loja da pessoa. Vem do usuario, nunca da URL -- ver `sessaoDoRequest`. */
     tenantId: string;
     precisaTrocarSenha: boolean;
+    /**
+     * Quando a sessao vence no banco, e `undefined` antes de ela existir: `autentica`
+     * devolve este mesmo tipo para dizer que a conta serve, e ainda nao ha linha em
+     * `Sessao`. Ausente significa "ainda nao renovar" -- que e' o que `tocaSessao` faz.
+     */
+    expiraEm?: Date;
 };
 
 /** Abre sessao e devolve os cookies a colocar na resposta. */
@@ -178,25 +184,40 @@ export async function sessaoDoRequest(req: Request): Promise<Sessao | null> {
          */
         tenantId: linha.user.tenantId,
         precisaTrocarSenha: linha.user.precisaTrocarSenha,
+        expiraEm: linha.expiraEm,
     };
 }
 
-/**
- * Registra o uso, sem esperar e no maximo uma vez por intervalo.
- *
- * A espera importava: cada GET pagava um UPDATE ate o Postgres antes de responder. A
- * condicao no WHERE e' a mesma ida, mas so escreve quando a marca esta velha.
- */
 const INTERVALO_DE_USO_MS = 5 * 60 * 1000;
 
-export function tocaSessao(id: string): void {
+/*
+ * Renova o PRAZO, e nao so o registro de uso: turno de 13 horas e' comum na loja, e com a
+ * validade fixa a pessoa era jogada para o login no meio do expediente. O `Set-Cookie` vem junto
+ * -- sem ele o cookie morre na hora original, com a sessao viva no banco. E o token e' reaproveitado.
+ */
+export function tocaSessao(req: Request, res: Response, sessao: Sessao): void {
     const agora = new Date();
+    const novoPrazo = new Date(agora.getTime() + SESSAO_MS);
+
     void prisma.sessao
         .updateMany({
-            where: { id, usadoEm: { lt: new Date(agora.getTime() - INTERVALO_DE_USO_MS) } },
-            data: { usadoEm: agora },
+            where: { id: sessao.id, usadoEm: { lt: new Date(agora.getTime() - INTERVALO_DE_USO_MS) } },
+            data: { usadoEm: agora, expiraEm: novoPrazo },
         })
         .catch(() => {});
+
+    // Na metade do prazo, e nao a cada requisicao: o header a mais em toda chamada
+    // custaria caro e nao traria ganho antes disso.
+    const falta = sessao.expiraEm ? sessao.expiraEm.getTime() - agora.getTime() : 0;
+    if (falta < SESSAO_MS / 2) {
+        res.cookie(NOME_COOKIE, cookie(req, NOME_COOKIE), {
+            path: '/',
+            sameSite: 'lax',
+            secure: pedidoSeguro(req),
+            maxAge: SESSAO_MS,
+            httpOnly: true,
+        });
+    }
 }
 
 export async function encerraSessao(req: Request): Promise<void> {
@@ -222,12 +243,21 @@ function cookie(req: Request, nome: string): string {
     return '';
 }
 
+/*
+ * O pedido veio por HTTPS. No Render o TLS termina no proxy, entao o Express ve HTTP e
+ * o `x-forwarded-proto` e' a unica fonte que diz a verdade: sem confiar nele o cookie
+ * `secure` nunca seria gravado -- HTTPS funcionando e sessao que nao persiste.
+ */
+export function pedidoSeguro(req: Request): boolean {
+    return req.secure || req.headers['x-forwarded-proto'] === 'https';
+}
+
 /* ------------------------------------------------------------- Cookies */
 
-/**
- * httpOnly impede o JS da pagina ler o token -- sem isso um XSS vaza a sessao.
- * secure so entra sob HTTPS: em HTTP simples o cookie nunca volta e a pessoa
- * fica presa fora do painel sem entender por que.
+/*
+ * httpOnly impede o JS ler o token: sem isso um XSS vaza a sessao. `secure` so entra sob
+ * HTTPS, e `strict` no SameSite ficou de fora de proposito -- o link de `?destino=` que o dono
+ * recebe e' a forma comum de entrar, e com `strict` o cookie nao voltaria junto com ele.
  */
 export function aplicaCookies(res: Response, token: string, csrf: string, seguro: boolean): void {
     const comum = {
@@ -350,7 +380,7 @@ export function exigeSessao(rotaDeLogin = '/entrar') {
         }
 
         req.sessao = sessao;
-        tocaSessao(sessao.id);
+        tocaSessao(req, res, sessao);
         next();
     };
 }
@@ -377,7 +407,7 @@ export function exigeSessaoApi() {
         }
 
         req.sessao = sessao;
-        tocaSessao(sessao.id);
+        tocaSessao(req, res, sessao);
         next();
     };
 }

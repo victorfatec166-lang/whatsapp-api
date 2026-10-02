@@ -13,7 +13,8 @@ import {
     exigeSessao,
     geraCodigo,
     limitePorTentativa,
-    normalizaEmail,
+normalizaEmail,
+    pedidoSeguro as pedidoSeguroNoProxy,
     recuperaComCodigo,
     sessaoDoRequest,
     trocaSenha,
@@ -37,6 +38,10 @@ const log = logDoModulo('authRoutes');
 /** Senha testavel ate o fim: por isso o limite por IP aqui, e o CSRF vem de um cookie de uso unico, nao da sessao. */
 const router = Router();
 
+/** Os mesmos nomes do `auth.ts`. Repetidos aqui porque este arquivo monta cookies
+ *  antes de existir sessao -- e' a tela de entrada, que nao tem loja para consultar. */
+const NOME_COOKIE = 'da_sessao';
+const NOME_CSRF = 'da_csrf';
 const NOME_CSRF_LOGIN = 'da_csrf_entrada';
 
 /** Le um cookie. */
@@ -61,12 +66,13 @@ function tokenConfere(req: Request): boolean {
     return doCookie.length > 0 && doCookie === doCorpo;
 }
 
-/**
- * Existe por causa do cookie com flag `secure`: marcado em HTTP simples, ele
- * nunca volta e a pessoa fica presa na tela de login sem entender o motivo.
+/*
+ * Existe por causa do cookie com flag `secure`: em HTTP simples ele nunca volta, e a
+ * pessoa fica presa na tela de login sem entender. Mora no `auth.ts` desde que a
+ * renovacao do cookie de sessao precisou dela -- duas copias divergiriam no 1o proxy.
  */
 function pedidoSeguro(req: Request): boolean {
-    return req.secure || req.headers['x-forwarded-proto'] === 'https';
+    return pedidoSeguroNoProxy(req);
 }
 
 /* ------------------------------------------------------------------ Login */
@@ -164,21 +170,27 @@ router.post('/api/auth/login', limitePorTentativa({ max: 12, janelaMs: 5 * 60 * 
 
 router.post('/api/auth/logout', exigeSessao(), async (req, res) => {
     await encerraSessao(req);
-    limpa(res);
+    limpa(req, res);
     res.json({ success: true });
 });
 
 /** Saida por link, para nao depender de JavaScript. */
 router.get('/sair', async (req, res) => {
     await encerraSessao(req);
-    limpa(res);
+    limpa(req, res);
     res.redirect(303, '/entrar');
 });
 
-function limpa(res: Parameters<typeof aplicaCookies>[0]): void {
-    res.clearCookie('da_sessao', { path: '/' });
-    res.clearCookie('da_csrf', { path: '/' });
-    res.clearCookie(NOME_CSRF_LOGIN, { path: '/' });
+/*
+ * Apaga os tres cookies. O `secure` precisa vir junto: um cookie gravado como `Secure`
+ * so e' removido por um `Set-Cookie` que tambem o declara -- sem a flag o antigo sobrevive,
+ * e como a sessao o reescreve a cada uso, era ele que sobrava: a pessoa saia e voltava.
+ */
+function limpa(req: Request, res: Parameters<typeof aplicaCookies>[0]): void {
+    const base = { path: '/', secure: pedidoSeguro(req), sameSite: 'lax' as const };
+    res.clearCookie(NOME_COOKIE, base);
+    res.clearCookie(NOME_CSRF, base);
+    res.clearCookie(NOME_CSRF_LOGIN, { ...base, maxAge: 30 * 60 * 1000 });
 }
 
 /* --------------------------------------------------------- Troca de senha */

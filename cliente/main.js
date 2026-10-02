@@ -18,6 +18,7 @@
  * A URL do painel vem do ambiente e nao esta no codigo: em desenvolvimento e' localhost,
  * e o mesmo executavel aponta para a nuvem sem recompilar.
  */
+const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, Menu, shell, WebContentsView, ipcMain } = require('electron');
 
@@ -34,7 +35,54 @@ process.on('uncaughtException', (erro) => {
     console.error('[cliente] excecao:', erro);
 });
 
+/**
+ * Le o `.env` da raiz do projeto antes de ler o ambiente.
+ *
+ * O servidor ja faz isso em `src/services/paths.ts`, e sem o mesmo passo aqui o
+ * cliente ignorava o arquivo: `process.env.DELIVERYADMIN_URL` chegava vazio do
+ * duplo clique e o painel abria em `localhost` mesmo com a URL escrita no `.env`.
+ */
+function leEnvDoProjeto() {
+    let texto;
+    try {
+        texto = fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8');
+    } catch {
+        return;
+    }
+    for (const linha of texto.split('\n')) {
+        const limpa = linha.trim();
+        if (limpa === '' || limpa.startsWith('#')) continue;
+        const igual = limpa.indexOf('=');
+        if (igual < 1) continue;
+        const chave = limpa.slice(0, igual).trim();
+        if (process.env[chave] !== undefined) continue;
+        let valor = limpa.slice(igual + 1).trim();
+        const comAspas =
+            valor.length > 1 &&
+            ((valor.startsWith('"') && valor.endsWith('"')) || (valor.startsWith("'") && valor.endsWith("'")));
+        process.env[chave] = comAspas ? valor.slice(1, -1) : valor;
+    }
+}
+
+leEnvDoProjeto();
+
 const URL_DO_PAINEL = (process.env.DELIVERYADMIN_URL || 'http://localhost:3000/admin').trim();
+
+/**
+ * O painel mora na nuvem, mas a URL padrao ainda era `localhost` -- e o duplo clique
+ * nao passa variavel nenhuma. Era por isso que o cliente nunca abria a versao do
+ * Render: caia sempre no host local, que raramente esta' no ar.
+ */
+const URL_PADRAO_NUVEM = 'https://whatsapp-api-7zra.onrender.com/admin';
+
+function ehLocal(url) {
+    try {
+        const h = new URL(url).hostname;
+        return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+    } catch {
+        return false;
+    }
+}
 
 const PARTA_CANAL = 'persist:canal';
 const LARGURA_BARRA = 58;
@@ -367,6 +415,35 @@ function registrarIpc() {
     ipcMain.handle('app:sair', () => app.quit());
 }
 
+/**
+ * A tela que substitui o painel quando a URL nao responde.
+ *
+ * Ela precisa existir porque a janela ja esta' visivel antes do painel carregar: sem
+ * isto, quem abre o cliente sem o sistema no ar ve uma moldura vazia e nao sabe se o
+ * programa quebrou ou se o servidor que faltava era outro. O aviso do host local e'
+ * o que evita a adivinhacao, porque `localhost` funciona normalmente e falha so
+ * quando o dono esqueceu de subir o servidor.
+ *
+ * Vai em arquivo e nao em `data:` URL porque o preload nao roda em `data:` -- e e'
+ * ele que da o botao de "tentar de novo".
+ */
+function mostrarErro(detalhe) {
+    const local = ehLocal(URL_DO_PAINEL);
+    const explicacao = local
+        ? 'O painel local nao respondeu. Voce esta' + "'" + ' abrindo uma URL que so funciona com o servidor rodando nesta maquina. O sistema de verdade esta' + "'" + ' na nuvem:'
+        : 'Nao foi possivel falar com o painel em:';
+
+    const q = new URLSearchParams({
+        titulo: local ? 'O servidor local nao esta' + "'" + ' rodando' : 'Painel fora do ar',
+        texto: explicacao,
+        alvo: local ? URL_PADRAO_NUVEM : URL_DO_PAINEL,
+        detalhe: detalhe ?? '',
+    });
+
+    mostrarPainel();
+    viewPainel.webContents.loadFile(path.join(__dirname, 'erro.html'), { query: Object.fromEntries(q) });
+}
+
 function criarJanela() {
     janela = new BrowserWindow({
         width: 1440,
@@ -395,7 +472,6 @@ function criarJanela() {
             symbolColor: '#94a3b8',
             height: ALTURA_TITULO,
         },
-        show: false,
         webPreferences: webPreferencesSeguras(),
     });
     janela.setMenuBarVisibility(false);
@@ -405,7 +481,30 @@ function criarJanela() {
     janela.on('resize', arrange);
     janela.on('maximize', arrange);
     janela.on('unmaximize', arrange);
-    viewPainel.webContents.on('did-finish-load', () => janela.show());
+    /*
+     * A janela aparece assim que nasce, e nao quando o painel carrega.
+     *
+     * O `show: false` com `did-finish-load` era o defeito: se a URL nao respondesse, o
+     * evento nunca chegava e o cliente ficava invisivel, com 400 MB de memoria, sem
+     * um unico pixel na tela -- o usuario so via "nao abre". Quem abre sem o servidor
+     * no ar era exatamente o caso comum, e o pior deles.
+     */
+    janela.once('ready-to-show', () => janela.show());
+
+    /*
+     * Falha ao carregar vira tela de erro com botao, e nao silencio. O `-3` e' o
+     * `ERR_ABORTED`: e' o que o Chromium devolve quando a propria view troca de
+     * endereco, e virar erro nela mostraria "fora do ar" no meio da navegacao.
+     */
+    viewPainel.webContents.on('did-fail-load', (_evento, codigo, descricao, url) => {
+        if (codigo === -3 || url !== URL_DO_PAINEL) return;
+        mostrarErro(descricao + ' (erro ' + codigo + ') em ' + url);
+    });
+
+    // O painel sumiu: sair do escuro em branco sem explicar nada.
+    viewPainel.webContents.on('render-process-gone', (_evento, detalhes) => {
+        mostrarErro('O processo que desenhava o painel encerrou: ' + detalhes.reason);
+    });
 }
 
 // Duas copias do app brigariam pela sessao do canal e pela janela.

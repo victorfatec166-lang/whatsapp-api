@@ -9,7 +9,7 @@ import type { Request, Response, NextFunction } from 'express';
 const FONTES_ESTILO = 'https://cdnjs.cloudflare.com https://fonts.googleapis.com';
 const FONTES_ARQUIVO = 'https://fonts.gstatic.com';
 
-export function cabecalhosDeSeguranca(_req: Request, res: Response, next: NextFunction): void {
+export function cabecalhosDeSeguranca(req: Request, res: Response, next: NextFunction): void {
     res.setHeader(
         'Content-Security-Policy',
         [
@@ -43,5 +43,15 @@ export function cabecalhosDeSeguranca(_req: Request, res: Response, next: NextFu
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
 
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+
+    /*
+     * HSTS so sob HTTPS: em HTTP simples o navegador ignora, e o unico efeito seria
+     * aparecer no log. `includeSubDomains` e' o que segura o resto -- sem ele um
+     * subdominio em texto claro ainda aceitaria o cookie de sessao.
+     */
+    if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+
     next();
 }

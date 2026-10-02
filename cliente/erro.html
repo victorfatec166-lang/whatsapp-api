@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Painel fora do ar</title>
+<style>
+  body { margin:0; font-family: system-ui, "Segoe UI", sans-serif; background:#090d16; color:#e2e8f0;
+         display:flex; align-items:center; justify-content:center; height:100vh; }
+  .caixa { max-width: 540px; padding: 32px; text-align:center; }
+  h1 { font-size: 20px; margin: 0 0 14px; }
+  p { color:#94a3b8; line-height:1.6; margin: 0 0 12px; }
+  .destaque { color:#fbbf24; font-weight:600; }
+  code { background:#1e293b; padding: 2px 7px; border-radius:4px; font-size:13px; color:#cbd5e1; }
+  button { margin-top:18px; padding:11px 22px; border-radius:8px; border:0; background:#2563eb;
+           color:#fff; font-size:14px; font-weight:600; cursor:pointer; }
+  button:hover { background:#1d4ed8; }
+  #detalhe { margin-top:20px; font-size:12px; color:#64748b; word-break:break-all; }
+</style>
+</head>
+<body>
+<div class="caixa">
+  <h1 id="titulo">Painel fora do ar</h1>
+  <p id="explicacao"></p>
+  <p><code id="alvo"></code></p>
+  <button id="tentar">Tentar de novo</button>
+  <p id="detalhe"></p>
+</div>
+<script>
+  // O processo principal escreve os textos antes do load: um `data:` URL nao roda o
+  // preload, e esta pagina precisa dele para ter o botao de tentar de novo.
+  var q = new URLSearchParams(location.search);
+  document.getElementById('titulo').textContent = q.get('titulo') || 'Painel fora do ar';
+  document.getElementById('explicacao').textContent = q.get('texto') || '';
+  document.getElementById('alvo').textContent = q.get('alvo') || '';
+  document.getElementById('detalhe').textContent = q.get('detalhe') || '';
+
+  document.getElementById('tentar').addEventListener('click', function () {
+    if (window.clienteRecarregar) window.clienteRecarregar();
+  });
+</script>
+</body>
+</html>

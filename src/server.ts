@@ -166,6 +166,13 @@ app.use('/uploads', express.static(DIR_UPLOADS, { maxAge: '7d' }));
 app.use('/styles', express.static(path.join(process.cwd(), 'dist', 'styles'), { etag: true, lastModified: true }));
 
 /*
+ * A marca do produto. Vive em `marca/`, no repositorio, e nao em `dist`: sao
+ * arquivos que mudam com a identidade e nao com o deploy, e o `npm run clean`
+ * apaga `dist` inteiro a cada build. Pelo mesmo motivo nao leva maxAge longo.
+ */
+app.use('/marca', express.static(path.join(process.cwd(), 'marca'), { etag: true, lastModified: true }));
+
+/*
  * A raiz manda para o painel. Sem esta linha a pagina inicial do dominio
  * respondia "Cannot GET /", que e' o 404 padrao do Express e parece servidor
  * quebrado. O `/admin` abaixo ja decide entre a tela de login e o painel.

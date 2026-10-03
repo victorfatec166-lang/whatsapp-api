@@ -1,4 +1,5 @@
 import { escapeHtml } from './html';
+import { iconeDaAba, tileDaMarca } from './marca';
 import { logDoModulo } from '../services/logger';
 import { barraCliente, SCRIPT_BARRA_CLIENTE, urlDoCliente } from './barraCliente';
 const log = logDoModulo('layout');
@@ -767,7 +768,7 @@ ${items}`;
     return `                    <div class="rail md:block" id="rail">
                         <aside id="sidebar" class="rail-painel bg-surface border-r line">
                             <a href="/admin" title="Ir para o inicio" class="h-16 px-4 flex items-center gap-2.5 border-b line text-body font-bold tracking-tight hover:bg-surface-2 transition">
-                                <i class="fa-solid fa-burger text-accent"></i>
+                                ${tileDaMarca(32)}
                                 <span class="truncate">${escapeHtml(businessName)}</span>
                             </a>
                             <nav class="flex-1 px-3 pb-3 overflow-y-auto">
@@ -800,7 +801,7 @@ ${blocks}
                     <!-- Navegacao mobile -->
                     <div class="md:hidden bg-surface border-b border-line px-4 py-3 flex items-center justify-between gap-3">
                         <a href="/admin" class="font-bold flex items-center gap-2 shrink-0">
-                            <i class="fa-solid fa-burger text-accent"></i>
+                            ${tileDaMarca(28)}
                             <span class="truncate">${escapeHtml(businessName)}</span>
                         </a>
                         <select id="mobileNav" class="input py-1.5 max-w-[58%]" onchange="location.href='/admin?tab=' + this.value">
@@ -840,6 +841,7 @@ export function renderLayout(opts: LayoutOptions): string {
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/styles/app.css">
+    ${iconeDaAba()}
     <!--
         O CSRF da sessao, para o JavaScript do painel.
 

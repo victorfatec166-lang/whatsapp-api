@@ -47,6 +47,8 @@
        da area web, entao uma regiao de arrasto aqui dentro so competiria com o
        hover dos botoes. O topo do app encosta na borda de verdade da janela. */
 
+    /* A marca: o bloco vermelho com o glifo, o mesmo dos outros lugares. SVG inline
+       porque a CSP desta pagina e' `default-src 'none'` e nao deixaria um <img>. */
     .brand {
         width: 40px;
         height: 40px;
@@ -54,22 +56,12 @@
         align-items: center;
         justify-content: center;
         margin-bottom: 4px;
-        border-radius: 12px;
-        background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(99, 102, 241, 0.12));
-        border: 1px solid rgba(59, 130, 246, 0.3);
-        color: #93c5fd;
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
         -webkit-app-region: no-drag;
     }
 
     .brand svg {
-        width: 22px;
-        height: 22px;
-        stroke: currentColor;
-        stroke-width: 2;
-        fill: none;
-        stroke-linecap: round;
-        stroke-linejoin: round;
+        width: 40px;
+        height: 40px;
     }
 
     .item {
@@ -184,7 +176,7 @@
 <body>
 <nav>
     <div class="brand" title="DeliveryAdmin" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        <svg viewBox="0 0 128 128"><rect width="128" height="128" rx="30" fill="#E8381A"/><path fill="#FFFFFF" fill-rule="evenodd" d="M26 50 L64 26 L102 50 L64 74 Z M34 60 V88 C34 96 40 101 48 101 H80 C88 101 94 96 94 88 V60 L86 60 V88 C86 89 85 90 83 90 H45 C43 90 42 89 42 88 V60 Z"/></svg>
     </div>
 
     <button class="item" id="painel" data-tooltip="Painel Geral" aria-label="Painel" aria-pressed="true">

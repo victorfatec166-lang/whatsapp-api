@@ -11,6 +11,7 @@
     "build:ts": "tsc",
     "build": "npm run clean && npm run build:ts && npm run build:css",
     "db:migrate": "prisma migrate deploy",
+    "marca:icone": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gerar-icone.ps1",
     "postinstall": "node scripts/postinstall.mjs",
     "watch:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --watch",
     "check:contrast": "node scripts/check-contrast.js",

@@ -94,7 +94,12 @@ const SCRIPT = `
                 })();
 `;
 
-/** Botao do menu ao lado do tema, o menu em si, e o comportamento. */
+/**
+ * Botao do menu ao lado do tema, o menu em si, e o comportamento.
+ *
+ * O `<script>` mora aqui e nao em quem chama: sem a tag o texto do JS aparecia
+ * escrito no topo da tela de entrada, que e' a primeira coisa que a pessoa ve.
+ */
 export function menuPublico(botaoTema: string): string {
-    return markup(botaoTema) + SCRIPT;
+    return `${markup(botaoTema)}<script>${SCRIPT}</script>`;
 }

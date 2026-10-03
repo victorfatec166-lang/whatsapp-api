@@ -1,4 +1,5 @@
 import { escapeHtml } from './html';
+import { iconeDaAba, lockupDaMarca, tileDaMarca } from './marca';
 import { campoSenha, campoTexto, botaoEntrar, erroGeral } from './ui/field';
 import { REGRA_EMAIL_JS } from '../services/regras';
 import { ADMIN_PADRAO } from '../services/auth';
@@ -90,16 +91,16 @@ const SCRIPT_TEMA = `
 `;
 
 /**
- * O botao em si, no canto da tela. Fica `fixed` e nao dentro do formulario porque
- * a tela de entrada e' unica na pagina: nas outras telas o botao mora no cabecalho,
- * que aqui nao existe.
+ * O botao em si. Sem posicao aqui: quem coloca no canto e' o `menuPublico`, que
+ * ja e' `fixed`. Com `fixed` nos dois, este se posiciona contra a tela por dentro
+ * do outro e cai em cima do menu, deixando os dois botoes invisiveis.
  */
 const BOTAO_TEMA = `
                 <button
                     id="themeToggle"
                     type="button"
                     onclick="toggleTheme()"
-                    class="btn btn-ghost fixed top-4 right-4 z-20 px-2"
+                    class="btn btn-ghost px-2.5 py-2"
                     title="Alternar tema claro/escuro"
                     aria-label="Alternar tema claro/escuro"
                     aria-pressed="false"
@@ -225,6 +226,7 @@ export function renderLogin(d: DadosTelaLogin): string {
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/styles/app.css">
+    ${iconeDaAba()}
     <style>${CSS_FLUXO}</style>
 </head>
 <body>
@@ -245,14 +247,9 @@ export function renderLogin(d: DadosTelaLogin): string {
             <div class="entrada-anel" style="width:26rem;height:26rem;top:-8rem;right:-7rem"></div>
             <div class="entrada-anel" style="width:15rem;height:15rem;bottom:-4rem;left:-3rem"></div>
 
-            <div class="relative flex items-center gap-3">
-                <span class="inline-flex items-center justify-center w-11 h-11 rounded-card bg-accent text-white shrink-0">
-                    <i class="fa-solid fa-burger text-lg"></i>
-                </span>
-                <div class="min-w-0">
-                    <p class="text-title truncate">${escapeHtml(d.nomeNegocio)}</p>
-                    <p class="text-caption text-ink-3">Gestao de pedidos e deliveries</p>
-                </div>
+            <div class="relative">
+                ${lockupDaMarca()}
+                <p class="text-caption text-ink-3 mt-2">Gestao de pedidos e deliveries</p>
             </div>
 
             <div class="relative max-w-lg">
@@ -298,9 +295,7 @@ export function renderLogin(d: DadosTelaLogin): string {
 
                 <!-- Logo so no mobile: no desktop ele ja esta a esquerda. -->
                 <div class="lg:hidden flex items-center gap-3 mb-8">
-                    <span class="inline-flex items-center justify-center w-10 h-10 rounded-card bg-accent text-white shrink-0">
-                        <i class="fa-solid fa-burger"></i>
-                    </span>
+                    ${tileDaMarca(40)}
                     <p class="text-title truncate">${escapeHtml(d.nomeNegocio)}</p>
                 </div>
 
@@ -417,6 +412,7 @@ function cascaFluxo(d: DadosFluxo): string {
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/styles/app.css">
+    ${iconeDaAba()}
     <style>${CSS_FLUXO}</style>
 </head>
 <body class="bg-bg">
@@ -424,9 +420,7 @@ function cascaFluxo(d: DadosFluxo): string {
     <div class="min-h-screen flex items-center justify-center px-5 py-10 sm:px-8">
         <div class="entrada-entra w-full ${d.largo ? 'max-w-2xl' : 'max-w-md'}">
             <div class="flex items-center gap-3 mb-8">
-                <span class="inline-flex items-center justify-center w-10 h-10 rounded-card bg-accent text-white shrink-0">
-                    <i class="fa-solid fa-burger"></i>
-                </span>
+                ${tileDaMarca(40)}
                 <p class="text-title truncate">${escapeHtml(d.nomeNegocio)}</p>
             </div>
 

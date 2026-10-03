@@ -66,14 +66,15 @@ function leEnvDoProjeto() {
 
 leEnvDoProjeto();
 
-const URL_DO_PAINEL = (process.env.DELIVERYADMIN_URL || 'http://localhost:3000/admin').trim();
-
 /**
- * O painel mora na nuvem, mas a URL padrao ainda era `localhost` -- e o duplo clique
- * nao passa variavel nenhuma. Era por isso que o cliente nunca abria a versao do
- * Render: caia sempre no host local, que raramente esta' no ar.
+ * O painel mora na nuvem, e a nuvem e' o PADRAO. O padrao era `localhost`, e isso so
+ * funcionava na maquina de quem desenvolvimento: o cliente empacotado nao acha o
+ * `.env` nem recebe variavel de ambiente nenhuma, e abria um endereco que so existe
+ * naquela maquina. Para o local, `abrir-local.cmd` passa a variavel.
  */
 const URL_PADRAO_NUVEM = 'https://whatsapp-api-7zra.onrender.com/admin';
+
+const URL_DO_PAINEL = (process.env.DELIVERYADMIN_URL || URL_PADRAO_NUVEM).trim();
 
 function ehLocal(url) {
     try {

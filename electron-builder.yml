@@ -1,0 +1,55 @@
+# Configuracao do instalador do cliente de desktop.
+#
+# Fica num arquivo separado, e nao no package.json, por um motivo concreto: o
+# `electron-builder` pesa ~100 MB e NINGUEM na nuvem precisa dele. Declarado como
+# devDependency, todo `npm ci` do Render baixaria 100 MB a cada deploy para gerar
+# um instalador que so a sua maquina usa. Ele fica instalado com `--no-save`.
+#
+# `portable` e `nsis` sao dois alvos de proposito. O instalador e' o que a pessoa
+# espera: instala, cria atalho, tem "desinstalar". O portatil e' a segunda porta:
+# uma pasta que abre com dois cliques, sem instalar nada, para quem nao quer
+# deixar rastro no computador da loja.
+
+appId: br.com.apegopet.deliveryadmin
+productName: DeliveryAdmin
+copyright: DeliveryAdmin
+
+directories:
+  output: release-cliente
+  buildResources: cliente
+
+# O programa e' a pasta `cliente` inteira: `main.js`, os preloads, a barra lateral
+# e o icone. O `package.json` da raiz do projeto nao entra -- ele descreve o
+# SERVIDOR, e uma dependencia de web-server dentro do app de desktop e' 60 MB de
+# codigo que nunca e' executado.
+files:
+  - cliente/**/*
+  - "!cliente/package.json"
+
+# `asar` empacota o app num arquivo so: protege o codigo e, Mainly, evita dezenas de
+# miles de arquivos pequenos -- que e' o que deixa o instalador lento e grande.
+asar: true
+
+compression: maximum
+
+win:
+  icon: cliente/deliveryadmin.ico
+  executableName: DeliveryAdmin
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: x64]
+
+nsis:
+  # Um clique, sem assistente e sem pedir administrador. Em maquina de loja quem
+  # instala costuma ser o dono, sem permissao -- e um instalador que pede permissao
+  # de administrador na porta e' onde metade da tentacao de instalar morre.
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DeliveryAdmin
+  installerLanguages: [pt_BR]
+  language: "1026"

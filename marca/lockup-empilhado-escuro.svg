@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 364 250" width="364" height="250">
+  <g transform="translate(118,0)"><rect width="128" height="128" rx="30" fill="#E8381A"/><path fill="#FFFFFF" fill-rule="evenodd" d="M26 50 L64 26 L102 50 L64 74 Z M34 60 V88 C34 96 40 101 48 101 H80 C88 101 94 96 94 88 V60 L86 60 V88 C86 89 85 90 83 90 H45 C43 90 42 89 42 88 V60 Z"/></g>
+  <g transform="translate(182,212)">
+    <text x="0" y="0" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700" letter-spacing="-0.5"><tspan fill="#F2F4F7">Delivery</tspan><tspan fill="#E8381A">Admin</tspan></text>
+  </g>
+</svg>

@@ -21,7 +21,7 @@ normalizaEmail,
 } from '../services/auth';
 import { logDoModulo } from '../services/logger';
 import { problemaDaSenha } from '../services/regras';
-import { renderLogin, renderTrocaSenha, renderCriarConta, renderRecuperar, seguroInterno } from '../views/login';
+import { renderLogin, renderTrocaSenha, renderCriarConta, renderRecuperar, renderSobre, renderAjuda, seguroInterno } from '../views/login';
 import { carregarConfig } from '../services/config';
 /** O nome que a tela de entrada mostra. E' o produto, e nao a loja -- ver o GET /entrar. */
 const NOME_DO_PRODUTO = 'DeliveryAdmin';
@@ -102,6 +102,44 @@ router.get('/entrar', async (req, res) => {
         })
     );
 });
+
+/*
+ * Paginas publicas do menu de tres pontinhos, sem sessao: sao o texto que explica o
+ * produto para quem ainda nao entrou. O nome vem do produto e nao do `Config`, que
+ * exige loja -- e loja so existe depois que alguem entra.
+ */
+router.get('/sobre', (_req, res) => {
+    res.send(
+        renderSobre({
+            nomeNegocio: NOME_DO_PRODUTO,
+            /*
+             * Contato vem do ambiente e nao do codigo: um telefone escrito no fonte
+             * vira numero velho que ninguem lembra de atualizar, e a pessoa que
+             * mudou o telefone nao tem como abrir este arquivo.
+             */
+            contato: [
+                ...contatoDoAmbiente(),
+            ],
+        })
+    );
+});
+
+router.get('/ajuda', (_req, res) => {
+    res.send(renderAjuda({ nomeNegocio: NOME_DO_PRODUTO }));
+});
+
+/** Le os contatos do ambiente, descartando o que nao foi cadastrado. */
+function contatoDoAmbiente(): Array<{ rotulo: string; valor: string; icone: string }> {
+    const onde: Array<[string, string, string]> = [
+        ['CONTATO_TELEFONE', 'Telefone', 'fa-solid fa-phone'],
+        ['CONTATO_EMAIL', 'E-mail', 'fa-solid fa-envelope'],
+        ['CONTATO_INSTAGRAM', 'Instagram', 'fa-brands fa-instagram'],
+    ];
+    return onde.flatMap(([chave, rotulo, icone]) => {
+        const valor = (process.env[chave] ?? '').trim();
+        return valor ? [{ rotulo, valor, icone }] : [];
+    });
+}
 
 /**
  * POST, e nao GET: a tela envia por `postJSON`, e a rota GET respondia 405 sem o

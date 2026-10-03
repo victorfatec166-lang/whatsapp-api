@@ -3,6 +3,7 @@ import { campoSenha, campoTexto, botaoEntrar, erroGeral } from './ui/field';
 import { REGRA_EMAIL_JS } from '../services/regras';
 import { ADMIN_PADRAO } from '../services/auth';
 import { barraCliente, SCRIPT_BARRA_CLIENTE, urlDoCliente } from './barraCliente';
+import { menuPublico } from './menuPublico';
 
 /**
  * Layout dividido: uma caixa de login no meio de uma tela vazia faz a tela de entrada parecer
@@ -227,7 +228,7 @@ export function renderLogin(d: DadosTelaLogin): string {
     <style>${CSS_FLUXO}</style>
 </head>
 <body>
-    ${BOTAO_TEMA}
+    ${menuPublico(BOTAO_TEMA)}
     <div class="min-h-screen lg:grid lg:grid-cols-2">
 
         <!--
@@ -398,6 +399,8 @@ type DadosFluxo = {
     script: string;
     /** Link de volta, quando a tela nao tem botao proprio de saida. */
     voltar?: { href: string; texto: string };
+    /** Pagina de leitura: a coluna estreita do formulario fica ilegivel num texto longo. */
+    largo?: boolean;
 };
 
 function cascaFluxo(d: DadosFluxo): string {
@@ -417,9 +420,9 @@ function cascaFluxo(d: DadosFluxo): string {
     <style>${CSS_FLUXO}</style>
 </head>
 <body class="bg-bg">
-    ${BOTAO_TEMA}
+    ${menuPublico(BOTAO_TEMA)}
     <div class="min-h-screen flex items-center justify-center px-5 py-10 sm:px-8">
-        <div class="entrada-entra w-full max-w-md">
+        <div class="entrada-entra w-full ${d.largo ? 'max-w-2xl' : 'max-w-md'}">
             <div class="flex items-center gap-3 mb-8">
                 <span class="inline-flex items-center justify-center w-10 h-10 rounded-card bg-accent text-white shrink-0">
                     <i class="fa-solid fa-burger"></i>
@@ -457,6 +460,99 @@ export type DadosTrocaSenha = {
     /** Troca forcada: a senha gerada no primeiro acesso. O painel fica bloqueado. */
     obrigatoria: boolean;
 };
+
+/*
+ * "Sobre" e "Ajuda" sao telas de leitura: reaproveitam `cascaFluxo` sem formulario nem
+ * estado, e a unica diferenca entre elas e' o conteudo. Ficam mais largas porque uma
+ * explicacao com topico fica ilegivel nos 448px do formulario.
+ */
+export function renderSobre(d: { nomeNegocio: string; contato: { rotulo: string; valor: string; icone: string }[] }): string {
+    const itens = d.contato
+        .map(
+            (c) => `<li class="flex items-center gap-3">
+                        <i class="fa-solid ${c.icone} w-4 text-center text-ink-3" aria-hidden="true"></i>
+                        <span class="text-body text-ink-2">${escapeHtml(c.rotulo)}:</span>
+                        <span class="text-body font-medium text-ink">${escapeHtml(c.valor)}</span>
+                    </li>`
+        )
+        .join('\n');
+
+    return cascaFluxo({
+        nomeNegocio: d.nomeNegocio,
+        titulo: 'Sobre',
+        subtitulo: 'Gestao de pedidos e deliveries pelo WhatsApp.',
+        conteudo: `
+                    <div class="mt-6 space-y-5 text-body text-ink-2 leading-relaxed">
+                        <p>
+                            O pedido chega pelo WhatsApp, o estoque baixa sozinho e a equipe ve
+                            tudo no mesmo quadro -- sem planilha e sem conferencia de saldo.
+                        </p>
+                        <ul class="space-y-3">
+                            <li class="flex gap-3"><i class="fa-solid fa-comment mt-1 text-accent" aria-hidden="true"></i>
+                                <span><strong class="text-ink">Pedidos pelo WhatsApp.</strong> O cliente pede sem instalar aplicativo e sem esperar.</span></li>
+                            <li class="flex gap-3"><i class="fa-solid fa-boxes-stacked mt-1 text-accent" aria-hidden="true"></i>
+                                <span><strong class="text-ink">Estoque que se atualiza sozinho.</strong> Cada venda baixa o item. Ninguem precisa conferir o saldo na mao.</span></li>
+                            <li class="flex gap-3"><i class="fa-solid fa-receipt mt-1 text-accent" aria-hidden="true"></i>
+                                <span><strong class="text-ink">Uma tela por vez.</strong> Pedidos, cozinha e entrega no mesmo quadro, na ordem em que acontecem.</span></li>
+                            <li class="flex gap-3"><i class="fa-solid fa-store mt-1 text-accent" aria-hidden="true"></i>
+                                <span><strong class="text-ink">iFood e 99Food juntos.</strong> Os dois canais entram no mesmo quadro, sem planilha no meio.</span></li>
+                        </ul>
+                        ${
+                            itens
+                                ? `<div class="pt-4 border-t border-line">
+                            <p class="text-caption text-ink-3 mb-3">Contato</p>
+                            <ul class="space-y-2.5">
+${itens}
+                            </ul>
+                        </div>`
+                                : ''
+                        }
+                    </div>`,
+        voltar: { href: '/entrar', texto: 'Voltar para entrar' },
+        script: '',
+        largo: true,
+    });
+}
+
+export function renderAjuda(d: { nomeNegocio: string }): string {
+    const topico = (titulo: string, texto: string) =>
+        `<div class="mt-5">
+                        <p class="text-body font-semibold text-ink">${escapeHtml(titulo)}</p>
+                        <p class="text-body text-ink-2 mt-1.5 leading-relaxed">${texto}</p>
+                    </div>`;
+
+    return cascaFluxo({
+        nomeNegocio: d.nomeNegocio,
+        titulo: 'Ajuda',
+        subtitulo: 'O que costuma travar na hora de usar.',
+        conteudo: `
+                    <div class="mt-2">
+                        ${topico(
+                            'Esqueci a senha',
+                            'Na tela de entrada, use <strong>Esqueci minha senha</strong>. O sistema gera um codigo de uso unico e mostra no servidor. Quem administra a loja pode ver esse codigo e te passar.'
+                        )}
+                        ${topico(
+                            'O WhatsApp nao responde',
+                            'Vá em <strong>Apps &rarr; WhatsApp</strong> no painel. Se o robo estiver desconectado, aparece o botão para parear de novo pelo QR. Na primeira vez é preciso escanear com o celular da loja.'
+                        )}
+                        ${topico(
+                            'Um produto nao aparece no cardapio',
+                            'Ele precisa estar <strong>ativo</strong> e com <strong>estoque</strong> maior que zero -- a menos que o controle de estoque esteja desligado para ele. Em Estoque &rarr; Produtos, o estado aparece na coluna do item.'
+                        )}
+                        ${topico(
+                            'Recebi pedido do iFood e nao vi no painel',
+                            'Verifique em <strong>Apps &rarr; iFood e 99Food</strong> se a credencial ainda está ativa. Token de marketplace expira; quando expira, o pedido para de chegar.'
+                        )}
+                        ${topico(
+                            'Quero usar no computador',
+                            'Baixe o cliente de desktop pelo menu de tres pontinhos na tela de entrada. Ele abre iFood, 99Food e WhatsApp na mesma janela, com a sessao guardada.'
+                        )}
+                    </div>`,
+        voltar: { href: '/entrar', texto: 'Voltar para entrar' },
+        script: '',
+        largo: true,
+    });
+}
 
 export function renderTrocaSenha(d: DadosTrocaSenha): string {
     return cascaFluxo({

@@ -38,22 +38,31 @@ const REGRA_OCULTA = `
     };
 `;
 
-/** A barra. `compacto` e' a versao de uma linha, para o rodape da barra de abas. */
+/*
+ * A barra. `compacto` e' a versao de uma linha, para o rodape da barra de abas.
+ *
+ * O `flex` e' obrigatorio: sem ele o elemento nasce `display:block`, os filhos nao
+ * ficam na mesma linha e a barra quebra em tres alturas conforme o texto enrola.
+ */
 export function barraCliente(url: string, opts: { compacto?: boolean } = {}): string {
     const texto = opts.compacto
-        ? `<span class="min-w-0 flex-1">Cliente de desktop: iFood, 99Food e WhatsApp na mesma janela</span>`
-        : `<span class="min-w-0"><span class="font-semibold text-ink">Cliente de desktop</span>
-             <span class="hidden sm:inline text-ink-2"> &mdash; iFood, 99Food e WhatsApp na mesma janela, com sessao guardada</span></span>`;
+        ? `<span class="min-w-0 flex-1 truncate text-caption">Cliente de desktop</span>`
+        : `<span class="min-w-0 flex-1">
+               <span class="block text-body font-semibold text-ink leading-tight">Cliente de desktop</span>
+               <span class="block text-caption text-ink-3 leading-tight mt-0.5 truncate">iFood, 99Food e WhatsApp juntos</span>
+           </span>`;
 
     const dispensar = `<button type="button" onclick="dispensarBarraCliente()" aria-label="Dispensar aviso do cliente de desktop"
-            class="shrink-0 p-1 rounded-control text-ink-3 hover:bg-surface-2 hover:text-ink transition">
+            class="shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-control text-ink-3 hover:bg-surface-2 hover:text-ink transition">
         <i class="fa-solid fa-xmark text-xs" aria-hidden="true"></i>
     </button>`;
 
-    return `<div data-barra-cliente class="hidden ${opts.compacto ? 'px-3 py-2' : 'px-3 py-2.5'} rounded-control bg-accent-soft border border-line items-center gap-2.5">
-            <i class="fa-solid fa-desktop shrink-0 text-accent" aria-hidden="true"></i>
+    return `<div data-barra-cliente class="hidden flex ${opts.compacto ? 'items-center gap-2 px-3 py-2' : 'items-center gap-3 px-4 py-3'} rounded-card bg-accent-soft border border-line">
+            <span class="inline-flex items-center justify-center w-9 h-9 rounded-control bg-accent text-white shrink-0">
+                <i class="fa-solid fa-desktop text-sm" aria-hidden="true"></i>
+            </span>
             ${texto}
-            <a href="${escapeHtml(url)}" class="btn btn-primary btn-sm shrink-0">
+            <a href="${escapeHtml(url)}" download class="btn btn-primary btn-sm shrink-0">
                 <i class="fa-solid fa-download text-xs" aria-hidden="true"></i>
                 Baixar
             </a>

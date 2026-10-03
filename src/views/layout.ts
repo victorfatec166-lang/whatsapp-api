@@ -1,5 +1,6 @@
 import { escapeHtml } from './html';
 import { logDoModulo } from '../services/logger';
+import { barraCliente, SCRIPT_BARRA_CLIENTE, urlDoCliente } from './barraCliente';
 const log = logDoModulo('layout');
 
 // O union so lista o que existe hoje em TABS: isTabId() so aceita o que esta em TABS, entao
@@ -772,11 +773,12 @@ ${items}`;
                             <nav class="flex-1 px-3 pb-3 overflow-y-auto">
 ${blocks}
                             </nav>
-                            <div class="px-3 py-3 border-t line">
+                            <div class="px-3 py-3 border-t line space-y-2.5">
                                 <span class="badge ${botOnline ? 'badge-success' : 'badge-danger'}">
                                     <span class="w-1 h-1 rounded-full bg-current"></span>
                                     Bot ${botOnline ? 'online' : 'offline'}
                                 </span>
+                                ${urlDoCliente() ? barraCliente(urlDoCliente()!, { compacto: true }) : ''}
                             </div>
                         </aside>
 
@@ -976,7 +978,7 @@ ${opts.body}
         </div>
     </div>
 ${opts.scripts ? `<script>${opts.scripts}</script>` : ''}
-    <script>${APP_SCRIPTS}    </script>
+    <script>${SCRIPT_BARRA_CLIENTE}${APP_SCRIPTS}    </script>
 </body>
 </html>`;
 }

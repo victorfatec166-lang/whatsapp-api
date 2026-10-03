@@ -1,0 +1,35 @@
+# Configuracao do servico no Render, versionada.
+#
+# Sem este arquivo o Render deduplica tudo o que precisa na tela de criacao: build
+# command, start command, versao do Node. Deduplicado e' codigo que mora em um lugar
+# so na hora em que alguem cria o servico -- e o primeiro deploy fica meio no escuro,
+# porque ninguem sabe de onde saiu aquele comando.
+#
+# O `plan: free` e' o que mantem o servico sem cobra. Trocar aqui tem efeito no
+# painel no proximo deploy, entao a mudanca de plano passa a ter que ser feita em
+# duas places.
+services:
+  - type: web
+    name: whatsapp-api
+    runtime: node
+    plan: free
+    # `npm run build` limpa o dist antes de compilar. Sem isso, um build anterior
+    # sobrevive a um build que falhou no meio -- e o painel sobe com CSS velho, que
+    # parece funcionar e nao corresponde ao codigo.
+    buildCommand: npm run build
+    startCommand: npm start
+    # `/entrar` responde 200 sem sessao e sem tocar no banco alem do proprio Postgres:
+    # e' o caminho que prova que o processo subiu de verdade, e nao so que a porta
+    # abriu. `/` nao serve -- ele redireciona, e o Render contaria um 302 como falha.
+    healthCheckPath: /entrar
+    # Sem isto o deploy so acontece quando alguem clica no botao, e o sintoma e'
+    # exatamente o que parece: o codigo esta no GitHub e a nuvem serve a versao antiga.
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # `DATABASE_URL` e `CHANNEL_SECRET` NAO ficam aqui de proposito: este arquivo
+      # e' versionado, e a senha do banco nao tem como estar num arquivo publico.
+      # Cadastradas em Render > Environment Variables, no painel.

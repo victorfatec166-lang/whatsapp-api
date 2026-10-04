@@ -17,12 +17,11 @@ services:
     # sobrevive a um build que falhou no meio -- e o painel sobe com CSS velho, que
     # parece funcionar e nao corresponde ao codigo.
     #
-    # O `cliente:dist` monta o pacote que a tela de entrada entrega no download. Ele
-    # roda no build porque o disco do Render morre a cada deploy: montado no
-    # request, o primeiro download levaria minutos. O `&&` e' `;` de proposito --
-    # um `&&` transformaria a falta do Electron em deploy vermelho, e o painel e'
-    # mais importante que o instalador.
-    buildCommand: npm run build ; npm run cliente:dist
+    # O pacote do cliente de desktop NAO e' montado aqui: sao 320 MB copiados e
+    # comprimidos num runner de 512 MB, e o deploy passava de 20 minutos -- ou morria
+    # de OOM, e o servico continuava na versao anterior sem ninguem entender por que.
+    # Quem monta e' `npm run cliente:dist`, na sua maquina. Ver README.
+    buildCommand: npm run build
     startCommand: npm start
     # `/entrar` responde 200 sem sessao e sem tocar no banco alem do proprio Postgres:
     # e' o caminho que prova que o processo subiu de verdade, e nao so que a porta

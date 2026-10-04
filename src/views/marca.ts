@@ -6,15 +6,14 @@
  */
 const BASE = '/marca';
 
-/**
- * Os `<link>` do icone da aba.
- *
- * O `sizes="any"` conta: sem ele o navegador desce para a entrada de 16px do
- * `.ico`. O `apple-touch-icon` e' para o iPhone, que ignora `.ico` e fotografa a tela.
+/*
+ * O PNG de 32px vem antes do `.ico`: o Chrome escolhe o primeiro que entende, e
+ * enquanto so havia `.ico` a aba mostrava a globo -- com o arquivo certo, servido em 200.
  */
 export function iconeDaAba(): string {
-    return `<link rel="icon" href="${BASE}/favicon.ico" sizes="any">
-    <link rel="apple-touch-icon" href="${BASE}/tile-vermelho.png">`;
+    return `<link rel="icon" type="image/png" sizes="32x32" href="${BASE}/favicon-32.png">
+    <link rel="icon" href="${BASE}/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="${BASE}/apple-touch-icon.png">`;
 }
 
 /**

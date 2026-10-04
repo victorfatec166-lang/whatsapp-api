@@ -17,20 +17,11 @@ services:
     # sobrevive a um build que falhou no meio -- e o painel sobe com CSS velho, que
     # parece funcionar e nao corresponde ao codigo.
     #
-    # O `&&` e' o do build e nao o do cliente: se `npm run build` falhar, o deploy
-    # tem que falhar junto. A segunda parte monta o pacote que a tela de entrada
-    # entrega no download, e ela nao pode derrubar o deploy se falhar -- por isso o
-    # `||` com `echo` e nao um `&&`. O `timeout` existe porque o runner tem 512 MB
-    # e nenhuma rede: um passo que resolve nao pode virar deploy eterno.
-    #
-    # Montar aqui e' obrigatorio: o disco do Render morre a cada deploy, entao o zip
-    # montado na sua maquina nao sobrevive a um deploy da nuvem.
-    #
-    # O `install.js` do Electron vem antes dele pelo motivo que o log de producao
-    # mostrou: o pacote e' devDependency e vem no pacote, mas o binario (367 MB) e'
-    # baixado pelo postinstall, que o npm da nuvem nao roda. Sem essa linha o passo
-    # seguinte morria com "Electron nao encontrado" e o pacote nunca existia.
-    buildCommand: 'npm run build && (node node_modules/electron/install.js || echo "binario do electron nao baixado") && (timeout 1200 npm run cliente:dist || echo "pacote do cliente nao montado neste deploy")'
+    # So isso, e de proposito: o pacote do cliente de desktop (367 MB do Electron
+    # baixados + 320 MB copiados + 141 MB comprimidos) levava o build a vinte minutos
+    # num runner de 512 MB, e o deploy nao subia. Quem monta o pacote e' a maquina
+    # de desenvolvimento, com `npm run cliente:dist`.
+    buildCommand: npm run build
     startCommand: npm start
     # `/entrar` responde 200 sem sessao e sem tocar no banco alem do proprio Postgres:
     # e' o caminho que prova que o processo subiu de verdade, e nao so que a porta

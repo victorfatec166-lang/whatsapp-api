@@ -66,7 +66,7 @@ logs/
 # DeliveryAdmin.cs, e todos versionados. Versionar 274 MB no git deixaria o
 # historico inchado de um jeito que nao volta atras.
 #
-# `installer/dist/` e `installer/entrega/` nao existem mais: eram a via do ZIP,
+# `installer/dist/` e' `installer/entrega/` nao existem mais: eram a via do ZIP,
 # morta em favor do Inno Setup. Ficam aqui para o caso de reaparecerem por uma
 # ferramenta antiga -- sao resquicio, e o que esta dentro e' de 101 MB.
 installer/payload/
@@ -74,3 +74,8 @@ installer/dist/
 installer/build/
 installer/entrega/
 release/
+
+# Cliente de desktop montado: a pasta com o runtime do Electron (300 MB) e o zip
+# que o servidor entrega no download. Sao build, e nao dado do dono.
+saida-cliente/
+cliente-dist/

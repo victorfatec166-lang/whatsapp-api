@@ -35,7 +35,23 @@ const BASE = `http://localhost:${process.env.PORT || 3000}`;
 const EMAIL = process.env.TESTE_EMAIL || 'teste@local';
 const SENHA = process.env.TESTE_SENHA || 'Teste#Local2026';
 
-const prisma = new PrismaClient();
+/*
+ * Duas conexoes e `$disconnect` no fim, e nao um cliente solto.
+ *
+ * O pooler do Supabase conta SESSAO e limita a 15 no total, o mesmo teto que o
+ * painel ja impõe a si mesmo (`src/database/prisma.ts`). Um `new PrismaClient()`
+ * sem teto abre pool para quantas CPUs a maquina tiver, e enquanto este script
+ * segura uma sessao o painel perde a cota dele -- a Home abre dez consultas em
+ * paralelo e caía em 500 com "Erro interno ao carregar o painel", erro que nao
+ * tem nada com o codigo sob teste.
+ */
+const prisma = new PrismaClient({
+    datasourceUrl: (() => {
+        const url = process.env.DATABASE_URL;
+        if (!url || url.includes('connection_limit')) return url;
+        return `${url}${url.includes('?') ? '&' : '?'}connection_limit=2`;
+    })(),
+});
 
 /** Derivacao igual a do servico: scrypt com sal novo, mesmos parametros. */
 async function derivaSenha(senha) {
@@ -51,6 +67,14 @@ async function derivaSenha(senha) {
 
 /** Cria a conta de teste se ela nao existir. Operador, nunca administrador. */
 async function garanteConta() {
+    try {
+        await garanteContaInterna();
+    } finally {
+        await prisma.$disconnect();
+    }
+}
+
+async function garanteContaInterna() {
     const existente = await prisma.user.findUnique({ where: { email: EMAIL } });
     if (existente) {
         // Ja existe e a senha pode ter sido trocada por um teste anterior que

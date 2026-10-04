@@ -22,7 +22,8 @@
     "check": "npm run check:ui && npm run check:js && npm run check:comentarios && npm run check:ps1 && npm run test",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts tests/*.test.js",
     "start": "node scripts/start.mjs",
-    "cliente": "electron cliente"
+    "cliente": "electron cliente",
+    "cliente:dist": "node scripts/montar-cliente.mjs && node scripts/zipar-cliente.mjs"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",

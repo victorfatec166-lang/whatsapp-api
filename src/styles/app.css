@@ -4,7 +4,7 @@
 
 /* ==========================================================================
    TOKENS
-   Base neutra quente (pedra) com um unico acento ambar de acao.
+   Neutro frio (grafite) com o vermelho da marca como unico acento de acao.
 
    Todos os pares foram medidos: texto >= 4.5:1, borda de input e foco >= 3:1
    (WCAG 1.4.11). Use `npm run check:contrast` para revalidar.
@@ -12,56 +12,57 @@
 
 :root {
     /* superficies: tres niveis de profundidade, separacao por tom e sombra */
-    --bg: #faf9f7;
+    --bg: #f5f6f8;
     --surface: #ffffff;
-    --surface-2: #f5f4f2;
-    --sunken: #efeEec;
+    --surface-2: #eff1f4;
+    --sunken: #e5e8ed;
 
     /* bordas */
-    --border: #e7e3de;        /* decorativa: cards nao sao elemento essencial */
-    --border-input: #8a857d;  /* essencial: WCAG 1.4.11 pede 3:1 */
+    --border: #e1e4e9;        /* decorativa: cards nao sao elemento essencial */
+    --border-input: #767d88;  /* essencial: WCAG 1.4.11 pede 3:1 */
 
     /* texto */
-    --text-1: #1c1917;        /* 17.7:1 */
-    --text-2: #57534e;        /* 7.6:1  */
-    --text-3: #726c65;        /* 4.7:1  */
+    --text-1: #0e1116;        /* 18.9:1 */
+    --text-2: #4b525c;        /* 7.9:1  */
+    --text-3: #666e7a;        /* 4.6:1  */
 
-    /* acento de acao */
-    --accent: #b45309;        /* 5.0:1 com texto branco */
-    --accent-strong: #92400e;
-    --accent-soft: #fef7e6;
-    --accent-hover: #92400e;
+    /* acento de acao: o vermelho da marca escurecido. O #e8381a da arte fica em
+       4.2:1 com branco e nao passa: vermelhao e' cor de DESENHO, nao de botao. */
+    --accent: #c42b12;        /* 5.7:1 com texto branco */
+    --accent-strong: #9e1f0b;
+    --accent-soft: #fceae5;
+    --accent-hover: #9e1f0b;
 
     /* semanticos */
-    --success: #04785a;
-    --success-ink: #046a50;
-    --success-bg: #e9f8f1;
+    --success: #0f7b5a;
+    --success-ink: #0b6b4e;
+    --success-bg: #e7f6f0;
     --warning: #8a5a10;
     --warning-ink: #7a4d0b;
-    --warning-bg: #fdf4e3;
-    --danger: #a81f1f;
-    --danger-ink: #991b1b;
-    --danger-bg: #fdecec;
+    --warning-bg: #fbf3e4;
+    --danger: #a31621;
+    --danger-ink: #8f1119;
+    --danger-bg: #fceaec;
     --info: #1d4ed8;
     --info-ink: #1e40af;
     --info-bg: #edf2fe;
-    --neutral-ink: #4b4741;
-    --neutral-bg: #eeece8;
+    --neutral-ink: #4b525c;
+    --neutral-bg: #e9ecf0;
 
     /* navegacao (sidebar clara no tema claro) */
     --nav: #ffffff;
-    --nav-ink: #57534e;
-    --nav-hover: #f5f4f2;
+    --nav-ink: #4b525c;
+    --nav-hover: #f2f4f7;
 
     /* chip */
-    --chip-bg: #fdf4e3;
-    --chip-ink: #7a4d0b;
-    --chip-hover: #fbe9c8;
+    --chip-bg: #f8e9e4;
+    --chip-ink: #8c2312;
+    --chip-hover: #f1dbd4;
 
-    --row-hover: #f7f5f2;
-    --focus: #b45309;
-    --overlay: rgb(28 25 23 / 0.45);
-    --shadow-color: 28 25 23;
+    --row-hover: #f4f6f8;
+    --focus: #c42b12;
+    --overlay: rgb(14 17 22 / 0.45);
+    --shadow-color: 14 17 22;
 
     /* Largura da barra de abas. Ver `.rail-btn` para o porque de ser token. */
     --rail-w: 15rem;
@@ -112,50 +113,57 @@
         0 12px 24px -4px rgb(var(--shadow-color) / 0.1);
 }
 
+/*
+ * O tema escuro e' a MESMA paleta no outro extremo, nao uma paleta nova: os
+ * neutros sao o grafite da marca (#0e1116) e o vermelho e' o mesmo matiz
+ * puxado para o lado claro, porque e' ele que vai aparecer sobre fundo escuro.
+ * Accent mais saturado e mais claro, e nao mais escuro: no escuro, cor de acao
+ * apagada some -- o que precisa de contraste nao e' o fundo, e' o texto.
+ */
 .dark {
-    --bg: #12110f;
-    --surface: #1c1917;
-    --surface-2: #262320;
-    --sunken: #302d29;
+    --bg: #0a0d12;
+    --surface: #12161c;
+    --surface-2: #1a1f26;
+    --sunken: #222831;
 
-    --border: #302d29;
-    --border-input: #6a6560;
+    --border: #242a33;
+    --border-input: #606a78;
 
-    --text-1: #fafaf9;        /* 17.0:1 */
-    --text-2: #a8a29e;        /* 6.9:1  */
-    --text-3: #948d85;        /* 4.8:1  */
+    --text-1: #f2f4f7;        /* 16.5:1 */
+    --text-2: #a9b2bf;        /* 8.5:1  */
+    --text-3: #7e8894;        /* 5.0:1  */
 
-    --accent: #fbbf24;
-    --accent-strong: #fcd34d;
-    --accent-soft: #302a12;
-    --accent-hover: #fcd34d;
+    --accent: #f2492c;        /* 5.0:1 com o texto escuro do botao */
+    --accent-strong: #ff6a4d;
+    --accent-soft: #24140f;
+    --accent-hover: #ff6a4d;
 
-    --success: #34d399;
-    --success-ink: #6ee7b7;
-    --success-bg: #052e26;
-    --warning: #fbbf24;
-    --warning-ink: #fcd34d;
-    --warning-bg: #2f2410;
-    --danger: #f87171;
-    --danger-ink: #fca5a5;
-    --danger-bg: #34191a;
-    --info: #60a5fa;
-    --info-ink: #93c5fd;
-    --info-bg: #17233f;
-    --neutral-ink: #d6d3d1;
-    --neutral-bg: #2a2724;
+    --success: #3dd68c;
+    --success-ink: #7be8b4;
+    --success-bg: #0a2620;
+    --warning: #f5b942;
+    --warning-ink: #fbd07a;
+    --warning-bg: #2a1f0b;
+    --danger: #ff6b6b;
+    --danger-ink: #ffa3a3;
+    --danger-bg: #2e1215;
+    --info: #6ba6ff;
+    --info-ink: #a3c7ff;
+    --info-bg: #101b2e;
+    --neutral-ink: #c3cad4;
+    --neutral-bg: #1e242c;
 
-    --nav: #171614;
-    --nav-ink: #a8a29e;
-    --nav-hover: #221f1d;
+    --nav: #0e1218;
+    --nav-ink: #a9b2bf;
+    --nav-hover: #1a2029;
 
-    --chip-bg: #2f2410;
-    --chip-ink: #fcd34d;
-    --chip-hover: #3a2c13;
+    --chip-bg: #24140f;
+    --chip-ink: #ff8a6b;
+    --chip-hover: #33190f;
 
-    --row-hover: #232120;
-    --focus: #fbbf24;
-    --overlay: rgb(0 0 0 / 0.6);
+    --row-hover: #171c24;
+    --focus: #f2492c;
+    --overlay: rgb(0 0 0 / 0.65);
     --shadow-color: 0 0 0;
 }
 
@@ -295,15 +303,17 @@
         cursor: not-allowed;
     }
 
+    /*
+     * O texto do botao primario e' `--surface`, e nao branco: no tema escuro o
+     * preenchimento e' vermelho claro e o texto precisa ser escuro. Um token nos
+     * dois temas e' o que mantem o par medido pelo `check:contrast`.
+     */
     .btn-primary {
         background-color: var(--accent);
-        color: #ffffff;
+        color: var(--surface);
     }
     .btn-primary:hover:not(:disabled) {
         background-color: var(--accent-hover);
-    }
-    .dark .btn-primary {
-        color: #1c1917;
     }
 
     .btn-ghost {
@@ -322,7 +332,7 @@
     }
     .btn-danger:hover:not(:disabled) {
         background-color: var(--danger);
-        color: #ffffff;
+        color: var(--surface);
     }
 
     .btn-sm {
@@ -504,8 +514,8 @@
      *
      * A cor e' o MESMO par do botao primario: fundo `--accent` e texto
      * `--surface`, com o texto escuro no tema escuro, como o `.btn-primary` faz.
-     * Foi tentado #fff fixo, e no tema escuro isso e' branco sobre ambar claro:
-     * 1,7:1, muito abaixo do 4,5:1, e invisivel numa tela de balcao. O par do
+     * Foi tentado #fff fixo, e no tema escuro isso e' branco sobre o acento claro: 1,7:1, muito abaixo do 4,5:1, e
+     * invisivel numa tela de balcao. O par do
      * botao primario ja e' medido pelo check:contrast, entao reusar o par e'
      * estar medido de graca.
      */
@@ -903,6 +913,6 @@
     }
     .badge-red:hover {
         background-color: var(--danger);
-        color: #ffffff;
+        color: var(--surface);
     }
 }

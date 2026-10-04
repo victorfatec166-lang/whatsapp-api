@@ -1,7 +1,7 @@
 import { escapeHtml } from './html';
 import { iconeDaAba, tileDaMarca } from './marca';
 import { logDoModulo } from '../services/logger';
-import { barraCliente, SCRIPT_BARRA_CLIENTE, urlDoCliente } from './barraCliente';
+import { barraCliente } from './barraCliente';
 const log = logDoModulo('layout');
 
 // O union so lista o que existe hoje em TABS: isTabId() so aceita o que esta em TABS, entao
@@ -779,7 +779,7 @@ ${blocks}
                                     <span class="w-1 h-1 rounded-full bg-current"></span>
                                     Bot ${botOnline ? 'online' : 'offline'}
                                 </span>
-                                ${urlDoCliente() ? barraCliente(urlDoCliente()!, { compacto: true }) : ''}
+                                ${barraCliente({ compacto: true })}
                             </div>
                         </aside>
 
@@ -980,7 +980,7 @@ ${opts.body}
         </div>
     </div>
 ${opts.scripts ? `<script>${opts.scripts}</script>` : ''}
-    <script>${SCRIPT_BARRA_CLIENTE}${APP_SCRIPTS}    </script>
+    <script>${APP_SCRIPTS}    </script>
 </body>
 </html>`;
 }

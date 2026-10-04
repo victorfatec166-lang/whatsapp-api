@@ -3,7 +3,7 @@ import { iconeDaAba, lockupDaMarca, tileDaMarca } from './marca';
 import { campoSenha, campoTexto, botaoEntrar, erroGeral } from './ui/field';
 import { REGRA_EMAIL_JS } from '../services/regras';
 import { ADMIN_PADRAO } from '../services/auth';
-import { barraCliente, SCRIPT_BARRA_CLIENTE, urlDoCliente } from './barraCliente';
+import { barraCliente } from './barraCliente';
 import { menuPublico } from './menuPublico';
 
 /**
@@ -202,14 +202,13 @@ export function renderLogin(d: DadosTelaLogin): string {
      */
     const destino = seguroInterno(d.destino);
     const script = SCRIPT_LOGIN.replace('"__DESTINO__"', JSON.stringify(destino));
-    const download = urlDoCliente();
 
     /*
-     * A barra fica ACIMA do card, nao dentro: dentro dela o campo de senha desce, e a
-     * primeira coisa que a tela faz e digitar senha. Acima, ela some no celular (que e'
-     * onde esta tela e' usada de verdade) e so aparece no desktop, no navegador.
+     * A barra fica ACIMA do card: dentro dela o campo de senha desce, e a primeira coisa
+     * que a tela faz e digitar senha. No celular ela vira uma linha so (o subtitulo some
+     * abaixo de sm) em vez de sumir -- o download continua a um toque de quem so tem o celular.
      */
-    const convite = download ? barraCliente(download) : '';
+    const convite = barraCliente();
 
     return `<!DOCTYPE html>
 
@@ -374,7 +373,7 @@ export function renderLogin(d: DadosTelaLogin): string {
         </section>
     </div>
 
-    <script>${SCRIPT_TEMA}${AJUSTA_ICONE}${SCRIPT_BARRA_CLIENTE}${script}</script>
+    <script>${SCRIPT_TEMA}${AJUSTA_ICONE}${script}</script>
 </body>
 </html>`;
 }

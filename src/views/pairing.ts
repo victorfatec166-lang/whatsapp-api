@@ -241,7 +241,7 @@ export const PAIRING_CLIENT_SCRIPT = [
     '                    .then(function (r) { return r.ok ? r.text() : ""; })',
     '                    .then(function (svg) {',
     '                        var box = document.getElementById("qrCode");',
-    '                        if (box) box.innerHTML = svg || "<p class=\'text-xs text-stone-500\'>Nao foi possível carregar o QR.</p>";',
+    '                        if (box) box.innerHTML = svg || "<p class=\'text-xs text-ink-3\'>Nao foi possível carregar o QR.</p>";',
     '                    })',
     '                    .catch(function () {});',
     '            }',

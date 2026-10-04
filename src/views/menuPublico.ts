@@ -1,14 +1,13 @@
 import { escapeHtml } from './html';
-import { urlDoCliente } from './barraCliente';
+import { linkDoCliente } from './barraCliente';
 
 /*
- * O item de download so existe com o endereco preenchido: link morto e' pior que a
- * ausencia dele, porque a pessoa clica e leva um 404.
+ * O item de download do menu: a rota do proprio servidor, pelo mesmo motivo da
+ * barra -- link de fora nao baixa, navega. Nao ha condicao: o item existe sempre,
+ * porque e' a unica forma de a pessoa sair daqui com o app.
  */
 function itemDownload(): string {
-    const url = urlDoCliente();
-    if (!url) return '';
-    return `<a href="${escapeHtml(url)}" download role="menuitem"
+    return `<a href="${escapeHtml(linkDoCliente())}" download role="menuitem"
                     class="flex items-center gap-3 px-3.5 py-2.5 text-body text-ink-2 hover:bg-surface-2 hover:text-ink transition">
                     <i class="fa-solid fa-download w-4 text-center text-ink-3" aria-hidden="true"></i>
                     Baixar cliente de desktop

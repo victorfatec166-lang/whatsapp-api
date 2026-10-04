@@ -5,6 +5,7 @@ import path from 'path';
 import QRCode from 'qrcode';
 import adminRoutes from './routes/adminRoutes';
 import authRoutes from './routes/authRoutes';
+import clienteRoutes from './routes/clienteRoutes';
 import usuariosRoutes from './routes/usuariosRoutes';
 import calendarioRoutes from './routes/calendarioRoutes';
 import sistemaRoutes from './routes/sistemaRoutes';
@@ -173,6 +174,12 @@ app.use('/styles', express.static(path.join(process.cwd(), 'dist', 'styles'), { 
 app.use('/marca', express.static(path.join(process.cwd(), 'marca'), { etag: true, lastModified: true }));
 
 /*
+ * O navegador pede `/favicon.ico` sozinho, sem olhar o `<link>`, e sem esta rota a aba
+ * ficava sem icone (404) mesmo com o `<link>` certo no head. Redireciona: o arquivo tem uma fonte so.
+ */
+app.get('/favicon.ico', (_req, res) => res.redirect(302, '/marca/favicon.ico'));
+
+/*
  * A raiz manda para o painel. Sem esta linha a pagina inicial do dominio
  * respondia "Cannot GET /", que e' o 404 padrao do Express e parece servidor
  * quebrado. O `/admin` abaixo ja decide entre a tela de login e o painel.
@@ -185,6 +192,9 @@ app.get('/', (_req, res) => res.redirect(302, '/admin'));
  * conseguir uma sessao.
  */
 app.use(authRoutes);
+// O cliente de desktop e' publico tambem: a tela de entrada e' quem oferece o
+// download, e ela existe antes de qualquer sessao.
+app.use(clienteRoutes);
 
 /*
  * Aqui comeca o painel fechado. `/admin` e' HTML: sem sessao, 303 para a tela de

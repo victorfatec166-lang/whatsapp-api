@@ -31,7 +31,7 @@ export function barraCliente(opts: { compacto?: boolean } = {}): string {
                 <i class="fa-solid fa-desktop text-sm" aria-hidden="true"></i>
             </span>
             ${texto}
-            <a href="${escapeHtml(LINK_CLIENTE)}" download class="btn btn-primary btn-sm shrink-0">
+            <a href="${escapeHtml(LINK_CLIENTE)}" class="btn btn-primary btn-sm shrink-0">
                 <i class="fa-solid fa-download text-xs" aria-hidden="true"></i>
                 Baixar
             </a>

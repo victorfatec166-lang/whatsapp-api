@@ -476,6 +476,13 @@ function criarJanela() {
         webPreferences: webPreferencesSeguras(),
     });
     janela.setMenuBarVisibility(false);
+    /*
+     * A opcao `icon` acima NAO resolve a aba da janela no Windows: com a barra nativa,
+     * o icone do titulo vem do executavel -- e no desenvolvimento esse executavel e' o
+     * `electron.exe`, que carrega o icone do Electron. O `setIcon` depois de criada e' a
+     * unica forma de a marca aparecer ali sem trocar o executavel.
+     */
+    janela.setIcon(path.join(__dirname, 'deliveryadmin.ico'));
     criarPainel();
     arrange();
 
@@ -518,10 +525,18 @@ if (!app.requestSingleInstanceLock()) {
         janela.focus();
     });
 
-    app.whenReady().then(() => {
-        registrarIpc();
-        montarMenu();
-        criarJanela();
+/*
+ * A identidade do app no Windows. Sem isso o Windows agrupa a janela por executavel
+ * (o `electron.exe`, no desenvolvimento) e a barra de tarefas mostra o icone do
+ * Electron; o `AppUserModelID` e' o mesmo do `electron-builder.yml`, entao develop e
+ * produto empacotado aparecem como o mesmo programa.
+ */
+app.setAppUserModelId('br.com.apegopet.deliveryadmin');
+
+app.whenReady().then(() => {
+    registrarIpc();
+    montarMenu();
+    criarJanela();
 
         app.on('activate', () => {
             if (BrowserWindow.getAllWindows().length === 0) criarJanela();

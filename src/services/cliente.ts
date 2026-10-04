@@ -41,12 +41,18 @@ function monta(): Promise<string | null> {
         const passo = ['scripts/montar-cliente.mjs', 'scripts/zipar-cliente.mjs'];
         const executa = (i: number) => {
             if (i >= passo.length) return ok(zipDoCliente());
-            const filho = spawn(process.execPath, [join(RAIZ, passo[i])], { cwd: RAIZ, stdio: 'inherit' });
-            filho.on('error', (e) => {
-                log.error('falhou', { passo: passo[i], erro: e });
+            const filho = spawn(process.execPath, [join(RAIZ, passo[i])], { cwd: RAIZ, stdio: 'ignore' });
+            filho.on('error', () => ok(null));
+            /*
+             * `stdio: 'ignore'` de proposito: com `inherit`, a falha despejava o
+             * stack do Node no log de producao e enterrava a causa real em dez
+             * linhas de `node:internal`.
+             */
+            filho.on('close', (codigo) => {
+                if (codigo === 0) return executa(i + 1);
+                log.warn('montagem do cliente falhou', { passo: passo[i], codigo });
                 ok(null);
             });
-            filho.on('close', (codigo) => (codigo === 0 ? executa(i + 1) : ok(null)));
         };
         executa(0);
     });

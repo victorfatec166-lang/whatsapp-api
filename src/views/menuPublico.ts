@@ -7,7 +7,7 @@ import { linkDoCliente } from './barraCliente';
  * porque e' a unica forma de a pessoa sair daqui com o app.
  */
 function itemDownload(): string {
-    return `<a href="${escapeHtml(linkDoCliente())}" download role="menuitem"
+    return `<a href="${escapeHtml(linkDoCliente())}" role="menuitem"
                     class="flex items-center gap-3 px-3.5 py-2.5 text-body text-ink-2 hover:bg-surface-2 hover:text-ink transition">
                     <i class="fa-solid fa-download w-4 text-center text-ink-3" aria-hidden="true"></i>
                     Baixar cliente de desktop

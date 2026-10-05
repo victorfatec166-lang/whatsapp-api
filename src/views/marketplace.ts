@@ -284,15 +284,6 @@ export function renderMarketplace(d: MarketplaceData): string {
                 .join('\n')}
         </div>
 
-        <!--
-            Os dois canais lado a lado, e nao um embaixo do outro.
-
-            Empilhados, o segundo canal empurrava a lista de pedidos recentes
-            para fora da tela -- e essa lista e' o que a pessoa abre a aba para
-            ver: os pedidos que chegaram de fora. Lado a lado, cada canal ocupa
-            metade da largura e a lista fica visivel embaixo, que e' onde a
-            leitura comeca.
-        -->
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
 ${canaisPresentes.map((c) => cardCanal(d, c)).join('\n')}
         </div>
@@ -318,12 +309,6 @@ ${canaisPresentes.map((c) => renderModal(credencialSpec(c))).join('\n')}
 ${canaisPresentes.map((c) => renderModal(itemSpec(c, d.produtos))).join('\n')}
 
         <script>
-            /*
-             * Testar comunicacao e' o unico botao que pode falhar sem culpa:
-             * quando ainda falta o contrato do parceiro, ele devolve o motivo.
-             * Isso e' melhor que um "conectado" falso, entao o aviso sai na
-             * propria tela em vez de ser escondido.
-             */
             async function mkTestar(channel) {
                 var r = await postJSON('/api/admin/marketplace/' + channel + '/testar');
                 if (r.ok) {
@@ -348,16 +333,6 @@ ${canaisPresentes.map((c) => renderModal(itemSpec(c, d.produtos))).join('\n')}
                 );
             }
 
-            /*
-             * Os dois botoes de canal por delegacao, e nao por onclick.
-             *
-             * Sao os mesmos dois botoes em duas colunas, e o onclick repetia o
-             * nome da funcao com o canal escrito dentro do atributo. Um id ou um
-             * slug interpolado em codigo e' uma string montada no servidor: se um
-             * deles trouxer uma aspa, o bloco de script para de fazer sentido e a
-             * pagina perde todos os ouvintes de uma vez. O canal viaja em
-             * data-mk-testar e data-mk-apagar, que sao dado e nao codigo.
-             */
             document.addEventListener('click', function (ev) {
                 var alvo = ev.target;
                 if (!alvo || !alvo.closest) return;

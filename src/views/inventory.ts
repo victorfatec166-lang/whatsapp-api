@@ -165,15 +165,6 @@ ${renderCatalog(d.catalog)}
             </div>
 
             <div id="painelEstoque">
-                <!--
-                    Os cinco indicadores em grade, e nao empilhados.
-
-                    Eles estavam soltos, um embaixo do outro,occupando cinco
-                    faixas de tela inteira antes da lista de reposicao -- que e'
-                    justamente a parte da aba que a pessoa abriu para ver. A ordem
-                    tambem mudou: quem abre Estoque quer saber o que falta, entao
-                    o que precisa de acao vem primeiro e o dinheiro por ultimo.
-                -->
                 <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
                     ${kpi('Estoque baixo', String(d.summary.low), 'no ou abaixo do minimo', 'warning', 'warning')}
                     ${kpi('Zerados', String(d.summary.empty), 'sem unidades para venda', 'danger', 'danger')}
@@ -230,11 +221,6 @@ ${reorderRows}
                         <p class="text-caption text-ink-3">Saldo, minimo e valor de cada item</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
-                        <!--
-                            Mesma regra das outras telas: largura declarada e
-                            shrink-0, senao o campo encolhe e o texto digitado
-                            desaparece da caixa sem tecla nenhuma se perder.
-                        -->
                         <input id="stockSearch" type="search" placeholder="Buscar produto..." oninput="stockFilter()"
                             class="input w-56 shrink-0" autocomplete="off">
                         <select id="stockCategory" onchange="stockFilter()" class="input w-auto shrink-0">
@@ -354,21 +340,6 @@ ${movementRows}
             </div>
         </div>
 
-        <!--
-            Fecha o painel de Estoque.
-
-            Este </div> faltou durante semanas e ninguem viu, porque o que vem
-            depois -- a janela de entrada e o script -- nao precisa de espaco
-            nenhum e ainda aparecia. O que sumia era o espaco em volta: com o
-            painel sem fechar, o navegador jogava a janela e o script para
-            dentro dele, e o <details> do formulario de controle de estoque
-            acabava dentro da janela. A aba mostrava a lista de produtos sem a
-            tabela.
-
-            O sintoma aparece como "o conteudo desapareceu" e a causa e' uma tag
-            sem fechador a duzentas linhas de distancia. Ver o teste de
-           zincha de tags em check-ui.
-        -->
         </div>
 
         <script>
@@ -403,7 +374,6 @@ ${movementRows}
                 if (empty) empty.classList.toggle('hidden', visiveis > 0);
             }
 
-            /** Atualiza o saldo e o status exibidos, sem recarregar a pagina. */
             function stockPaint(id, saldo) {
                 var input = document.querySelector('[data-stock-input="' + id + '"]');
                 if (input) input.value = saldo;
@@ -449,13 +419,6 @@ ${movementRows}
                 } catch (e) { flash('err', 'Erro de conexao'); }
             }
 
-            /*
-             * Os ids smQty e smNote aparecem em duas funcoes, e isso e' seguro:
-             * o innerHTML do corpo da janela e' substituido inteiro a cada
-             * abertura, entao so uma versao existe no DOM por vez. O que
-             * faltava era o for no rotulo -- o campo existia, o texto nao
-             * apontava para ele, e clicar no texto nao focava nada.
-             */
             function stockEntry(id) {
                 stockModal = { mode: 'entrada', id: id };
                 var meta = STOCK_ROWS.filter(function (r) { return r.id === id; })[0];
@@ -588,8 +551,6 @@ ${movementRows}
                 } catch (e) { flash('err', 'Erro de conexao'); }
             }
 
-            /* Abas Catalogo / Saldos. O catalogo e a acao mais comum do dono
-               da loja, entao e a aba que abre por padrao. */
             function stockSetTab(qual) {
                 var catalogo = qual === 'catalogo';
                 var pc = document.getElementById('painelCatalogo');
@@ -599,12 +560,6 @@ ${movementRows}
                 if (!pc || !ps || !tc || !ts) return;
                 pc.classList.toggle('hidden', !catalogo);
                 ps.classList.toggle('hidden', catalogo);
-                /*
-                 * Só o atributo muda aqui. A cor da aba vem do CSS, em
-                 * .stock-tab[aria-selected='true'] -- e nao de trocar a classe do
-                 * botao, que era o que segurava o text-white no tema escuro.
-                 * Uma representacao do estado, e o CSS cuida do resto.
-                 */
                 tc.setAttribute('aria-selected', catalogo ? 'true' : 'false');
                 ts.setAttribute('aria-selected', catalogo ? 'false' : 'true');
                 try { localStorage.setItem('estoqueAba', qual); } catch (e) {}
@@ -616,13 +571,6 @@ ${movementRows}
                 stockSetTab(qual);
             })();
 
-            /*
-             * Delegacao dos botoes da tabela. Sem este bloco, entrada, perda,
-             * ajustes e o "+"/"-" renderizavam e nao faziam nada: o data-* e'
-             * escrito pelo HTML e ninguem lia. Delegacao e' o padrao do projeto
-             * (ver catalog.ts), e e' por isso que o check:js via funcao orfa sem
-             * acusar -- o vinculo e' pelo nome do atributo, nao por chamada.
-             */
             document.addEventListener('click', function (ev) {
                 var alvo = ev.target;
                 if (!alvo || !alvo.closest) return;

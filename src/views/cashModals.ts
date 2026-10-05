@@ -142,12 +142,9 @@ export function cashModalsScript(): string {
             });
 
             function cashAposSalvar() {
-                // Deixa o aviso aparecer e so entao recarrega.
                 setTimeout(function () { window.location.reload(); }, 700);
             }
 
-            // Fechar turno: o servidor devolve a diferenca, entao o aviso
-            // substitui o confirm() que existia antes.
             function cashAposFechar(res) {
                 var d = (res && res.data && res.data.report && res.data.report.difference) || 0;
                 var texto = d === 0

@@ -73,7 +73,6 @@ ${renderPairing(d.pair)}
         </details>
 
         <script>
-            // Abre a secao de textos quando o link antigo ?tab=bot#textos-bot chega.
             if (window.location.hash === '#textos-bot') {
                 var bloco = document.getElementById('textos-bot');
                 if (bloco) bloco.open = true;

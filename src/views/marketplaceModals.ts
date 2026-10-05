@@ -120,13 +120,6 @@ export function marketplaceModalsScript(canais: readonly Canal[]): string {
 ${binds}
             });
 
-            /*
-             * Depois de guardar credencial ou casar item, a tela inteira muda:
-             * o status da conta, a contagem de itens casados e a lista de
-             * pedidos. Recarregar e' mais honesto do que tentar consertar cada
-             * pedaco por JavaScript, e a pessoa nao perde nada digitado: a
-             * janela ja foi fechada e o valor guardado.
-             */
             function mkAposSalvar() {
                 setTimeout(function () { window.location.reload(); }, 700);
             }

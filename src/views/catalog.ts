@@ -108,19 +108,6 @@ export function renderCatalog(d: CatalogData): string {
                         <div>
                             <label class="label" for="catCategory">Categoria</label>
                             <input id="catCategory" type="text" name="category" list="categoryList" maxlength="40" placeholder="Escolha ou escreva" class="input">
-                            <!--
-                                As sugeridas entram na lista mesmo sem nenhum
-                                produto nelas.
-
-                                A datalist so oferece o que ja existe no catalogo, e
-                                por isso ela nasce vazia: a loja ainda nao
-                                classificou nada, entao o campo oferece "Geral" e a
-                                pessoa digita "salgado" com a caixa baixa, que vira
-                                uma categoria so dela. Offer as canonicas antes de
-                                existir e' o que faz a separacao por tipo
-                                aparecer no filtro do PDV -- sem esperar alguem
-                                inventar o nome certo.
-                            -->
                             <datalist id="categoryList">
                                 ${[...new Set([...CATEGORIAS, ...d.categories])]
                                     .map((c) => `<option value="${escapeHtml(c)}"></option>`)
@@ -161,17 +148,6 @@ export function renderCatalog(d: CatalogData): string {
                         <p class="text-caption text-ink-3">${d.products.length} item(ns)${d.lowStock > 0 ? ` &middot; ${d.lowStock} precisando de reposicao` : ''}</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
-                        <!--
-                            Largura declarada e shrink-0 em busca e select.
-
-                            Sem isso, o campo de busca encolhe ate quase nada e o
-                            texto digitado rola para fora da caixa: a pessoa ve
-                            "arro" e nenhuma das teclas se perdeu. Input nao tem
-                            min-width:auto como o texto tem, entao ele cede espaco
-                            sem avisar -- e o select do lado faz o mesmo. Ja
-                            aconteceu nesta tela, no Estoque e no PDV; o que
-                            resolve e' o mesmo nos tres.
-                        -->
                         <input id="productSearch" type="search" placeholder="Buscar item ou SKU..." oninput="filterProducts()" class="input w-56 shrink-0" autocomplete="off">
                         <select id="productCategory" onchange="filterProducts()" class="input w-auto shrink-0">
                             <option value="">Todas</option>
@@ -206,7 +182,6 @@ export function renderCatalog(d: CatalogData): string {
         </div>
 
         <script>
-            // ---- Gestao de produtos (aba produtos, dentro do PDV) ----
             function filterProducts() {
                 var q = (document.getElementById('productSearch').value || '').toLowerCase();
                 var cat = (document.getElementById('productCategory').value || '').toLowerCase();
@@ -218,20 +193,6 @@ export function renderCatalog(d: CatalogData): string {
                 });
             }
 
-            /*
-             * Um listener so para os cinco botoes de cada linha.
-             *
-             * Antes cada botao chamava a sua funcao por onclick com o id escrito
-             * dentro do atributo. Um id interpolado em codigo e' uma string feita
-             * no servidor: se um deles trouxer uma aspa, o bloco de script para
-             * de fazer sentido e a pagina perde TODOS os ouvintes de uma vez --
-             * os botoes continuam visiveis e nenhum responde. O nome do produto
-             * vai em data-prod-name e nao entra no codigo.
-             *
-             * Registrado antes de qualquer outra coisa deste arquivo, e a
-             * delegacao vai no document: e' o que garante que um erro em um
-             * ouvinte posterior nao deixe esta tela sem botao nenhum.
-             */
             document.addEventListener('click', function (ev) {
                 var alvo = ev.target;
                 if (!alvo || !alvo.closest) return;
@@ -278,7 +239,6 @@ export function renderCatalog(d: CatalogData): string {
                 } catch (e) { flash('err', 'Erro ao baixar CSV'); }
             }
 
-            /* Redimensiona no navegador para no max 400px e ~300KB antes de enviar. */
             function uploadPhoto(id) {
                 var input = document.createElement('input');
                 input.type = 'file';
@@ -315,7 +275,6 @@ export function renderCatalog(d: CatalogData): string {
                 input.click();
             }
 
-            /* ---- Gerenciador de grupos e combo (aba Produtos) ---- */
 
             var cfgProductId = null;
 
@@ -351,7 +310,6 @@ export function renderCatalog(d: CatalogData): string {
 
                 var html = '';
 
-                // ---- grupos ligados ----
                 html += '<div><h4 class="text-body font-bold text-ink mb-2">Grupos neste produto</h4>';
                 if (full.modifierGroups.length === 0) {
                     html += '<p class="text-body text-ink-3">Nenhum grupo vinculado.</p>';
@@ -386,7 +344,6 @@ export function renderCatalog(d: CatalogData): string {
                 }
                 html += '</div>';
 
-                // ---- grupos disponiveis ----
                 var avail = groups.filter(function (g) { return !attached[g.id]; });
                 html += '<div><h4 class="text-body font-bold text-ink mb-2">Vincular grupo</h4>';
                 if (avail.length === 0) {
@@ -399,7 +356,6 @@ export function renderCatalog(d: CatalogData): string {
                 }
                 html += '</div>';
 
-                // ---- novo grupo ----
                 html += '<details class="p-3 rounded-card bg-sunken"><summary class="cursor-pointer text-sm font-semibold ink">Criar novo grupo de modificadores</summary>'
                     + '<div class="grid grid-cols-2 gap-2 mt-3">'
                     + '<div class="col-span-2"><input id="cfgGroupName" placeholder="Nome (Ponto da carne)" class="w-full px-3 py-2 text-sm input"></div>'
@@ -410,23 +366,12 @@ export function renderCatalog(d: CatalogData): string {
                     + '<button type="button" onclick="cfgCreateGroup()" class="btn btn-primary col-span-2 text-sm py-2 font-medium">Criar grupo</button>'
                     + '</div></details>';
 
-                // ---- combo ----
                 html += '<div class="pt-3 border-t border-line"><h4 class="text-body font-bold text-ink mb-2">Combo</h4>'
                     + '<label class="flex items-center gap-2 text-sm ink-2 mb-2">'
                     + '<input type="checkbox" id="cfgCombo" ' + (full.isCombo ? 'checked' : '') + ' class="accent-accent w-4 h-4">'
                     + 'Este produto e um combo (baixa estoque nos componentes)</label>'
                     + '<div class="space-y-1" id="cfgComboList">'
                     + full.comboComponents.map(function (c) {
-                        /*
-                         * A quantidade de cada componente.
-                         *
-                         * O campo fica DENTRO de um rotulo, e nao apontado por
-                         * "for". O id teria de ser unico por componente e a
-                         * lista e' montada aqui a cada abertura da janela --
-                         * um id gerado resolveria, mas o texto do rotulo e' o
-                         * nome do proprio componente, entao o rotulo involve o
-                         * campo e o nome acessivel sai de graça.
-                         */
                         return '<label class="flex items-center gap-2 p-2 rounded-card bg-sunken">'
                             + '<span class="text-sm ink flex-1 truncate">' + esc(c.name) + '</span>'
                             + '<input type="number" min="1" value="' + c.quantity + '" data-cid="' + esc(c.componentId) + '" class="cfg-qty w-16 px-2 py-1 text-sm input">'
@@ -618,14 +563,11 @@ export function renderCatalog(d: CatalogData): string {
                 );
             }
 
-            // Botao de configuracao de modificadores/combo (delegado: o nome do
-            // produto vai em data attribute para nao quebrar o JS com apostrofo).
             document.addEventListener('click', function (e) {
                 var btn = e.target.closest('[data-cfg-open]');
                 if (btn) cfgOpen(btn.dataset.cfgId, btn.dataset.cfgName || '');
             });
 
-            // Revela os campos de saldo quando "controlar estoque" e marcado.
             try {
                 var form = document.getElementById('catForm');
                 var trackBox = form ? form.querySelector('[name="trackStock"]') : null;

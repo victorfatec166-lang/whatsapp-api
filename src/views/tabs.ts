@@ -142,20 +142,6 @@ export function renderKanban(d: KanbanData): string {
         </p>
 
         <script>
-            /*
-             * Delegacao, e nao onclick com o id dentro.
-             *
-             * Um id de pedido escrito dentro de um atributo onclick e' uma string
-             * montada no HTML: se o id vier com aspa, ou o nome do cliente vier
-             * num onclick vizinho, o bloco de script inteiro para de fazer
-             * sentido e a pagina perde TODOS os ouvintes de uma vez -- o botao
-             * visivel continua ali, e nao responde. Ja aconteceu nesta tela.
-             *
-             * O id viaja em data-id, que e' dado, nao codigo, e nao tem como
-             * quebrar o resto do bloco. O listener e' um so, no document, e
-             * registrado ANTES dos guards: um throw no meio do registro deixaria
-             * o resto da pagina sem script.
-             */
             document.addEventListener('click', function (ev) {
                 var alvo = ev.target;
                 if (!alvo || !alvo.closest) return;
@@ -266,18 +252,6 @@ export function renderConfig(c: ConfigData): string {
                     </p>
                 </div>
 
-                <!--
-                    O estado da agenda, derivado dos tres campos acima.
-
-                    Este bloco repete a regra que o agendador usa, e repete de
-                    proposito: a tela mostra o que vai acontecer ANTES de
-                    salvar, e nao depois de tentar. Antes ele era um
-                    paragrafo fixo, que continuava verdade depois de o campo
-                    virar outra coisa -- o pior tipo de texto de tela.
-
-                    A versao inicial vem do servidor (que chamou a mesma
-                    funcao); o script abaixo recalcula a cada tecla.
-                -->
                 <div id="cfgAgenda" class="flex items-start gap-2 text-caption border border-line rounded-card p-3 mt-3 bg-surface-2 text-ink-2">
                     <i class="fa-solid ${agendaAtiva ? 'fa-circle-check text-accent-emerald' : 'fa-circle-info text-accent'} mt-0.5 shrink-0"></i>
                     <span id="cfgAgendaTexto">${escapeHtml(c.agenda.resumo)}</span>
@@ -396,19 +370,6 @@ export function renderConfig(c: ConfigData): string {
         </form>
 
         <script>
-            /*
-             * Faz uma copia do banco na hora.
-             *
-             * Antes disto o backup rodava sozinho, de seis em seis horas, e o dono
-             * nao tinha como pedir um nem como ver o que existia. Um backup que a
-             * pessoa nao sabe se existe e' o mesmo que nao existir, e o pior
-             * momento para descobrir e' depois de precisar dele.
-             *
-             * O botao se trava durante a chamada e o aviso vai dizendo o que
-             * aconteceu, em vez de sumir sozinho: quem aperta "Fazer agora" antes
-             * de fechar o caixa e' a pessoa decidindo fazer uma copia de
-             * seguranca, e a tela precisa confirmar que a copia foi feita.
-             */
             function fazBackupAgora() {
                 var botao = document.getElementById('btnBackupAgora');
                 var aviso = document.getElementById('backupAviso');
@@ -426,11 +387,6 @@ export function renderConfig(c: ConfigData): string {
                         botao.disabled = false;
                         return;
                     }
-                    /*
-                     * A rota responde 202 antes de gravar, entao o "copiando" ainda
-                     * esta acontecendo quando a resposta chega. Espera o servidor
-                     * dizer que terminou, e so entao confirma.
-                     */
                     esperaBackup();
                 }).catch(function () {
                     aviso.textContent = 'Nao foi possivel falar com o servidor.';
@@ -439,7 +395,6 @@ export function renderConfig(c: ConfigData): string {
                 });
             }
 
-            /** Pergunta de tempos em tempos ate a copia aparecer na lista. */
             function esperaBackup(tentativa) {
                 var aviso = document.getElementById('backupAviso');
                 var botao = document.getElementById('btnBackupAgora');
@@ -458,13 +413,6 @@ export function renderConfig(c: ConfigData): string {
                         var quando = new Date(lista[0].quando).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
                         return finaliza('Copia de ' + quando + ' pronta (' + tamanhoLegivelJs(lista[0].bytes) + ').', true);
                     }
-                    /*
-                     * Nada ainda. Nao desiste na primeira: a gravacao de um banco
-                     * grande leva alguns segundos, e desistir no primeiro silencio
-                     * daria "falhou" para um backup que estava indo bem. O teto de
-                     * 20 tentativas existe para o outro extremo: um servidor
-                     * travado nao pode deixar o botao girando a noite inteira.
-                     */
                     desistir();
                 }).catch(desistir);
             }
@@ -479,28 +427,12 @@ export function renderConfig(c: ConfigData): string {
                 if (botao) botao.disabled = false;
             }
 
-            /** "336 KB", "1,2 MB". */
             function tamanhoLegivelJs(bytes) {
                 if (!bytes) return '0 KB';
                 if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
                 return (bytes / (1024 * 1024)).toFixed(1).replace('.', ',') + ' MB';
             }
 
-            /*
-             * O estado da agenda, calculado enquanto a pessoa digita.
-             *
-             * A mesma regra que o servidor roda antes de gravar, escrita em
-             * JavaScript. E' duplicacao, e e' de proposito: o servidor precisa
-             * dela para recusar a gravacao, e o navegador precisa dela para
-             * mostrar o efeito antes de salvar. Se as duas divergirem, o
-             * servidor manda -- a tela so deixa de ser silenciosamente
-             * enganosa.
-             *
-             * Nao ha replicar a validacao de inteiro e de horario aqui: o
-             * input type="time" ja so entrega HH:MM ou vazio, e o valor
-             * invalido chega no servidor como erro. Aqui so o estado, que e'
-             * leitura.
-             */
             function cfgEstadoAgenda() {
                 var abre = document.getElementById('cfg-cashAutoOpen').value;
                 var fecha = document.getElementById('cfg-cashAutoClose').value;
@@ -512,8 +444,6 @@ export function renderConfig(c: ConfigData): string {
                 if (!(fundo > 0)) {
                     return { ativa: false, texto: 'Nao vai funcionar ainda: falta o fundo de troco. Sem ele o turno nao abre sozinho.' };
                 }
-                // Mesmo formato do servidor: toFixed(2) daria "50.00" ao lado
-                // de "R$ 50,00" nos cartoes da tela de cima.
                 var dinheiro = 'R$ ' + fundo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 if (abre !== '' && fecha === '') {
                     return { ativa: true, texto: 'Abre sozinho as ' + abre + ' com ' + dinheiro + ' de fundo. O fechamento continua sendo manual.' };
@@ -533,8 +463,6 @@ export function renderConfig(c: ConfigData): string {
 
             ['cfg-cashAutoOpen', 'cfg-cashAutoClose', 'cfg-cashDefaultFloat'].forEach(function (id) {
                 var el = document.getElementById(id);
-                // 'input' e nao 'change': quem digita "22" no meio do caminho
-                // precisa ver o que acontece antes de terminar de digitar.
                 el.addEventListener('input', cfgAtualizaAgenda);
             });
 
@@ -550,9 +478,6 @@ export function renderConfig(c: ConfigData): string {
                         flash('err', r.data.error || 'Erro ao salvar');
                         return;
                     }
-                    // Recarrega para o nome do negocio aparecer no logo e no
-                    // titulo: sao renderizados no servidor, entao valem para a
-                    // proxima pagina -- e e' o que traz os numeros de "Dados".
                     flash('ok', 'Configuracoes salvas.');
                     setTimeout(function () { window.location.reload(); }, 700);
                 } catch (e) {
@@ -585,21 +510,6 @@ export function renderCalendar(d: CalendarData): string {
                 kpi('Media por dia', (d.totalOrders / Math.max(1, d.daysInPeriod)).toFixed(1).replace('.', ','), 'ritmo do periodo'),
             ], 2)}
 
-            <!--
-                Duas colunas: calendario na esquerda, lembretes na direita.
-
-                A coluna da direita existia como espaco vazio -- o calendario e'
-                largo, e a largura que sobrava depois dele nao servia para mais
-                nada. Elembrete e' anotacao de trabalho: "ligar para o
-                fornecedor", "renovar o gas", "cobrar o cliente que pediu ago".
-                Isso nao tem lugar nenhum no sistema, e a tela onde a pessoa ja
-                esta pensando em "aquele dia" e' exatamente o calendario.
-
-                A coluna e' estreita de proposito. Lembrete e' uma linha curta, e
-                uma coluna larga transformaria cada lembrete em uma frase
-                pequena perdida no meio do espaco -- que e' o mesmo defeito do
-                calendario esticado, so invertido.
-            -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
             <div class="lg:col-span-2 space-y-5">
 
@@ -607,22 +517,6 @@ export function renderCalendar(d: CalendarData): string {
                 <div class="card-pad flex flex-wrap items-center justify-between gap-3">
                     <div class="flex items-center gap-2">
                         <span class="text-micro uppercase text-ink-3">Em vista</span>
-                        <!--
-                            Mes e ano sao seletores, e nao so setas.
-
-                            As setas resolvem "ir para o mes seguinte", que e' a
-                            pergunta de quem olha o mes de hoje e o de ontem. Nao
-                            resolvem "ver marco", que e' a pergunta de quem abre o
-                            calendario para conferir um pedido de dois meses atras
-                            -- e essa pessoa vai clicar na seta 27 vezes ou abrir
-                            a URL na mao. A seta continua ao lado, porque e' o
-                            caminho de um clique quando a pessoa ja sabe onde vai.
-
-                            O valor do seletor e' a resposta da pergunta "qual mes
-                            eu estou vendo", que e' a mesma do anel no dia. Nao
-                            precisa de pílula separada: o seletor ja mostra o que
-                            esta escolhido.
-                        -->
                         <select id="calMonth" onchange="irPara(parseInt(this.value,10), currentYear)" class="input w-auto py-1.5" aria-label="Mes em vista"></select>
                         <select id="calYear" onchange="irPara(currentMonth, parseInt(this.value,10))" class="input w-auto py-1.5" aria-label="Ano em vista"></select>
                     </div>
@@ -660,17 +554,6 @@ export function renderCalendar(d: CalendarData): string {
 
             <div class="card flex flex-col overflow-hidden">
                 <div class="card-pad pb-2">
-                    <!--
-                        O titulo do painel NOMEIA o dia.
-
-                        Esse era o furo do pedido: a grade mostrava o mes, o painel
-                        mostrava "Pedidos do dia selecionado", e nada em lugar
-                        algum dizia qual dia era esse. Se voce clica no dia 25, vai
-                        para o outro mes e volta, o painel continua com os pedidos
-                        do dia 25 sem que em nenhum ponto da tela esteja escrito
-                        "25". A pessoa sabe do dia so porque lembrou -- e a
-                        selecao some assim que a grade e' redesenhada.
-                    -->
                     <h3 class="text-title" id="dayOrdersTitle">Pedidos do dia selecionado</h3>
                     <div id="diaForaDaVista" class="hidden mt-1 text-caption text-accent-orange"></div>
                 </div>
@@ -681,25 +564,6 @@ export function renderCalendar(d: CalendarData): string {
             </div>
 
 
-            <!--
-                Lembretes do mes.
-
-                O formulario escreve no dia SELECIONADO, e a frase embaixo diz
-                qual e' -- porque o comportamento padrao seria anotar para hoje
-                e a pessoa descobrir amanha que anotou no dia errado. Antes de
-                selecionar um dia, o campo avisa que o lembrete vai para hoje, em
-                vez de ficar em silencio e assumir o dia.
-
-                E o aviso some quando a selecao chega, pelo mesmo motivo: texto
-                que continua verdadeiro depois da mudanca e' pior do que texto
-                ausente.
-
-                O teto do cartao vem da altura da tela, e a lista e' a parte que
-                cede espaco. A conta e' o cabecalho, o respiro do <main> e a
-                faixa de numeros -- o que vem antes do cartao. Um max-height em
-                rem aqui dava valor negativo em tela baixa, e a lista sumia
-                inteira: era o que sumia quando a pessoa anotava lembrete.
-            -->
             <div class="card flex flex-col overflow-hidden max-h-[calc(100vh-13rem)]">
                 <div class="card-pad pb-2 shrink-0">
                     <h3 class="text-title flex items-center gap-2">
@@ -1042,13 +906,6 @@ ${g.campos.map((f) => campoBot(f, d.mensagens[f.key])).join('\n')}
         </form>
 
         <script>
-            /*
-             * Insere a variavel onde o cursor esta.
-             *
-             * No fim do texto quando o campo nunca recebeu foco, que e' o caso
-             * de quem clica no botao direto. Inserir sempre no fim seria errado
-             * para quem esta editando o meio da frase.
-             */
             function msgInserir(token) {
                 var area = document.activeElement;
                 if (!area || area.tagName !== 'TEXTAREA') {
@@ -1073,7 +930,6 @@ ${g.campos.map((f) => campoBot(f, d.mensagens[f.key])).join('\n')}
                 msgConta();
             }
 
-            /* Contador do topo: quantos campos estao diferentes do que esta no banco. */
             function msgConta() {
                 var areas = document.querySelectorAll('[data-form-mensagens] textarea');
                 var mudados = 0;
@@ -1089,8 +945,6 @@ ${g.campos.map((f) => campoBot(f, d.mensagens[f.key])).join('\n')}
             }
 
             document.addEventListener('DOMContentLoaded', function () {
-                // Guarda o valor original de cada campo, para o contador saber o
-                // que mudou sem precisar consultar o servidor.
                 var areas = document.querySelectorAll('[data-form-mensagens] textarea');
                 for (var i = 0; i < areas.length; i++) {
                     areas[i].setAttribute('data-original', areas[i].value);
@@ -1098,12 +952,6 @@ ${g.campos.map((f) => campoBot(f, d.mensagens[f.key])).join('\n')}
                 }
             });
 
-            /*
-             * Restaurar um campo: traz o padrao para a area de texto e deixa o
-             * envio decidir. Nao grava nada agora -- se a pessoa restaurar e
-             * logo depois voltar a mexer no mesmo campo, o que vale e o ultimo
-             * estado, e salvar duas vezes e' uma confusao desnecessaria.
-             */
             function msgRestaurar(key) {
                 var area = document.querySelector('textarea[name="' + key + '"]');
                 if (!area) return;
@@ -1124,23 +972,6 @@ ${g.campos.map((f) => campoBot(f, d.mensagens[f.key])).join('\n')}
             }
 
             async function msgRestaurarTodas() {
-                /*
-                 * A janela de confirmacao, e nao o confirm do navegador.
-                 *
-                 * O confirm do sistema e' a unica janela do painel que nao
-                 * parece com o resto: fundo cinza do sistema operacional, botao
-                 * "OK" sem nome e o titulo "localhost:3000 diz". E esta e' a
-                 * acao que apaga trabalho digitado sem volta -- o pior lugar
-                 * para um dialogo com aparencia de aviso de antivirus.
-                 *
-                 * A frase nomeia o que vai acontecer e diz que nao tem volta,
-                 * porque "tem certeza?" nao responde a pergunta que a pessoa
-                 * tem: "eu perco o que escrevi?". O botao diz "Descartar", e nao
-                 * "Confirmar" -- o botao e' a ultima leitura antes do clique.
-                 *
-                 * E o foco vai para CANCELAR, que vem do confirmThen: quem
-                 * apertar Enter sem ler nao perde o trabalho.
-                 */
                 confirmThen(
                     'Todos os textos que voce alterado serao apagados e o bot volta a falar do jeito que veio com o programa. ' +
                         'O que foi digitado aqui nao tem como recuperar depois.',
@@ -1162,9 +993,6 @@ ${g.campos.map((f) => campoBot(f, d.mensagens[f.key])).join('\n')}
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...';
 
-                // Só o que mudou. A versao anterior mandava os 15 campos sempre,
-                // e como os que nunca foram editados apareciam vazios, salvar
-                // uma mensagem apagava as outras catorze.
                 var areas = document.querySelectorAll('[data-form-mensagens] textarea');
                 var payload = {};
                 for (var i = 0; i < areas.length; i++) {

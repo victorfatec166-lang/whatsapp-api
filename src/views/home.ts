@@ -318,7 +318,6 @@ const cashModalsHtml = renderModal(cashOpenSpec());
 
         ${cashModalsHtml}
 
-        <!-- Modal: menu do dia -->
         <div id="menuModal" class="modal-backdrop hidden">
             <div class="modal-panel">
                 <div class="flex items-start justify-between gap-3 mb-1">
@@ -329,7 +328,6 @@ const cashModalsHtml = renderModal(cashOpenSpec());
                 </div>
                 <p class="text-caption text-ink-3 mb-4">Escolha os pratos de hoje. Eles aparecem no topo do cardapio do WhatsApp.</p>
 
-                <!-- Montar na hora: cria o prato e ja coloca no menu de hoje -->
                 <div class="mb-3">
                     <button type="button" id="menuAddBtn" onclick="menuQuickOpen()" class="btn btn-ghost w-full border-success text-success-ink">
                         <i class="fa-solid fa-plus"></i> Montar um prato novo para hoje
@@ -445,7 +443,6 @@ const cashModalsHtml = renderModal(cashOpenSpec());
                 menuQuickCancel();
             }
 
-            // ---- montar um prato na hora ----
 
             function menuQuickOpen() {
                 document.getElementById('menuAddBtn').classList.add('hidden');
@@ -480,7 +477,6 @@ const cashModalsHtml = renderModal(cashOpenSpec());
                 btn.textContent = 'Criando...';
 
                 try {
-                    // 1. cria o produto (ja entra disponivel no cardapio)
                     var novo = await postJSON('/api/admin/products', {
                         name: nome,
                         price: preco,
@@ -489,7 +485,6 @@ const cashModalsHtml = renderModal(cashOpenSpec());
                     });
                     if (!novo.ok) { flash('err', novo.data.error || 'Erro ao criar o prato'); return; }
 
-                    // 2. inclui no menu de hoje, preservando o que ja estava marcado
                     var ids = menuCheckedIds();
                     if (ids.indexOf(novo.data.id) === -1) ids.push(novo.data.id);
 

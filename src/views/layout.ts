@@ -1,4 +1,4 @@
-import { escapeHtml } from './html';
+import { escapeHtml, semComentarios } from './html';
 import { iconeDaAba, tileDaMarca } from './marca';
 import { logDoModulo } from '../services/logger';
 import { barraCliente } from './barraCliente';
@@ -798,7 +798,7 @@ ${blocks}
                         <i class="fa-solid fa-bars text-xs"></i>
                     </button>
 
-                    <!-- Navegacao mobile -->
+
                     <div class="md:hidden bg-surface border-b border-line px-4 py-3 flex items-center justify-between gap-3">
                         <a href="/admin" class="font-bold flex items-center gap-2 shrink-0">
                             ${tileDaMarca(28)}
@@ -829,7 +829,7 @@ export type LayoutOptions = {
 };
 
 export function renderLayout(opts: LayoutOptions): string {
-    return `<!DOCTYPE html>
+    return semComentarios(`<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -842,37 +842,11 @@ export function renderLayout(opts: LayoutOptions): string {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/styles/app.css">
     ${iconeDaAba()}
-    <!--
-        O CSRF da sessao, para o JavaScript do painel.
 
-        Vai em meta e nao em variavel global de propósito: um script solto no
-        corpo colocaria o token num lugar que o "ver fonte" mostra e que entra em
-        print de tela. Com a meta, ele continua no HTML -- o que muda e' o tanto
-        que aparece: so o valor, e so no cabecalho que a tela precisa ler.
-
-        O cookie sozinho resolveria o caso comum (SameSite Lax barra o site de
-        terceiro). A meta cobre o que o cookie nao cobre: a mesma origem em outra
-        aba, e um subdominio sob controle de alguem. Os dois juntos fecham.
-    -->
     <meta name="csrf" content="${escapeHtml(opts.csrf ?? '')}">
 </head>
 <body>
-    <!--
-        O painel e' um app de altura fixa, nao um documento.
 
-        h-screen overflow-hidden no container, e min-h-0 na coluna de conteudo.
-        A diferenca nao e' estetica: e' o que garante que a barra de abas e o
-        cabecalho fiquem parados enquanto a pessoa mexe na lista de pedidos. Com
-        min-h-screen e overflow-y-auto na coluna, tudo que for mais alto que a
-        tela empurra o cabecalho para fora -- e o cabecalho e' onde esta o sino,
-        que e' justamente o aviso que chega enquanto a pessoa esta no meio da
-        tela.
-
-        E' por isso que cada aba precisa declarar onde a rolagem acontece: a
-        regiao que cresce com os dados leva flex-1, min-h-0 e overflow-y-auto.
-        Sem o min-h-0 no meio do caminho, o flex nao encolhe -- o item prefere a
-        altura do conteudo, e a coluna volta a crescer.
-    -->
     <div class="flex h-screen overflow-hidden">
 ${sidebar(opts.active, opts.counters ?? { pdv: opts.productCount }, opts.botOnline, opts.businessName)}
 
@@ -885,20 +859,7 @@ ${sidebar(opts.active, opts.counters ?? { pdv: opts.productCount }, opts.botOnli
                         <span id="botStatusText">Verificando...</span>
                     </span>
 
-                    <!--
-                        O sino.
 
-                        Antes o aviso de pedido novo era um numero em duas abas da
-                        barra lateral, e nenhum aviso de estoque, canal ou
-                        lembrete existia fora da Home. Um numero dentro de uma aba
-                        que a pessoa nao esta olhando nao avisa de nada: e' uma
-                        informacao escondida em um lugar que so e' visto quando a
-                        pessoa ja esta pensando no assunto.
-
-                        O sino fica no topo e em todas as telas, porque a coisa de
-                        que ele avisa acontece em qualquer aba -- o pedido chega
-                        pelo WhatsApp enquanto a pessoa esta no Faturamento.
-                    -->
                     <div class="relative">
                         <button type="button" id="sinoBtn" onclick="alternaPainel()" class="btn btn-ghost px-2 relative"
                             aria-haspopup="true" aria-expanded="false" aria-controls="painelAvisos"
@@ -908,19 +869,7 @@ ${sidebar(opts.active, opts.counters ?? { pdv: opts.productCount }, opts.botOnli
                                 class="hidden absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-accent-red text-white text-[10px] font-bold leading-4 text-center"></span>
                         </button>
 
-                        <!--
-                            O painel.
 
-                            absolute em vez de modal: quem le um aviso quer sair
-                            de onde esta, e um fundo que escurece a tela inteira
-                            transformaria a leitura em duas telas. Fechar e' o
-                            botao de novo e o clique fora -- padrao de menu, e o
-                            que a pessoa ja espera.
-
-                            O hidden do pai controla o painel inteiro; o id
-                            fica no container, e nao em cada linha, para o
-                            aria-controls apontar para uma coisa so.
-                        -->
                         <div id="painelAvisos" class="hidden absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] panel z-30">
                             <div class="card-pad pb-2 flex items-center justify-between gap-2 border-b border-line">
                                 <h2 class="text-title">Avisos</h2>
@@ -958,21 +907,7 @@ ${sidebar(opts.active, opts.counters ?? { pdv: opts.productCount }, opts.botOnli
                 </div>
             </header>
 
-            <!--
-                A regiao de conteudo e' ela propria a rolar, e nao a pagina.
 
-                A coluna de fora e' h-screen, entao o documento nao cresce e o
-                cabecalho fica parado. Aqui dentro, o conteudo que for mais alto
-                que a tela rola sozinho.
-
-                Isso e' uma rede de seguranca, e nao o destino. O destino e' cada
-                aba caber: e' por isso que as listas recebem teto em
-                calc(100vh - ...) e nao em rem. Sem esta rede, uma aba que
-                estourasse o limite esconderia o conteiroso de baixo em vez de
-                mostrar -- que e' o que aconteceu quando o limite chegou antes da
-                hora. Nada pode ficar inacessivel; o que ainda sobra e' o que a
-                regiao interna absorve.
-            -->
             <main class="flex-1 min-h-0 w-full max-w-content mx-auto px-4 md:px-8 py-5 md:py-8 overflow-y-auto">
                 <div id="flash" class="hidden"></div>
 ${opts.body}
@@ -982,5 +917,5 @@ ${opts.body}
 ${opts.scripts ? `<script>${opts.scripts}</script>` : ''}
     <script>${APP_SCRIPTS}    </script>
 </body>
-</html>`;
+</html>`);;
 }

@@ -1,4 +1,5 @@
 import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -18,6 +19,7 @@ import { addClient, notifyClients, notifyConnection, getClientCount, fechaClient
 // parecer que o TTL era configuravel por aqui.
 import { initBot, sendOrderStatusNotification, isBotOnline, loadBotMessages, reconnectBot, logoutBot, desconectaBot, getConnectionState, onConnectionChange, AUTH_DIR } from './services/bot';
 import { renderLayout, tabHint, isTabId, LEGACY_TABS, type TabId } from './views/layout';
+import { paginaDeErro } from './views/erro';
 import { PAIRING_CLIENT_SCRIPT } from './views/pairing';
 import { renderWhatsApp } from './views/whatsapp';
 import { renderPdv, PDV_PAYMENT_LABELS } from './views/pdv';
@@ -229,6 +231,34 @@ app.use(backupRoutes);
 // Marketplace (iFood/99Food). O router traz o webhook publico junto; ver o
 // arquivo para por que ele fica separado das rotas do painel.
 app.use('/', marketplaceRoutes);
+
+/*
+ * Fim das rotas: o que sobrou nao existe. `/api` responde em JSON porque quem chama
+ * essa rota e' `fetch` no painel -- um HTML aqui viraria tela de erro no meio de um
+ * `json.parse`, que e' a falha mais dificil de achar depois.
+ */
+app.use((req: Request, res: Response) => {
+    if (req.path.startsWith('/api/')) {
+        res.status(404).json({ error: 'Rota nao encontrada.' });
+        return;
+    }
+    res.status(404).type('text/html; charset=utf-8').send(paginaDeErro(404));
+});
+
+/*
+ * Rede de seguranca do `try/catch` de cada rota: uma excecao que ninguem pegou vira
+ * a pagina de erro em vez do HTML do Express com o stack. O log e' do servidor, o
+ * corpo nao -- stack em resposta e' mapa do miolo.
+ */
+app.use((erro: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    log.error('Erro nao tratado:', erro);
+    if (res.headersSent) return;
+    if (_req.path.startsWith('/api/')) {
+        res.status(500).json({ error: 'Erro interno.' });
+        return;
+    }
+    res.status(500).type('text/html; charset=utf-8').send(paginaDeErro(500));
+});
 
 /* ------------------------------------------------------------------ Utils */
 
@@ -2282,7 +2312,7 @@ counters: {
         );
     } catch (error) {
         log.error('Erro ao carregar painel administrativo:', error);
-        res.status(500).send('Erro interno ao carregar o painel.');
+        res.status(500).type('text/html; charset=utf-8').send(paginaDeErro(500, '/entrar'));
     }
 });
 

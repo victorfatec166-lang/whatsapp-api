@@ -228,18 +228,6 @@ export function renderCash(d: CashData): string {
         </div>
 
         <script>
-            /*
-             * ABERTO, FECHADO, SANGRIA E DEPOSITO USAM JANELA.
-             *
-             * Antes tudo isso aqui era prompt() e confirm() do navegador, que
-             * nao segue o layout do resto, nao tem o prefixo de moeda no input
-             * e mostra os botoes do navegador em cima do tema escuro. Sao as
-             * mesmas janelas que a Home usa, declaradas em cashModals.ts.
-             *
-             * Abrir turno e' o unico que continua com o campo na tela: tem um
-             * campo so, e a tela ja tem espaco sobrando na hora em que nao ha
-             * turno aberto. Janela aqui seria um clique a mais sem ganho.
-             */
             document.addEventListener('DOMContentLoaded', function () {
                 modalBind('cashCloseModal', '${ENDPOINT_FECHAR}', 'Fechando...', 'Turno fechado.', 'cashAposFechar');
                 modalBind('cashSangriaModal', '${ENDPOINT_MOVIMENTO}', 'Registrando...', 'Sangria registrada.', 'cashAposSalvar');
@@ -260,9 +248,6 @@ export function renderCash(d: CashData): string {
                 setTimeout(function () { location.reload(); }, 700);
             }
 
-            // O servidor devolve a diferenca do fechamento, entao o aviso
-            // informa se o caixa bateu. Antes disso era um confirm() depois
-            // do prompt, que obrigava a ler e clicar duas vezes.
             function cashAposFechar(res) {
                 var d = (res && res.data && res.data.report && res.data.report.difference) || 0;
                 var texto = d === 0
@@ -274,11 +259,6 @@ export function renderCash(d: CashData): string {
                 setTimeout(function () { location.reload(); }, 1400);
             }
 
-            /*
-             * A conferencia de turno ja fechado continua com input na tela.
-             * Ela lista um turno por vez, com o esperado visivel na propria
-             * linha, entao o campo do lado e mais rapido que uma janela.
-             */
             async function cashReconcile(shiftId) {
                 var countedEl = document.querySelector('[data-counted="' + shiftId + '"]');
                 var noteEl = document.querySelector('[data-note="' + shiftId + '"]');

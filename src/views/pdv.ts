@@ -153,18 +153,12 @@ export function renderPdv(d: PdvData): string {
         kpi('Zerados', String(d.totals.soldOut), d.totals.soldOut > 0 ? 'precisam de reposicao' : 'nenhum item travado', d.totals.soldOut > 0 ? 'danger' : 'success', d.totals.soldOut > 0 ? 'danger' : undefined),
     ])}
 
-            <!-- ================= VENDAS SUSPENSAS ================= -->
             ${d.holds.length > 0 ? `
             <div class="card mt-4">
                 <div class="card-pad pb-3 border-b border-line flex items-center gap-2">
                     <h3 class="text-title flex items-center gap-2"><i class="fa-solid fa-pause text-accent-orange"></i> Vendas suspensas</h3>
                     <span class="badge badge-warn">${d.holds.length}</span>
                 </div>
-                <!--
-                    Sem esta lista o "Suspender" era um beco sem saida: o servidor
-                    guardava a venda e nao havia onde ver nem retomar. O d.holds
-                    ja vinha no dado da tela desde o inicio, sem ninguem renderizar.
-                -->
                 <ul class="divide-y divide-line">
                     ${d.holds.map((h) => `
                     <li class="px-4 py-3 flex items-center gap-3 flex-wrap">
@@ -182,7 +176,6 @@ export function renderPdv(d: PdvData): string {
                 </ul>
             </div>` : ''}
 
-            <!-- ================= MODO VENDER ================= -->
             <div id="modeVender">
                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
                     <div class="xl:col-span-2 card">
@@ -192,62 +185,12 @@ export function renderPdv(d: PdvData): string {
                                 <p class="text-caption text-ink-3">Toque para adicionar a venda atual</p>
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
-                            <!--
-                                Os dois campos precisam de largura declarada e de
-                                flex-shrink-0.
-
-                                Sem isso, o campo de busca e' um input dentro de um
-                                flex container sem largura: quando a janela e'
-                                estreita, ele encolhe e o texto rola para fora da
-                                caixa. A pessoa digita "arro" e ve "arro" -&gt; as
-                                letras que ela acabou de apertar nao aparecem mais
-                                nenhuma, sem que nenhuma tecla tenha sido perdida.
-                                Encolher input e' o comportamento padrao do navegador
-                                para form control, diferente de texto, que tem
-                                min-width:auto -- entao nao e' preciso o campo
-                                "crescer", ele simplesmente cede espaco ate
-                                desaparecer.
-
-                                E o container ganha flex-wrap porque, com as duas
-                                caixas em tamanho fixo, o que deve quebrar a linha
-                                em vez de espremer o campo e' o layout.
-
-                                A classe e' "input" -- e nao uma receita de borda e
-                                padding. Sem ela o campo nao tem cor de fundo nem cor
-                                de texto: quem pinta e' o navegador, e no tema escuro
-                                ele pinta do jeito dele. Ver color-scheme no
-                                app.css, e o check:contrast, que barra o campo sem a
-                                classe.
-                            -->
                             <input id="pdvScan" type="text" placeholder="Codigo do produto..." onkeydown="if(event.key==='Enter'){event.preventDefault();if(!pdvScanCode(this.value)){flash('err','Codigo nao encontrado.');}this.value='';}" class="input w-36 shrink-0" autocomplete="off">
                             <input id="pdvSearch" type="search" placeholder="Buscar produto..." oninput="pdvFilter()"
                                 class="input w-56 shrink-0" autocomplete="off">
                         </div>
                         </div>
 
-                        <!--
-                            A categoria vira aba, e nao <select>.
-
-                            A pergunta do balcao nao e' "qual categoria tem o item que
-                            eu procuro": e' "que grupo de coisa o cliente esta
-                            pedindo agora". Com um dropdown, essa pergunta custa
-                            dois cliques e um pouco de leitura da lista -- e a lista
-                            esta embaixo, dentro do catalogo, competing com 40
-                            cartoes de produto. A aba responde em um clique, mostra
-                            quantos itens tem em cada grupo (para a pessoa saber se
-                            esta no lugar certo sem precisar rolar), e tem a largura
-                            de um dedo.
-
-                            E a aba cobre um caso que o dropdown nao cobria: a
-                            categoria vazia. Sem produto em "Bebidas", ela nao
-                            aparece -- e assim o grupo nao ocupa espaco para dizer
-                            que esta vazio. Categoria so entra na barra quando tem
-                            algo dentro.
-
-                            O valor viaja em data-categoria, nao em id="pdvCategory":
-                            o id era o que o filtro lia, e o id precisa existir uma
-                            vez so. Ver pdvFiltroCategoria.
-                        -->
                         <div id="pdvCategorias" class="flex flex-wrap gap-1.5 mb-4" role="tablist" aria-label="Categorias">
 ${categoriasPdv}
                         </div>
@@ -263,34 +206,6 @@ ${sellCards}
                         </div>
                     </div>
 
-                    <!--
-                        O cartao e' o unico lugar da tela que rola por dentro.
-
-                        A coluna do carrinho tem mais conteudo do que cabe num
-                        monitor de balcao: lista, cinco totais, atalhos de
-                        desconto, atalhos de gorjeta, observacao, cliente,
-                        pagamento, valor recebido e tres botoes. Somados, passam
-                        da altura util -- e o max-height sozinho nao resolve
-                        nada: sem overflow, o conteudo transborda POR FORA do
-                        cartao e invade a grade de produtos. Foi o que apareceu.
-
-                        Duas medidas, nesta ordem:
-
-                        1. Desconto, gorjeta e observacao foram para uma secao
-                        recolhida. Nao e' perda de funcao: os valores continuam
-                        aparecendo nos totais, entao quem precisa so de ver o
-                        desconto aplicado le em cima e nao precisa abrir nada
-                        para isso. Abrir e' para QUERER MUDAR, que e' occasional.
-                        Sobrou o que se usa em toda venda: lista, total, como
-                        paga, e finalizar.
-
-                        2. O cartao tem overflow, entao se ainda assim faltar
-                        altura em tela muito baixa, a rolagem acontece aqui e nao
-                        na pagina. O teto da lista e' em vh e nao em flex-1: a
-                        lista e' a unica parte que cresce com os itens, mas
-                        deixar ela comer o resto e' o que empurrava os botoes
-                        para fora do cartao.
-                    -->
                     <div class="card card-pad sticky top-4 flex flex-col max-h-[calc(100vh-7rem)] overflow-y-auto">
                         <h3 class="text-title flex items-center gap-2 shrink-0"><i class="fa-solid fa-cart-shopping text-accent"></i> Venda atual</h3>
 
@@ -323,20 +238,6 @@ ${sellCards}
                             </div>
                         </div>
 
-                        <!--
-                            Desconto, gorjeta e observacao, recolhidos.
-
-                            Sao tres controles que se mexem uma vez por venda, e
-                            nao em toda venda. Acessiveis ficavam entre o total e
-                            o pagamento, empurrando o botao de finalizar para
-                            baixo da dobra num monitor de 1366x768.
-
-                            Recolhidos, sobram visiveis as tres coisas que se usa
-                            sempre: os itens, o total e como se paga. Quem ja
-                            aplicou o desconto continua vendo o valor dele nos
-                            totais -- o recolhimento esconde o CONTROLE, nunca o
-                            resultado.
-                        -->
                         <details class="mt-3 shrink-0 border border-line rounded-card">
                             <summary class="cursor-pointer text-body font-medium text-ink-2 px-3 py-2 flex items-center gap-2">
                                 <i class="fa-solid fa-sliders text-accent"></i>
@@ -414,7 +315,6 @@ ${sellCards}
                     </div>
                 </div>
 
-                <!-- Modal de modificadores -->
                 <div id="modModal" class="hidden modal-backdrop">
                     <div class="modal-panel max-w-md">
                         <div class="flex items-start justify-between gap-3 mb-3">
@@ -457,7 +357,6 @@ ${sellCards}
                 return PDV_CATALOG.filter(function (x) { return x.id === id; })[0];
             }
 
-            /* --------- modificadores --------- */
 
             function pdvModOpen(productId) {
                 var p = pdvProduct(productId);
@@ -479,14 +378,6 @@ ${sellCards}
                         + '<div class="space-y-1">';
                     g.options.forEach(function (o) {
                         var price = o.price > 0 ? ' + ' + pdvMoney(o.price) : '';
-                        /*
-                         * O campo do modificador fica DENTRO do rotulo, e nao
-                         * apontado por "for". Envolver a caixa de marcacao e o
-                         * texto do item e o que faz clicar no "+ bacon" marcar a
-                         * caixa -- e o "for" nao chega a isso, porque a lista de
-                         * modificadores e' montada aqui e o id teria de ser
-                         * unico por item e por janela.
-                         */
                         html += '<label class="flex items-center gap-2 p-2 rounded-lg sunken cursor-pointer hover:brightness-95">'
                             + '<input type="' + (g.maxSelect <= 1 ? 'radio' : 'checkbox') + '" name="mod-' + esc(g.id) + '" value="' + esc(o.id) + '" data-group="' + esc(g.id) + '" onchange="pdvModPick(this)" class="accent-amber-600">'
                             + '<span class="text-sm ink">' + esc((o.prefix ? o.prefix + ' ' : '') + o.name) + '</span>'
@@ -577,18 +468,11 @@ ${sellCards}
                 });
             }
 
-            /** A categoria escolhida, ou string vazia para "Todos". */
             function pdvCategoriaAtual() {
                 var botao = document.querySelector('#pdvCategorias .pdv-cat[aria-pressed="true"]');
                 return botao ? botao.dataset.pdvCategoria : '';
             }
 
-            /*
-             * Trocar de categoria e um clique, entao o filtro tem que estar pronto
-             * antes do clique -- por isso o estado mora no atributo do botao, e nao
-             * em variavel. Um botao recem-criado ja entra no estado certo sem
-             * ninguem precisar lembrar de sincronizar.
-             */
             document.addEventListener('click', function (e) {
                 var botao = e.target.closest('#pdvCategorias .pdv-cat');
                 if (!botao) return;
@@ -605,7 +489,6 @@ ${sellCards}
                 return id + '#' + groups;
             }
 
-            /** Rotulo e acrescimo de uma linha (usado no carrinho e no total). */
             function pdvLineInfo(key) {
                 var parts = key.split('#');
                 var p = pdvProduct(parts[0]);
@@ -628,7 +511,6 @@ ${sellCards}
                 return { product: p, labels: labels, extra: extra, unit: p.price + extra, name: p.name };
             }
 
-            /** Traduz o carrinho para o formato { id, qty, groups } esperado pelo servidor. */
             function pdvPayload() {
                 return Object.keys(pdvCart).map(function (key) {
                     var info = pdvLineInfo(key);
@@ -838,7 +720,6 @@ ${sellCards}
 
 
 
-            /* Leitura de codigo de barras: o leitor digita o SKU e envia Enter. */
             function pdvScanCode(code) {
                 var sku = String(code || '').trim();
                 if (!sku) return false;
@@ -848,39 +729,10 @@ ${sellCards}
                 return true;
             }
 
-            /* --------------------------------------------------------- bindings */
 
-            /*
-             * Um clique so no catalogo, e um nos botoes do carrinho.
-             *
-             * Delegacao no document, e nao um onclick em cada card. O card e'
-             * redesenhado a cada filtro, a cada busca e a cada item novo: com
-             * onclick=inline, ligar cada card a cada redesenho e' trabalho que se
-             * perde na primeira troca, e o sintoma e' o botao que "as vezes"
-             * funciona. Com delegacao, o card pode ser reescrito a vontade.
-             *
-             * ESTE BLOCO SUMIU uma vez e o PDV inteiro ficou inerte.
-             *
-             * O commit 9931723 (Faturamento numa aba so) reescreveu esta tela e,
-             * no meio da reescrita, levou junto o listener de delegacao inteiro:
-             * clicar num produto nao acrescentava nada, o "+" e o "-" do
-             * carrinho nao faziam nada, e o calculo do troco nao era recalculado
-             * ao digitar o valor recebido. Nenhum aviso apareceu: o tsc passa, o
-             * check:js so olha sintaxe, o check:ui so olha rotulos, e a tela
-             * abre perfeita -- so que morta. E o botao de finalizar venda
-             * nasce desabilitado, entao a venda nem tinha como comecar.
-             *
-             * A licao que fica registrada: botao sem handler e' um erro que
-             * nenhuma checagem de texto pega. Ele so aparece quando alguem
-             * clica. Por isso o check:js agora tambem exige que todo atributo
-             * data-* entregue no HTML seja lido por algum script da pagina.
-             */
             document.addEventListener('click', function (e) {
                 var card = e.target.closest('[data-pdv-product]');
                 if (card) {
-                    // sellable = 0 quando o produto esta pausado ou sem saldo
-                    // controlado: clicar num cartao pausado nao pode acrescentar nada, ou o
-                    // servidor recusaria depois, quando a pessoa ja acreditava ter vendido.
                     if (card.dataset.sellable === '1') pdvModOpen(card.dataset.pdvProduct);
                     return;
                 }
@@ -894,41 +746,15 @@ ${sellCards}
                 var del = e.target.closest('[data-cart-del]');
                 if (del) { pdvRemove(del.dataset.cartDel); return; }
 
-                /*
-                 * Atalhos de desconto e gorjeta.
-                 *
-                 * O valor vinha escrito dentro do onclick, como
-                 * pdvSetPercent('tip', 10). Um argumento de string no atributo
-                 * nao quebra a pagina como acontece com um id de produto, mas
-                 * e' o mesmo caminho: a regra vira codigo no HTML em vez de
-                 * dado. Aqui os dois campos vem em data-*, e a lista de botoes
-                 * some do markup: sete atributos repetidos viram um so.
-                 */
                 var pct = e.target.closest('[data-pdv-pct]');
                 if (pct) { pdvSetPercent(pct.dataset.pdvPct, pct.dataset.pct); return; }
             });
 
-            /*
-             * Troco recalculado enquanto a pessoa digita.
-             *
-             * Sem estes dois ouvintes, o troco so era recalculado quando o
-             * carrinho era redesenhado -- ou seja, quando o total mudava. Digitar
-             * "50" no campo Recebido nao mostrava troco nenhum, e a frase de
-             * ajuda continuava la embaixo como se fosse a unica informacao
-             * possivel.
-             *
-             * "change" em vez de "input" na forma de pagamento e' o suficiente:
-             * ela e' uma escolha, nao uma digitacao. No valor recebido e' "input",
-             * porque e' a digitacao que muda a resposta a cada tecla.
-             */
             var paidInput = document.getElementById('pdvPaid');
             if (paidInput) paidInput.addEventListener('input', pdvChange);
             var paySelect = document.getElementById('pdvPayment');
             if (paySelect) paySelect.addEventListener('change', pdvChange);
 
-            // A primeira pintura vem do HTML do servidor, mas o estado inicial
-            // tambem passa pelo mesmo codigo que desenha qualquer outro -- senao
-            // a tela inicial e a pos-clique podem divergir em um detalhe.
             pdvRender();
 
             </script>`;

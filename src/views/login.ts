@@ -1,4 +1,4 @@
-import { escapeHtml } from './html';
+import { escapeHtml, semComentarios } from './html';
 import { iconeDaAba, lockupDaMarca, tileDaMarca } from './marca';
 import { campoSenha, campoTexto, botaoEntrar, erroGeral } from './ui/field';
 import { REGRA_EMAIL_JS } from '../services/regras';
@@ -210,13 +210,13 @@ export function renderLogin(d: DadosTelaLogin): string {
      */
     const convite = barraCliente();
 
-    return `<!DOCTYPE html>
+    return semComentarios(`<!DOCTYPE html>
 
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Sem indice: a tela de entrada nao e' para aparecer em busca. -->
+
     <meta name="robots" content="noindex, nofollow">
     <title>Entrar | ${escapeHtml(d.nomeNegocio)}</title>
     <script>${HEAD_TEMA}</script>
@@ -232,15 +232,7 @@ export function renderLogin(d: DadosTelaLogin): string {
     ${menuPublico(BOTAO_TEMA)}
     <div class="min-h-screen lg:grid lg:grid-cols-2">
 
-        <!--
-            Metade esquerda: identidade.
 
-            Sumiu abaixo de lg. A regra nao e' "esconda em tela pequena" por
-           -si: e' que o formulario e' a unica coisa necessaria no celular, e uma
-            imagem de marca empurrando o campo de senha para baixo obriga a pessoa
-            a rolar antes de digitar. Abaixo de lg a tela vira so o formulario,
-            com o logo pequeno no topo do proprio card.
-        -->
         <section class="hidden lg:flex entrada-fundo flex-col justify-between p-10 xl:p-14 relative" aria-hidden="true">
             <div class="entrada-malha"></div>
             <div class="entrada-anel" style="width:26rem;height:26rem;top:-8rem;right:-7rem"></div>
@@ -281,18 +273,11 @@ export function renderLogin(d: DadosTelaLogin): string {
             </p>
         </section>
 
-        <!--
-            Metade direita: o formulario.
 
-            O max-w-md com mx-auto e' o que segura a largura no desktop. Sem
-            ele, o card esticaria na largura de meia tela e os campos ficariam
-            com 600px de largura para se digitar um e-mail -- o oposto de
-            confortavel.
-        -->
         <section class="flex items-center justify-center px-5 py-10 sm:px-8 bg-bg">
             <div class="entrada-entra w-full max-w-md">
 
-                <!-- Logo so no mobile: no desktop ele ja esta a esquerda. -->
+
                 <div class="lg:hidden flex items-center gap-3 mb-8">
                     ${tileDaMarca(40)}
                     <p class="text-title truncate">${escapeHtml(d.nomeNegocio)}</p>
@@ -375,7 +360,7 @@ export function renderLogin(d: DadosTelaLogin): string {
 
     <script>${SCRIPT_TEMA}${AJUSTA_ICONE}${script}</script>
 </body>
-</html>`;
+</html>`);;
 }
 
 /**
@@ -398,7 +383,7 @@ type DadosFluxo = {
 };
 
 function cascaFluxo(d: DadosFluxo): string {
-    return `<!DOCTYPE html>
+    return semComentarios(`<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -443,7 +428,7 @@ ${d.conteudo}
 
     <script>${SCRIPT_TEMA}${AJUSTA_ICONE}${d.script}</script>
 </body>
-</html>`;
+</html>`);;
 }
 
 export type DadosTrocaSenha = {

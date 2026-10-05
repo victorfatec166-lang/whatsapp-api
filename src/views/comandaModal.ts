@@ -36,7 +36,6 @@ export function renderComandaModal(): string {
  * reclamar.
  */
 export const COMANDA_SCRIPT = `        <script>
-            // Guarda o pedido aberto para o botao de imprimir saber qual e'.
             var comandaPedidoAtual = '';
 
             async function comandaAbrir(id) {
@@ -56,19 +55,6 @@ export const COMANDA_SCRIPT = `        <script>
                 }
             }
 
-            /*
-             * Imprimir.
-             *
-             * A rota devolve ESC/POS como octet-stream. Quem faz a impressao de
-             * verdade e a impressora do sistema operacional, que e' o caminho
-             * que funciona sem descobrir porta nem driver em runtime. Um agente
-             * local, se existir, consome a mesma rota e imprime do lado dele.
-             *
-             * Abrir em nova aba e o que entrega o arquivo a fila de impressao do
-             * navegador, que por sua vez entrega a impressora padrao. Nao ha
-             * como garantir pela web qual e' a impressora padrao -- essa e'
-             * exatamente a razao de a impressao ficar do lado de fora.
-             */
             function comandaImprimir() {
                 if (!comandaPedidoAtual) { flash('err', 'Nenhum pedido selecionado.'); return; }
                 window.open('/api/admin/comandas/' + comandaPedidoAtual + '/escpos', '_blank');

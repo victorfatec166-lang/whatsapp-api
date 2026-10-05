@@ -23,6 +23,7 @@
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts tests/*.test.js",
     "start": "node scripts/start.mjs",
     "cliente": "electron cliente",
+    "cliente:instalador": "electron-builder --win --x64 --projectDir cliente --config electron-builder.yml",
     "cliente:dist": "node scripts/montar-cliente.mjs && node scripts/zipar-cliente.mjs"
   },
   "dependencies": {

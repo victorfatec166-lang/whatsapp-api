@@ -75,7 +75,14 @@ installer/build/
 installer/entrega/
 release/
 
-# Cliente de desktop montado: a pasta com o runtime do Electron (300 MB) e o zip
-# que o servidor entrega no download. Sao build, e nao dado do dono.
+# Cliente de desktop montado: a pasta com o runtime do Electron (300 MB), o zip
+# que o servidor entrega no download e o instalador que o electron-builder gera.
+# Sao build, e nao dado do dono.
 saida-cliente/
 cliente-dist/
+release-cliente/
+
+# O electron-builder roda `npm install` no `cliente/` (ele e' o projectDir do
+# instalador) e cria um lock la. O app nao tem dependencia nenhuma -- o Electron
+# esta no package.json do servidor --, entao esse lock nao versiona.
+cliente/package-lock.json

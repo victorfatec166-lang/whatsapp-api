@@ -1,0 +1,62 @@
+# Configuracao do instalador do cliente de desktop.
+#
+# Fica aqui, dentro de `cliente/`, e nao na raiz: o `electron-builder` usa o
+# `package.json` do projeto como manifesto do app, e o da raiz descreve o SERVIDOR
+# (sem `main`, com Prisma e Express dentro). O `cliente/package.json` e' quem declara
+# `main: main.js`, entao e' ele que o build consome -- `--projectDir cliente`.
+#
+# `electron-builder` nao esta no `package.json` de proposito: sao ~100 MB que todo
+# `npm ci` do Render baixaria a cada deploy para gerar um instalador que so a sua
+# maquina usa. Instale com `npm i -D electron-builder` e use `npm run cliente:instalador`.
+
+appId: br.com.apegopet.deliveryadmin
+productName: DeliveryAdmin
+copyright: DeliveryAdmin
+
+# Electron fica no `package.json` do SERVIDOR (o app nao tem node_modules proprio), e
+# la a versao e' `^44.5.1`. O builder exige versao exata: ele baixa binarios de uma
+# release especifica, e um intervalo nao diz qual.
+electronVersion: 44.5.1
+
+directories:
+  output: ../release-cliente
+  buildResources: .
+
+# `asar` empacota o app num arquivo so, mas o `main.js` le o icone com `path.join` e o
+# Windows so aceita icone em arquivo de verdade -- dentro do asar o `setIcon` falha em
+# silencio e a janela fica com o icone padrao. Sao 10 arquivos pequenos: nao ha o que
+# ganhar com asar aqui.
+asar: false
+
+files:
+  - "**/*"
+  - "!electron-builder.yml"
+
+compression: maximum
+
+win:
+  icon: deliveryadmin.ico
+  executableName: DeliveryAdmin
+  target:
+    - nsis
+    - portable
+
+nsis:
+  # Um clique, sem assistente e sem pedir administrador. Em maquina de loja quem
+  # instala costuma ser o dono, sem permissao -- e um instalador que pede permissao
+  # de administrador na porta e' onde metade da tentacao de instalar morre.
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DeliveryAdmin
+  installerLanguages: [pt_BR]
+  language: "1026"
+  uninstallDisplayName: DeliveryAdmin
+  # Sem versao no arquivo: o botao de download da tela de entrada aponta para um
+  # endereco so, e `releases/latest/download/<arquivo>` exige o nome exato.
+  artifactName: DeliveryAdmin-Setup.${ext}
+
+portable:
+  artifactName: DeliveryAdmin-Portavel.${ext}

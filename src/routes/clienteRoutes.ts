@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { createReadStream, existsSync } from 'node:fs';
 
-import { garanteZipDoCliente, NOME_DO_ZIP, PASTA_CLIENTE, tamanhoDoZip, urlDoPacote, zipDoCliente } from '../services/cliente';
+import { instaladorDoCliente, NOME_DO_PACOTE, tamanhoDoInstalador, urlDoPacote } from '../services/cliente';
 import { logDoModulo } from '../services/logger';
 
 const log = logDoModulo('clienteRoutes');
@@ -46,57 +46,54 @@ function semPacote(res: Response): void {
 </style></head>
 <body><div class="caixa">
     <h1>O cliente de desktop nao esta disponivel agora</h1>
-    <p>O botao continua aqui de proposito. O pacote e' publicado como release do
-       repositorio, e nem ha nem um arquivo anexado -- o log do deploy mostra a linha.</p>
-    <p>Para gerar localmente: <code>npm run cliente:dist</code>. O arquivo fica em
-       <code>cliente-dist/</code>.</p>
+    <p>O botao continua aqui de proposito. O instalador e' publicado como release do
+       repositorio, e a release nao tem <code>${NOME_DO_PACOTE}</code> anexado.</p>
+    <p>Para gerar localmente: <code>npm run cliente:instalador</code>. O arquivo fica em
+       <code>release-cliente/</code>.</p>
     <p><a href="/entrar">Voltar para a tela de entrada</a></p>
 </div></body></html>`);
 }
 
-router.get('/cliente/download', async (_req: Request, res: Response) => {
-    let caminho = zipDoCliente();
+router.get('/cliente/download', (_req: Request, res: Response) => {
+    const caminho = instaladorDoCliente();
 
     if (!caminho) {
         /*
-         * Sem pacote no disco: a nuvem nao tem (o build de la nao aguenta os 367 MB do
-         * Electron) e o que ela gerasse morreria no deploy seguinte. O arquivo vem da release,
-         * que responde `Content-Disposition: attachment`: o clique continua sendo download.
+         * Sem instalador no disco: a nuvem nao tem (o build de la nao aguenta os 367 MB
+         * do Electron). O arquivo vem da release, que responde `Content-Disposition:
+         * attachment`: o clique continua sendo download e a pagina nao sai daqui.
          */
         const url = urlDoPacote();
-        if (url) {
-            res.setHeader('Cache-Control', 'no-cache');
-            res.redirect(302, url);
-            log.info('download do cliente', { origem: 'release' });
-            return;
-        }
-        caminho = await garanteZipDoCliente();
-        if (!caminho) {
+        if (!url) {
             semPacote(res);
             return;
         }
+        res.setHeader('Cache-Control', 'no-cache');
+        res.redirect(302, url);
+        log.info('download do cliente', { origem: 'release' });
+        return;
     }
 
-    const tamanho = tamanhoDoZip();
-    if (tamanho === null || !existsSync(caminho)) {
+    const tamanho = tamanhoDoInstalador();
+    if (tamanho === null) {
         semPacote(res);
         return;
     }
 
-    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Type', 'application/vnd.microsoft.portable-executable');
     res.setHeader('Content-Length', String(tamanho));
-    res.setHeader('Content-Disposition', `attachment; filename="${NOME_DO_ZIP}"`);
-    // O pacote so muda quando o cliente e' remontado, e o nome do arquivo nao tem
-    // hash dentro: cache longo serviria a versao antiga depois de um `cliente:dist`.
+    res.setHeader('Content-Disposition', `attachment; filename="${NOME_DO_PACOTE}"`);
+    // O instalador so muda quando e' refeito, e o nome do arquivo nao tem hash dentro:
+    // cache longo serviria a versao antiga depois de um `cliente:instalador`.
     res.setHeader('Cache-Control', 'no-cache');
 
     const fluxo = createReadStream(caminho);
     fluxo.on('error', (erro) => {
-        log.error('falhou na leitura do zip', { erro: erro });
+        log.error('falhou na leitura do instalador', { erro: erro });
         res.destroy();
     });
     fluxo.pipe(res);
-    log.info('download do cliente', { mb: Math.round(tamanho / 1024 / 1024), pasta: PASTA_CLIENTE });
+    log.info('download do cliente', { mb: Math.round(tamanho / 1024 / 1024) });
 });
 
 export default router;

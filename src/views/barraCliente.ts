@@ -1,4 +1,5 @@
 import { escapeHtml } from './html';
+import { tileDaMarca } from './marca';
 
 /*
  * O botao aponta para a rota do PROPRIO servidor (`/cliente/download`) e nunca para um
@@ -27,9 +28,7 @@ export function barraCliente(opts: { compacto?: boolean } = {}): string {
            </span>`;
 
     return `<div data-barra-cliente class="flex ${opts.compacto ? 'items-center gap-2 px-3 py-2' : 'items-center gap-3 px-4 py-3'} rounded-card bg-accent-soft border border-line">
-            <span class="inline-flex items-center justify-center w-9 h-9 rounded-control bg-accent text-white shrink-0">
-                <i class="fa-solid fa-desktop text-sm" aria-hidden="true"></i>
-            </span>
+            ${tileDaMarca(36)}
             ${texto}
             <a href="${escapeHtml(LINK_CLIENTE)}" class="btn btn-primary btn-sm shrink-0">
                 <i class="fa-solid fa-download text-xs" aria-hidden="true"></i>

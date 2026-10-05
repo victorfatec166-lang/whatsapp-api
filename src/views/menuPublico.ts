@@ -59,11 +59,14 @@ const SCRIPT = `
                     var menu = document.getElementById('menuPublico');
                     if (!btn || !menu) return;
 
-                    // Dentro do app nao ha sobre nem download: e' o mesmo motivo pelo
-                    // qual a faixa de download some.
+                    /*
+                     * Dentro do app nao ha sobre nem download. Sai so o botao dos tres
+                     * pontinhos: o container e' o mesmo do botao de tema, e remove-lo
+                     * junto levava o modo escuro do cliente junto.
+                     */
                     try {
                         if (/Electron/i.test(navigator.userAgent)) {
-                            if (btn.parentElement) btn.parentElement.remove();
+                            btn.remove();
                             menu.remove();
                             return;
                         }

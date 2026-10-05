@@ -24,16 +24,18 @@ export const NOME_DO_ZIP = 'DeliveryAdmin-win-x64.zip';
 /**
  * Endereco de onde o pacote pode ser baixado, ou `null` se `CLIENTE_DOWNLOAD_URL=off`.
  *
- * O padrao e' a release mais recente do repositorio: `releases/latest/download` e' do
- * proprio GitHub, entao versao nova e' anexar o arquivo, sem mexer em codigo.
+ * O padrao e' a release mais recente: `releases/latest/download/<arquivo>` e' do proprio
+ * GitHub, entao versao nova e' anexar o arquivo, sem mexer em codigo. Release SEM o nome
+ * do arquivo e' a pagina do release (que abre no navegador), entao o `/download` e'
+ * completado aqui: o valor no `.env` da maquina aponta assim.
  */
 export function urlDoPacote(): string | null {
     const configurado = process.env.CLIENTE_DOWNLOAD_URL?.trim();
     if (configurado === 'off') return null;
-    return (
+    const url =
         configurado ||
-        'https://github.com/victorfatec166-lang/whatsapp-api/releases/latest/download/DeliveryAdmin-win-x64.zip'
-    );
+        'https://github.com/victorfatec166-lang/whatsapp-api/releases/latest/download/DeliveryAdmin-win-x64.zip';
+    return /\/releases\/(latest|tag\/[^/]+)$/.test(url) ? `${url}/download/${NOME_DO_ZIP}` : url;
 }
 
 /** Mounting em andamento: duas requisicoes simultaneas nao podem gerar dois zips. */

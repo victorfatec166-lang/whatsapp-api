@@ -181,12 +181,14 @@ router.post('/api/auth/login', limitePorTentativa({ max: 12, janelaMs: 5 * 60 * 
      * acesso a `motivo` virava erro de compilacao.
      */
     if (resultado.ok === false) {
-        const texto =
+const texto =
             resultado.motivo === 'bloqueado'
                 ? `Conta bloqueada por ${resultado.minutosRestantes} min. Tente de novo depois.`
                 : resultado.motivo === 'inativo'
                   ? 'Esta conta esta desativada. Fale com o administrador.'
-                  : 'E-mail ou senha incorretos.';
+                  : resultado.motivo === 'loja'
+                    ? 'A mensalidade desta loja esta em atraso. Regularize para o acesso voltar.'
+                    : 'E-mail ou senha incorretos.';
         res.status(resultado.motivo === 'bloqueado' ? 429 : 401).json({ error: texto });
         return;
     }

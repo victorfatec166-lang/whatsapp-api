@@ -13,6 +13,7 @@ import sistemaRoutes from './routes/sistemaRoutes';
 import backupRoutes from './routes/backupRoutes';
 import comandaRoutes from './routes/comandaRoutes';
 import marketplaceRoutes from './routes/marketplaceRoutes';
+import assinaturaRoutes from './routes/assinaturaRoutes';
 import { addClient, notifyClients, notifyConnection, getClientCount, fechaClientes } from './services/sse';
 // QR_TTL_MS saiu daqui: era usado para expire o QR antigo, e a sessao do
 // Baileys ja resolve isso sozinha. O import nao custava nada, mas deixava
@@ -231,6 +232,12 @@ app.use(backupRoutes);
 // Marketplace (iFood/99Food). O router traz o webhook publico junto; ver o
 // arquivo para por que ele fica separado das rotas do painel.
 app.use('/', marketplaceRoutes);
+
+/*
+ * Assinatura (Asaas). Fora do `/api/admin` porque quem chama e' o Asaas, que nao
+ * tem sessao nossa: a confianca vem do token do cabecalho, e sem token nada passa.
+ */
+app.use('/', assinaturaRoutes);
 
 /*
  * Fim das rotas: o que sobrou nao existe. `/api` responde em JSON porque quem chama

@@ -8,7 +8,7 @@ import { SEM_LOJA, exigeLoja } from '../services/loja';
 import { prisma as base } from './prisma';
 
 /** Modelos que NAO tem loja e por isso ficam de fora da injecao. */
-const SEM_TENANT = new Set([SEM_LOJA, 'Sessao']);
+const SEM_TENANT = new Set([SEM_LOJA, 'Sessao', 'Assinatura', 'EventoAssinatura']);
 
 /**
  * Modelos em que o `id` E' a loja, e nao uma coluna a parte: o filtro vai em `id`.

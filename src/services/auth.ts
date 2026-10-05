@@ -282,7 +282,7 @@ export function csrfDoRequest(req: Request): string {
 /** O que o login devolve quando da certo, e o que diz quando da errado. */
 export type ResultadoLogin =
     | { ok: true; sessao: Sessao }
-    | { ok: false; motivo: 'credencial' | 'bloqueado' | 'inativo'; minutosRestantes?: number };
+    | { ok: false; motivo: 'credencial' | 'bloqueado' | 'inativo' | 'loja'; minutosRestantes?: number };
 
 /**
  * Erro unico para e-mail e senha errados: a lista de contas do sistema e' curta
@@ -308,6 +308,17 @@ export async function autentica(email: string, senha: string): Promise<Resultado
     if (!user.ativo) {
         await scrypt(senha, 'inexistente-para-gastar-o-mesmo-tempo');
         return { ok: false, motivo: 'inativo' };
+    }
+
+    /*
+     * Loja desligada e' assinatura vencida ou cancelada. Sem esta conferences
+     * `Tenant.ativo` so era lido por jobs, e a loja suspensa entrava normalmente
+     * -- o campo existe desde o primeiro dia para este fim e nunca foi lido aqui.
+     */
+    const loja = await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { ativo: true } });
+    if (loja && !loja.ativo) {
+        await scrypt(senha, 'inexistente-para-gastar-o-mesmo-tempo');
+        return { ok: false, motivo: 'loja' };
     }
 
     const confere = await confereSenha(senha, user.senhaHash, user.senhaSalt);

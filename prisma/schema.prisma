@@ -34,6 +34,10 @@ model Tenant {
   criadoEm  DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
+  /// Cliente no Asaas (`cus_...`). Nulo enquanto a loja nao foi contratada: e' o
+  /// pagamento que cria a conta do dono, nao a venda.
+  asaasCustomer String?
+
   /// Uma linha por loja e por tipo de dado. Nao e' a lista completa: o Prisma so
   /// exige aqui o que tem `onDelete` explicito com nome implicito. O resto
   /// entra por `prisma format`, que cria o campo inverso sozinho.
@@ -43,6 +47,7 @@ model Tenant {
   chats         Chat[]
   config        Config?
   botMessages   BotMessage[]
+  assinatura    Assinatura?
   dailyMenus    DailyMenu[]
   dailyMenuItems DailyMenuItem[]
   modifierGroups ModifierGroup[]
@@ -686,4 +691,40 @@ model Message {
   /// do indice, ela apagaria a conversa de TODO MUNDO e nao so a da loja que
   /// esta' rodando o processo.
   @@index([tenantId, createdAt])
+}
+/// Assinatura da loja no Asaas. Tabela GLOBAL, sem loja no filtro: quem vende ve
+/// o conjunto, e `prisma-com-loja` pula a injecao de `tenantId` nela.
+model Assinatura {
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Cliente no Asaas (`cus_...`). Fica aqui porque o pagador e' sempre o dono da
+  /// loja: a loja nunca paga com o cartao de outra.
+  asaasCustomer String
+  /// Assinatura no Asaas (`sub_...`). Nulo ate a assinatura ser criada la.
+  asaasSubscription String?
+
+  /// E-mail do dono: e' o login do administrador, entao vem antes do pagamento.
+  emailDono String
+  plano     String
+  valor     Float
+
+  /// 'pendente' | 'ativa' | 'atrasada' | 'cancelada'
+  status String @default("pendente")
+
+  proximoVencimento DateTime?
+  ultimoPagamento   DateTime?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+}
+
+/// Eventos do Asaas ja processados. A chave e' o id do evento porque o Asaas
+/// reenvia quando nao recebe o retorno, e um reenvio nao pode criar a segunda
+/// conta de administrador da mesma loja.
+model EventoAssinatura {
+  id       String   @id
+  evento   String
+  criadoEm DateTime @default(now())
 }

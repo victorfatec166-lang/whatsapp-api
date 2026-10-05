@@ -7,9 +7,9 @@ import { logDoModulo } from './logger';
 const log = logDoModulo('cliente');
 
 /*
- * `cliente-dist/` e' build e nao dado, e no Render o disco morre a cada deploy -- por
- * isso o `render.yaml` monta o pacote no build. Aqui so cobre o develope que nunca
- * rodou o passo: nesse caso o pacote e' montado uma vez, no primeiro pedido.
+ * `cliente-dist/` e' build e nao dado, e no Render o disco morre a cada deploy.
+ * O pacote do cliente nao cabe no build de la (367 MB do Electron num runner de
+ * 512 MB), entao ele vive como release do repositorio e a rota redireciona para ca.
  */
 
 const RAIZ = resolve(__dirname, '..', '..');
@@ -20,6 +20,21 @@ export const ZIP_CLIENTE = join(RAIZ, 'cliente-dist', 'DeliveryAdmin-win-x64.zip
 
 /** O que o navegador recebe: nome com versao nenhuma e caminho estavel. */
 export const NOME_DO_ZIP = 'DeliveryAdmin-win-x64.zip';
+
+/**
+ * Endereco de onde o pacote pode ser baixado, ou `null` se `CLIENTE_DOWNLOAD_URL=off`.
+ *
+ * O padrao e' a release mais recente do repositorio: `releases/latest/download` e' do
+ * proprio GitHub, entao versao nova e' anexar o arquivo, sem mexer em codigo.
+ */
+export function urlDoPacote(): string | null {
+    const configurado = process.env.CLIENTE_DOWNLOAD_URL?.trim();
+    if (configurado === 'off') return null;
+    return (
+        configurado ||
+        'https://github.com/victorfatec166-lang/whatsapp-api/releases/latest/download/DeliveryAdmin-win-x64.zip'
+    );
+}
 
 /** Mounting em andamento: duas requisicoes simultaneas nao podem gerar dois zips. */
 let montando: Promise<string | null> | null = null;

@@ -2,15 +2,15 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { createReadStream, existsSync } from 'node:fs';
 
-import { garanteZipDoCliente, NOME_DO_ZIP, PASTA_CLIENTE, tamanhoDoZip, zipDoCliente } from '../services/cliente';
+import { garanteZipDoCliente, NOME_DO_ZIP, PASTA_CLIENTE, tamanhoDoZip, urlDoPacote, zipDoCliente } from '../services/cliente';
 import { logDoModulo } from '../services/logger';
 
 const log = logDoModulo('clienteRoutes');
 
 /*
- * O download mora aqui, e nao num endereco externo: `download` so vale na mesma origem
- * (no link de fora o navegador navegava e ninguem baixava nada) e o endereco de fora
- * morre com o servico que o hospeda. Rota PUBLICA: quem oferece o download e' a tela de entrada.
+ * O download mora aqui: `download` do HTML so vale na mesma origem (no link de fora o
+ * navegador navegava) e o endereco de fora morre com o servico que o hospeda. O corpo
+ * do arquivo vem da release, mas quem responde e' esta rota -- e ela e' PUBLICA.
  */
 const router = Router();
 
@@ -45,9 +45,9 @@ function semPacote(res: Response): void {
     }
 </style></head>
 <body><div class="caixa">
-    <h1>O cliente de desktop ainda nao foi montado neste servidor</h1>
-    <p>O botao continua aqui de proposito -- o pacote e' gerado no build, e este build
-       nao conseguiu gerar. Se voce esta' vendo isto, o log do deploy mostra a linha.</p>
+    <h1>O cliente de desktop nao esta disponivel agora</h1>
+    <p>O botao continua aqui de proposito. O pacote e' publicado como release do
+       repositorio, e nem ha nem um arquivo anexado -- o log do deploy mostra a linha.</p>
     <p>Para gerar localmente: <code>npm run cliente:dist</code>. O arquivo fica em
        <code>cliente-dist/</code>.</p>
     <p><a href="/entrar">Voltar para a tela de entrada</a></p>
@@ -55,10 +55,26 @@ function semPacote(res: Response): void {
 }
 
 router.get('/cliente/download', async (_req: Request, res: Response) => {
-    const caminho = zipDoCliente() ?? (await garanteZipDoCliente());
+    let caminho = zipDoCliente();
+
     if (!caminho) {
-        semPacote(res);
-        return;
+        /*
+         * Sem pacote no disco: a nuvem nao tem (o build de la nao aguenta os 367 MB do
+         * Electron) e o que ela gerasse morreria no deploy seguinte. O arquivo vem da release,
+         * que responde `Content-Disposition: attachment`: o clique continua sendo download.
+         */
+        const url = urlDoPacote();
+        if (url) {
+            res.setHeader('Cache-Control', 'no-cache');
+            res.redirect(302, url);
+            log.info('download do cliente', { origem: 'release' });
+            return;
+        }
+        caminho = await garanteZipDoCliente();
+        if (!caminho) {
+            semPacote(res);
+            return;
+        }
     }
 
     const tamanho = tamanhoDoZip();

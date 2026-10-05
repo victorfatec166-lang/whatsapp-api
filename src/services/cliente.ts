@@ -24,10 +24,8 @@ export const NOME_DO_ZIP = 'DeliveryAdmin-win-x64.zip';
 /**
  * Endereco de onde o pacote pode ser baixado, ou `null` se `CLIENTE_DOWNLOAD_URL=off`.
  *
- * O padrao e' a release mais recente: `releases/latest/download/<arquivo>` e' do proprio
- * GitHub, entao versao nova e' anexar o arquivo, sem mexer em codigo. Release SEM o nome
- * do arquivo e' a pagina do release (que abre no navegador), entao o `/download` e'
- * completado aqui: o valor no `.env` da maquina aponta assim.
+ * Release SEM o nome do arquivo e' a pagina da release (que abre no navegador), e o
+ * `.env` da maquina apontava assim: o `/download/<arquivo>` e' completado aqui.
  */
 export function urlDoPacote(): string | null {
     const configurado = process.env.CLIENTE_DOWNLOAD_URL?.trim();

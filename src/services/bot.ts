@@ -46,7 +46,7 @@ import {
     vincularPedido,
     assumirConversa,
 } from './chat';
-import { interpreta, type ItemCatalogo } from './entender';
+import { interpreta, maisProximos, type ItemCatalogo } from './entender';
 import { extraiComIa, respondeComIa } from './ia';
 import {
     juntaItem,
@@ -241,11 +241,21 @@ async function respondeSemPedido(
         return;
     }
 
-    // A IA falhou ou nao sabe responder: o texto ainda diz o que ela tentou ler.
+    /*
+     * A IA nao respondeu. O texto ainda diz o que ela tentou ler -- e, quando ela
+     * leu, sugere o que era. Sugerir e' melhor do que repetir: o cliente confirma
+     * com um "s" em vez de reescrever a frase que o bot acabou de recusar.
+     */
     if (naoEntendidos.length > 0) {
+        const tentou = naoEntendidos.join(', ');
+        const sugestoes = maisProximos(tentou, catalogo);
+        const comSugestao =
+            sugestoes.length > 0
+                ? `\n\nVocê quis dizer ${sugestoes.map((s) => `*${s.nome}*`).join(' ou ')}?`
+                : '';
         await socket()?.sendMessage(jid, {
             text:
-                `🤖 Não encontrei ${naoEntendidos.join(', ')} no cardápio.` +
+                `🤖 Não encontrei ${tentou} no cardápio.${comSugestao}` +
                 '\n\nEscreva o **nome do produto** (com ou sem quantidade) ou mande *cardápio* para ver a lista.'
         });
         return;

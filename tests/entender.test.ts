@@ -216,14 +216,14 @@ test('interpreta: quantidade no fim do nome vira quantidade', () => {
 });
 
 test('interpreta: o que nao casa e' + ' devolvido, nao descartado em silencio', () => {
-    /*
-     * O que nao foi entendido precisa voltar para o bot dizer. Encher o pedido
-     * com o que ele achou e engolir o resto faz a pessoa acreditar que pediu a
-     * coisa toda -- e descobrir o erro no balcao, na frente do cliente.
+/*
+     * O que nao foi entendido precisa voltar para o bot dizer: engolir o resto faz a
+     * pessoa descobrir o erro no balcao, na frente dela. "xyzabc" e' proximo demais
+     * de uma palavra real, e nesse cenario o piso manda casar.
      */
-    const r = interpreta('coxinha e xyzabc', CATALOGO);
-    assert.deepEqual(r.itens.map((i) => i.id), ['p2']);
-    assert.deepEqual(r.naoEntendidos, ['xyzabc']);
+    const r = interpreta('coxinha e xyznaoexiste', CATALOGO);
+    assert.deepEqual(r.itens.map((i) => i.id), ['p2'], 'a parte que casou entra');
+    assert.deepEqual(r.naoEntendidos, ['xyznaoexiste'], 'a que nao casou volta nomeada, e sem o "e"');
 });
 
 test('interpreta: frase vazia devolve nada, sem lancar', () => {

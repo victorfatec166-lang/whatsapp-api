@@ -106,8 +106,12 @@ export type ItemCatalogo = {
 
 /* ------------------------------------------------------- quebra da frase */
 
-/** Conectores que separam um item do seguinte. */
-const CONECTORES = new Set(['e', 'mais', 'e mais', 'com', 'e depois']);
+/*
+ * Conectores que separam um item do seguinte. "com" NAO esta aqui: ele liga
+ * MODIFICADOR, nao produto. Cortando ali, "coxinha com bacon" virava "coxinha" +
+ * "bacon", e o bot respondia "nao encontrei bacon" tendo o item inteiro na frase.
+ */
+const CONECTORES = new Set(['e', 'mais', 'e mais', 'e depois']);
 
 /**
  * Ingenua de proposito: corta no conector "e"/"mais" e nao sabe o que e' um produto.
@@ -145,6 +149,33 @@ export type Casamento = {
     confianca: number;
     origem: IntencaoItem['origem'];
 };
+
+/**
+ * Quando nao achou, quais produtos do cardapio a pessoa PROVAVAM dizer.
+ *
+ * E' o item 3 do ABC: sem isto o bot diz "nao encontrei X" e a pessoa reescreve do
+ * zero. Com isto ele pergunta "voce quis dizer Coxinha?" e o cliente confirma.
+ */
+export function maisProximos(pedaco: string, catalogo: ItemCatalogo[], quantos = 3): ItemCatalogo[] {
+    const chavePedaco = chave(pedaco);
+    if (chavePedaco.length < 3) return [];
+
+    const candidatos: Array<{ item: ItemCatalogo; d: number }> = [];
+    for (const p of catalogo) {
+        const cn = chave(p.nome);
+        if (cn.length < 3) continue;
+        // Metade do nome ja escrito e' a barra: "pastel" chegou perto de "Pastel
+        // de Queijo" e longe de "Coxinha", e o limite segue a distancia real.
+        const limite = Math.max(2, Math.floor(cn.length / 3));
+        const d = distancia(chavePedaco, cn, limite);
+        if (d <= limite) candidatos.push({ item: p, d });
+    }
+
+    return candidatos
+        .sort((a, b) => a.d - b.d || a.item.nome.localeCompare(b.item.nome, 'pt-BR'))
+        .slice(0, quantos)
+        .map((c) => c.item);
+}
 
 /**
  * Do mais confiavel para o menos, cada passo so se o anterior falhou: chave exata, nome
@@ -196,9 +227,15 @@ export function achaProduto(pedaco: string, catalogo: ItemCatalogo[]): Casamento
             const cn = chave(nome);
             if (cn.length < 3) continue;
 
-            // Limite proporcional: nome curto nao aguenta dois erros de digitacao sem virar
-            // outra palavra, e nome longo nao pode exigir correspondencia perfeita.
-            const limite = cn.length <= 5 ? 1 : cn.length <= 10 ? 2 : 3;
+            /*
+ * Limite bem mais largo que antes (1/2/3 -> 3/4/5): quem pede pelo celular erra
+ * mais, e o proporcional evita que a letra "a" case com um produto de 4.
+ */
+            const limite = Math.max(
+                cn.length <= 5 ? 3 : cn.length <= 10 ? 4 : 5,
+                Math.floor(Math.min(chavePedaco.length, cn.length) / 2)
+            );
+            if (chavePedaco.length < Math.min(cn.length, 4)) continue;
             const d = distancia(chavePedaco, cn, limite);
             if (d > limite) continue;
 

@@ -482,6 +482,10 @@ model Config {
   botAtivo             Boolean  @default(true)
   /// Texto da conversa para avisar que o bot esta' pausado. Vazio = texto padrao.
   botAvisoPausado      String   @default("")
+  /// IA externa liberada. Desligado por padrao porque mandar o texto do cliente
+  /// para um servidor de fora dos pais e' transferencia internacional (art. 33 da
+  /// LGPD), e isso depende do dono da loja consentir, nao do painel decidir.
+  botIaAtiva           Boolean  @default(false)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 }

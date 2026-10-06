@@ -49,6 +49,7 @@ import {
 } from './chat';
 import { interpreta, maisProximos, type ItemCatalogo } from './entender';
 import { extraiComIa, respondeComIa } from './ia';
+import { iaLiberada } from './botLigaDesliga';
 import {
     juntaItem,
     textoDoCarrinho as textoCarrinho,
@@ -201,14 +202,16 @@ async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
 let intencao = interpreta(texto, catalogo);
     if (intencao.itens.length === 0) {
         /*
-         * Só a tentativa com a IA vai dentro da espera: as regras respondem em
-         * milissegundos, e um aviso de "pensando" para algo instantâneo seria
-         * barulho.
+         * A IA so roda com o dono dentro: ela manda o texto do cliente
+         * para fora e e' transferencia internacional (art. 33 da LGPD).
+         * Sem consentimento, as regras ja cobrem o cardapio.
          */
-        await comEspera(jid, async () => {
-            const pelaIa = await extraiComIa(texto, catalogo);
-            if (pelaIa) intencao = pelaIa;
-        });
+        if (await iaLiberada(lojaDoBoot())) {
+            await comEspera(jid, async () => {
+                const pelaIa = await extraiComIa(texto, catalogo);
+                if (pelaIa) intencao = pelaIa;
+            });
+        }
     }
 
     if (intencao.itens.length === 0) {
@@ -277,10 +280,18 @@ async function respondeSemPedido(
     catalogo: ItemCatalogo[],
     naoEntendidos: string[]
 ): Promise<void> {
-    const nomeDaLoja = (await prisma.config.findUnique({ where: { id: exigeLoja() }, select: { businessName: true } }))
-        ?.businessName;
+    const loja = lojaDoBoot();
 
-    const daIa = await respondeComIa(texto, catalogo, nomeDaLoja ?? '');
+    /*
+     * A conversa roda so com consentimento (mesmo risco que a extração).
+     * Sem ele as regras ja cobrem o cardapio e o pedido.
+     */
+    let daIa: string | null = null;
+    if (await iaLiberada(loja)) {
+        const nomeDaLoja = (await prisma.config.findUnique({ where: { id: loja }, select: { businessName: true } }))
+            ?.businessName;
+        daIa = await respondeComIa(texto, catalogo, nomeDaLoja ?? '');
+    }
     if (daIa) {
         await socket()?.sendMessage(jid, { text: daIa });
         return;

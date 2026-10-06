@@ -24,6 +24,7 @@ import { logDoModulo } from '../services/logger';
 import { problemaDaSenha } from '../services/regras';
 import { guardaSenhaEscolhida, registraVenda, senhaDoDonoPendente, statusDoDono } from '../services/assinaturas';
 import { renderLogin, renderTrocaSenha, renderCriarConta, renderAguardando, renderRecuperar, renderSobre, renderAjuda, seguroInterno } from '../views/login';
+import { renderPrivacidade } from '../views/privacidade';
 import { carregarConfig } from '../services/config';
 /** O nome que a tela de entrada mostra. E' o produto, e nao a loja -- ver o GET /entrar. */
 const NOME_DO_PRODUTO = 'DeliveryAdmin';
@@ -140,6 +141,11 @@ router.get('/sobre', (_req, res) => {
 
 router.get('/ajuda', (_req, res) => {
     res.send(renderAjuda({ nomeNegocio: NOME_DO_PRODUTO }));
+});
+
+router.get('/privacidade', (_req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(renderPrivacidade());
 });
 
 /** Le os contatos do ambiente, descartando o que nao foi cadastrado. */

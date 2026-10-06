@@ -358,9 +358,12 @@ export function renderLogin(d: DadosTelaLogin): string {
                         ${botaoEntrar()}
                     </form>
 
-                    <div class="mt-6 pt-5 border-t border-line text-center">
+                    <div class="mt-6 pt-5 border-t border-line text-center space-y-2">
                         <p class="text-body text-ink-2">
                             <span>Ainda nao tem uma loja? </span><a href="/criar-conta" class="font-semibold text-accent-strong hover:underline">Contrate o DeliveryAdmin</a>
+                        </p>
+                        <p class="text-[11px] text-ink-3">
+                            <a href="/privacidade" class="hover:underline">Privacidade e Proteção de Dados (LGPD)</a>
                         </p>
                     </div>
                 </div>

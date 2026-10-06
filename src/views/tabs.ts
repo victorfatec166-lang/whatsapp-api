@@ -740,6 +740,8 @@ export type BotData = {
     ligado?: boolean;
     /** Texto que o cliente recebe enquanto pausado. Vazio = o padrao do servico. */
     avisoPausado?: string;
+    /** `true` quando o dono consentiu com a IA externa (LGPD). */
+    iaAtiva?: boolean;
 };
 
 /**

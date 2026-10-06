@@ -14,6 +14,7 @@ import {
     avisoDePausado,
     esqueceCacheDoBot,
     textoDePausado,
+    iaLiberada,
 } from '../src/services/botLigaDesliga';
 
 /** Loja de teste, com o Config criado (o interruptor mora no Config). */
@@ -94,4 +95,28 @@ test('loja que nao existe responde, e nao trava a conversa', async () => {
     // O caminho quando o `Config` some: responder e' mais seguro do que calar, e
     // quem cala por uma leitura falha e' o cliente que pagou.
     assert.equal(await botAtivo('loja-que-nao-existe-1234'), true);
+});
+
+test('a IA externa nasce DESLIGADA por padrao (opt-in LGPD)', async () => {
+    // Sem consentimento explicito nao ha transferencia internacional (art. 33 LGPD).
+    const loja = await montaLoja('Sem IA');
+    try {
+        assert.equal(await iaLiberada(loja), false, 'a IA nasce desligada');
+    } finally {
+        await prisma.tenant.delete({ where: { id: loja } }).catch(() => 0);
+        esqueceCacheDoBot();
+    }
+});
+
+test('o dono pode ativar a IA e desativar quando quiser', async () => {
+    const loja = await montaLoja('Com IA');
+    try {
+        await defineBotAtivo(loja, undefined, undefined, true);
+        assert.equal(await iaLiberada(loja), true, 'o dono ligou a IA');
+        await defineBotAtivo(loja, undefined, undefined, false);
+        assert.equal(await iaLiberada(loja), false, 'o dono desligou a IA');
+    } finally {
+        await prisma.tenant.delete({ where: { id: loja } }).catch(() => 0);
+        esqueceCacheDoBot();
+    }
 });

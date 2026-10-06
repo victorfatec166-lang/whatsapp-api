@@ -13,7 +13,7 @@ import sistemaRoutes from './routes/sistemaRoutes';
 import backupRoutes from './routes/backupRoutes';
 import comandaRoutes from './routes/comandaRoutes';
 import opsRoutes from './routes/opsRoutes';
-import { botAtivo as botLiga, avisoDePausado, defineBotAtivo } from './services/botLigaDesliga';
+import { botAtivo as botLiga, avisoDePausado, defineBotAtivo, iaLiberada } from './services/botLigaDesliga';
 import marketplaceRoutes from './routes/marketplaceRoutes';
 import assinaturaRoutes from './routes/assinaturaRoutes';
 import { addClient, notifyClients, notifyConnection, getClientCount, fechaClientes } from './services/sse';
@@ -22,6 +22,7 @@ import { addClient, notifyClients, notifyConnection, getClientCount, fechaClient
 // parecer que o TTL era configuravel por aqui.
 import { startBots, asseguraBot, sendOrderStatusNotification, loadBotMessages, reconnectBot, logoutBot, desconectaTodosOsBots, AUTH_DIR } from './services/bot';
 import { getConnectionState, isBotOnline } from './services/botLojas';
+import { renderPrivacidade } from './views/privacidade';
 import { renderLayout, tabHint, isTabId, LEGACY_TABS, type TabId } from './views/layout';
 import { paginaDeErro } from './views/erro';
 import { PAIRING_CLIENT_SCRIPT } from './views/pairing';
@@ -1741,6 +1742,22 @@ app.post('/admin/bot/alternar', async (req, res) => {
     }
 });
 
+/*
+ * LGPD: a transferencia internacional do texto do cliente para a IA e'
+ * escolha do dono. A resposta ja mostra o estado no painel; esta rota e'
+ * so para o toggle, com mesmo padrao do interruptor.
+ */
+app.post('/admin/bot/ia', async (req, res) => {
+    try {
+        const ativa = req.body?.ativa === true;
+        await defineBotAtivo(lojaDoBoot(), undefined, undefined, ativa);
+        res.json({ success: true, ativa });
+    } catch (error) {
+        log.error('Erro ao mudar o estado da IA:', error);
+        res.status(500).json({ error: 'Nao foi possivel mudar o estado da IA' });
+    }
+});
+
 app.post('/admin/bot/logout', async (_req, res) => {
     try {
         // A pasta tambem e' limpa, dentro do `logoutBot`: e' o arquivo de onde a
@@ -2281,6 +2298,7 @@ bot: {
                         mensagens: mapaParaTela(),
                         ligado: await botLiga(lojaDoBoot()),
                         avisoPausado: await avisoDePausado(lojaDoBoot()),
+                        iaAtiva: await iaLiberada(lojaDoBoot()),
                     },
                 });
                 break;

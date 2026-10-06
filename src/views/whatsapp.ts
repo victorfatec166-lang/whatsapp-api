@@ -57,7 +57,28 @@ export function renderWhatsApp(d: { pair: PairData; bot: BotData }): string {
         </div>`
         }`;
 
+    const iaAtiva = d.bot.iaAtiva === true;
+    const cardIa = `        <div class="card card-pad mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="min-w-0 max-w-xl">
+                <p class="text-title text-ink flex items-center gap-2">
+                    <i class="fa-solid fa-brain text-accent" aria-hidden="true"></i>
+                    Inteligência Artificial conversacional
+                    <span class="badge ${iaAtiva ? 'badge-emerald' : 'badge-slate'} text-xs">${iaAtiva ? 'Ativa' : 'Desativada'}</span>
+                </p>
+                <p class="text-caption text-ink-3 mt-1">
+                    Entende frases livres do cliente ("me vê dois x-tudo sem cebola").
+                    <strong class="text-ink">Requer consentimento:</strong> o texto da mensagem é enviado para servidores da Groq (EUA).
+                    <a href="/privacidade" class="text-accent hover:underline ml-1">Saiba mais (LGPD)</a>
+                </p>
+            </div>
+            <button type="button" id="alterna-ia" data-ativa="${iaAtiva ? 'true' : 'false'}"
+                class="btn ${iaAtiva ? 'btn-ghost' : 'btn-primary'} py-2 font-semibold">
+                <span>${iaAtiva ? 'Desativar IA' : 'Ativar IA'}</span>
+            </button>
+        </div>`;
+
     return `<div id="interruptor-bot" data-pausado="${ligado ? 'false' : 'true'}">${interruptor}</div>
+        ${cardIa}
         <details id="textos-bot" class="card mb-4" open>
             <summary class="cursor-pointer text-title flex items-center gap-2 select-none card-pad">
                 <i class="fa-solid fa-comment-dots text-accent"></i>

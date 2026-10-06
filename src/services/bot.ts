@@ -79,6 +79,43 @@ async function assumirConversaPorTelefone(telefone: string): Promise<{ id: strin
     return assumirConversa(chat.id);
 }
 
+/**
+ * Quanto tempo o cliente espera em silencio antes de o bot dizer que esta' pensando.
+ *
+ * Abaixo de meio segundo o aviso pisca e confunde mais do que silencia; acima de
+ * um segundo e meio a pessoa ja mandou "oi" de novo e o pedido entra dobrado.
+ */
+const ESPERA_MINIMA_MS = 1_200;
+
+/**
+ * Envolve a resposta numa espera que nao trava a tela.
+ *
+ * Sem isto o cliente olha o "digitando..." durante os 2-4s da IA, e quem espera
+ * manda a frase de novo. O aviso e' apagado antes da resposta real.
+ */
+async function comEspera(jid: string, acao: () => Promise<void>): Promise<void> {
+    let aviso: { key: any } | null = null;
+    const relogio = setTimeout(() => {
+        socket()
+            ?.sendMessage(jid, { text: getBotMessage('pensando', '⏳ Um instante, estou conferindo o cardápio...') })
+            .then((enviada: any) => {
+                aviso = enviada?.key ?? null;
+            })
+            .catch((erro) => log.debug('Nao consegui avisar que estou pensando:', String(erro)));
+    }, ESPERA_MINIMA_MS);
+
+    try {
+        await acao();
+    } finally {
+        clearTimeout(relogio);
+        if (aviso?.key) {
+            // Falhar em apagar e' normal: o aviso some com a conversa aberta. Nao
+            // vale transformar um detalhe visual em erro de atendimento.
+            await socket()?.deleteMessage(jid, aviso.key).catch(() => {});
+        }
+    }
+}
+
 /** As tres opcoes do balcao automatico. */
 function textoDoMenu(): string {
     return getBotMessage('mainMenu',
@@ -161,10 +198,17 @@ async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
      * A IA so entra no que sobrou -- a frase que o dono nao antecipou ao
      * escrever o cardapio -- e devolve null se falhar.
      */
-    let intencao = interpreta(texto, catalogo);
+let intencao = interpreta(texto, catalogo);
     if (intencao.itens.length === 0) {
-        const pelaIa = await extraiComIa(texto, catalogo);
-        if (pelaIa) intencao = pelaIa;
+        /*
+         * Só a tentativa com a IA vai dentro da espera: as regras respondem em
+         * milissegundos, e um aviso de "pensando" para algo instantâneo seria
+         * barulho.
+         */
+        await comEspera(jid, async () => {
+            const pelaIa = await extraiComIa(texto, catalogo);
+            if (pelaIa) intencao = pelaIa;
+        });
     }
 
     if (intencao.itens.length === 0) {

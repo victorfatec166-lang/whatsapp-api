@@ -74,17 +74,36 @@ function previa(texto: string): string {
     return limpo.slice(0, 89) + '…';
 }
 
-/** O bot pode responder? Nao enquanto alguem assumiu a conversa. */
+/**
+ * O bot pode responder? Nao enquanto alguem assumiu a conversa.
+ *
+ * A excessao e' a conversa assumida e NINGUEM respondeu: o dono pode estar no
+ * fornecedor e quem pagou fica olhando o bot calado. Passado o prazo ela volta.
+ */
 export async function botPodeResponder(phone: string): Promise<boolean> {
     const chat = await prisma.chat.findFirst({
         where: { phone },
-        select: { atendente: true },
+        select: { atendente: true, assumidoAt: true },
     });
     // Conversa inexistente e' cliente novo: nao ter conversa e' o mesmo que estar
     // com o bot, entao o bot pode responder.
     if (!chat) return true;
-    return chat.atendente === 'bot';
+    if (chat.atendente === 'bot') return true;
+    if (!chat.assumidoAt || Date.now() - chat.assumidoAt.getTime() < PRAZO_ATENDENTE_MS) return false;
+
+    // Passou do prazo sem resposta humana: devolve para o bot antes de responder,
+    // senao o cliente fica preso para sempre num silencio sem dono.
+    await devolverAoBot(phone);
+    return true;
 }
+
+/**
+ * Quanto tempo o silencio do "chamei um atendente" dura antes do bot voltar.
+ *
+ * Longo para caber num atendimento de verdade, curto para o cliente nao concluir
+ * que foi esquecido: 15 minutos cabe numa fila de pedido de comida.
+ */
+export const PRAZO_ATENDENTE_MS = 15 * 60 * 1000;
 
 /**
  * naoLidas sobe so quando a mensagem vem do cliente e quem atende e' o bot: se
@@ -201,10 +220,14 @@ export async function guardaFoto(
  * um restart.
  */
 export async function assumirConversa(chatId: string): Promise<ResumoConversa | null> {
-    const c = await prisma.chat.update({
-        where: { id: chatId },
-        data: { atendente: 'humano', assumidoAt: new Date() },
-    });
+    /*
+     * `update` por `id` e' recusado pela extensao: o `Chat` so tem chave unica com
+     * a loja e o telefone, e um id da loja vizinha cairia aqui. Por isso filtra por
+     * `id` e relê -- dois passos, mas a loja nunca e' atravessada.
+     */
+    await prisma.chat.updateMany({ where: { id: chatId }, data: { atendente: 'humano', assumidoAt: new Date() } });
+    const c = await prisma.chat.findFirst({ where: { id: chatId } });
+    if (!c) return null;
     notifyChat(chatId);
     return toResumo(c);
 }

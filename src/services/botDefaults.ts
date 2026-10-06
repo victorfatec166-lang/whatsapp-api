@@ -55,6 +55,8 @@ export const DEFAULT_BOT_MESSAGES: Record<string, string> = {
         'Esperamos que goste da sua refeicao! Muito obrigado pela preferencia. Volte sempre! \u{1F354}\u2764\uFE0F',
 
     attendantMessage:
-        '\u{1F468}\u200D\u{1F4BB} A sua solicitacao foi registada. Um atendente humano ira chamar-lo em breve! ' +
+        '\u{1F4E8} Anotado! Sua mensagem foi para a equipe da loja.\n\n' +
+        'Se alguém estiver disponível, a resposta vem aqui. Se não, em 15 minutos ' +
+        'eu mesmo continuo o seu pedido \u2014 nada se perde.\n\n' +
         'Digite *menu* a qualquer momento para voltar.',
 };

@@ -864,11 +864,17 @@ export async function startWhatsAppBot(
                              * o mesmo campo, e notifyChat traz a conversa para a lista de quem
                              * atende. Antes o botao prometia atendente e nao chamava ninguem.
                              */
-                            const conversa = await assumirConversaPorTelefone(senderPhone);
+const conversa = await assumirConversaPorTelefone(senderPhone);
                             if (conversa) {
+                                /* Prometer "em breve" e' falar com alguem que nao existe: a loja pode estar
+                                 * fechada. O prazo vai escrito, porque 15 min com promessa de
+                                 * "ja ja" e' o que faz o cliente perseguir o bot. */
                                 await socket().sendMessage(senderPhone, {
                                     text: getBotMessage('attendantMessage',
-                                        '👨‍💻 Chamei um atendente para si. Ele vai responder aqui mesmo a partir de agora — o automático fica em silêncio nesta conversa.')
+                                        '📨 Anotado! Sua mensagem foi para a equipe da loja.\n\n' +
+                                        'Se alguém estiver disponível, a resposta vem aqui. Se não, ' +
+                                        'em 15 minutos eu mesmo continuo o seu pedido — nada se perde.\n\n' +
+                                        'Digite *menu* a qualquer momento para voltar.')
                                 });
                             } else {
                                 await socket().sendMessage(senderPhone, {

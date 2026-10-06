@@ -476,6 +476,12 @@ model Config {
   /// abertura automatica fica desligada: um valor inventado contaminaria a
   /// diferenca de caixa de todo fechamento.
   cashDefaultFloat     Float    @default(0)
+  /// O bot desta loja responde? Desligado e' por CONVERSA e' o que a loja recebe:
+  /// o silencio da loja explica melhor do que recusa, e o dono nao fica achando
+  /// que o WhatsApp caiu.
+  botAtivo             Boolean  @default(true)
+  /// Texto da conversa para avisar que o bot esta' pausado. Vazio = texto padrao.
+  botAvisoPausado      String   @default("")
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 }

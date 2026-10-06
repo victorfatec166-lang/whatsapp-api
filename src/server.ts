@@ -13,6 +13,7 @@ import sistemaRoutes from './routes/sistemaRoutes';
 import backupRoutes from './routes/backupRoutes';
 import comandaRoutes from './routes/comandaRoutes';
 import opsRoutes from './routes/opsRoutes';
+import { botAtivo as botLiga, avisoDePausado, defineBotAtivo } from './services/botLigaDesliga';
 import marketplaceRoutes from './routes/marketplaceRoutes';
 import assinaturaRoutes from './routes/assinaturaRoutes';
 import { addClient, notifyClients, notifyConnection, getClientCount, fechaClientes } from './services/sse';
@@ -1726,6 +1727,20 @@ app.post('/admin/bot/reconnect', async (_req, res) => {
     }
 });
 
+app.post('/admin/bot/alternar', async (req, res) => {
+    try {
+        const ligado = req.body?.ligado === true;
+        // `undefined` no aviso significa "nao mexe": o dono que pausa o bot as tres
+        // da manha nao quer perder o texto que escreveu ontem.
+        const aviso = typeof req.body?.aviso === 'string' ? req.body.aviso.trim().slice(0, 240) : undefined;
+        await defineBotAtivo(lojaDoBoot(), ligado, aviso);
+        res.json({ success: true, ligado });
+    } catch (error) {
+        log.error('Erro ao ligar/desligar o bot:', error);
+        res.status(500).json({ error: 'Nao foi possivel mudar o estado do bot' });
+    }
+});
+
 app.post('/admin/bot/logout', async (_req, res) => {
     try {
         // A pasta tambem e' limpa, dentro do `logoutBot`: e' o arquivo de onde a
@@ -2255,14 +2270,18 @@ app.get('/admin', async (req, res) => {
             }
 
             case 'whatsapp': {
-                // Conexao + textos do bot na mesma tela (eram dois itens).
+                // Conexao + interruptor + textos do bot na mesma tela (eram dois itens).
                 body = renderWhatsApp({
                     pair: {
                         state: getConnectionState(),
                         authPath: AUTH_DIR,
                         hasSavedSession: await temSessaoPareada(lojaDoBoot()),
                     },
-                    bot: { mensagens: mapaParaTela() },
+bot: {
+                        mensagens: mapaParaTela(),
+                        ligado: await botLiga(lojaDoBoot()),
+                        avisoPausado: await avisoDePausado(lojaDoBoot()),
+                    },
                 });
                 break;
             }

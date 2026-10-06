@@ -725,7 +725,7 @@ export type ReportData = {
  * o padrao (botao em cada campo editado) e quais eu ja mexi (selo por campo e contador no topo).
  */
 
-export type EstadoMensagem = {
+type EstadoMensagem = {
     /** Texto que o bot manda agora: o editado, ou o padrao se nao houver. */
     texto: string;
     /** Texto padrao, do codigo. */
@@ -734,7 +734,13 @@ export type EstadoMensagem = {
     editado: boolean;
 };
 
-export type BotData = { mensagens: Record<string, EstadoMensagem> };
+export type BotData = {
+    mensagens: Record<string, EstadoMensagem>;
+    /** `false` quando o dono pausou o bot desta loja. Ausente = ligado. */
+    ligado?: boolean;
+    /** Texto que o cliente recebe enquanto pausado. Vazio = o padrao do servico. */
+    avisoPausado?: string;
+};
 
 /**
  * Viram botao em vez de texto solto na ajuda porque ninguem deveria ter que lembrar de um

@@ -29,6 +29,7 @@ import {
     type Conexao,
 } from './botLojas';
 import { confereAmarracao } from './maquina';
+import { botAtivo as botLiga, avisoDePausado } from './botLigaDesliga';
 import { carregaPedidoAberto, salvaPedidoAberto } from './botPedido';
 import {
     apagaSessao,
@@ -724,6 +725,17 @@ export async function startWhatsAppBot(
                  */
                 if (!(await botPodeResponder(senderPhone))) {
                     log.info(`Conversa com ${senderPhone} esta com humano; bot em silencio.`);
+                    continue;
+                }
+
+                /*
+                 * O dono desligou o bot desta loja. Responde UMA vez e cala: e' a
+                 * diferenca entre a loja pausar o automatico e ficar ignorando o
+                 * cliente, que e' o que costuma dar ruim quando o dono chega.
+                 */
+                if (!(await botLiga(loja))) {
+                    await socket().sendMessage(senderPhone, { text: await avisoDePausado(loja) });
+                    log.info(`Bot desligado para a loja ${loja}; cliente avisado.`);
                     continue;
                 }
 

@@ -1,5 +1,8 @@
+import { escapeHtml } from './html';
 import { renderPairing, type PairData } from './pairing';
 import { renderBot, type BotData } from './tabs';
+
+export type { BotData };
 
 /**
  * A conexao volta a morar aqui, em bloco recolhido no fim. Quem tira o QR e' a
@@ -13,8 +16,49 @@ export function renderWhatsApp(d: { pair: PairData; bot: BotData }): string {
      * edicao alguma fica desligado e diz por que. A funcao mora em tabs.ts.
      */
     const editadas = Object.values(d.bot.mensagens).filter((m) => m?.editado).length;
+    const ligado = d.bot.ligado !== false;
 
-    return `<details id="textos-bot" class="card mb-4" open>
+    /*
+     * O interruptor fica ACIMA dos textos, e nao dentro deles: quem quer calar o bot
+     * as tres da manha nao esta' com animo de abrir um acorde de configuracao.
+     */
+    const interruptor = `        <div class="card card-pad mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="min-w-0">
+                <p class="text-title text-ink flex items-center gap-2">
+                    <i class="fa-solid ${ligado ? 'fa-robot' : 'fa-robot'} text-accent" aria-hidden="true"></i>
+                    Atendimento automatico
+                </p>
+                <p class="text-caption text-ink-3 mt-1">
+                    ${
+                        ligado
+                            ? 'O bot responde as mensagens dos clientes neste numero.'
+                            : 'O bot esta <strong class="text-ink">pausado</strong>. Os clientes recebem o aviso abaixo e o pedido precisa ser feito com a equipe.'
+                    }
+                </p>
+            </div>
+            <button type="button" id="alterna-bot" data-ligado="${ligado ? 'true' : 'false'}"
+                class="btn ${ligado ? 'btn-ghost' : 'btn-primary'} py-2 font-semibold">
+                <i class="fa-solid ${ligado ? 'fa-pause' : 'fa-play'} mr-2" aria-hidden="true"></i>
+                <span>${ligado ? 'Pausar bot' : 'Ligar bot'}</span>
+            </button>
+        </div>
+        ${
+            ligado
+                ? ''
+                : `        <div class="card card-pad mb-4">
+            <label class="label" for="aviso-pausado">O que o cliente recebe enquanto estiver pausado</label>
+            <input id="aviso-pausado" type="text" class="input"
+                maxlength="240"
+                value="${escapeHtml(d.bot.avisoPausado ?? '')}"
+                placeholder="Nosso atendimento automatico esta pausado no momento...">
+            <p class="text-caption text-ink-3 mt-1.5">
+                Vazio usa o texto padrao. Mudar aqui nao liga nem desliga o bot.
+            </p>
+        </div>`
+        }`;
+
+    return `<div id="interruptor-bot" data-pausado="${ligado ? 'false' : 'true'}">${interruptor}</div>
+        <details id="textos-bot" class="card mb-4" open>
             <summary class="cursor-pointer text-title flex items-center gap-2 select-none card-pad">
                 <i class="fa-solid fa-comment-dots text-accent"></i>
                 Textos que o cliente recebe

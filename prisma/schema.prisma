@@ -45,9 +45,11 @@ model Tenant {
   products      Product[]
   orders        Order[]
   chats         Chat[]
+  pedidosAbertos PedidoAberto[]
   config        Config?
   botMessages   BotMessage[]
   assinatura    Assinatura?
+  credencialProvisional CredencialProvisional?
   dailyMenus    DailyMenu[]
   dailyMenuItems DailyMenuItem[]
   modifierGroups ModifierGroup[]
@@ -659,6 +661,40 @@ model Chat {
   @@index([tenantId, lastMessageAt])
 }
 
+/// Onde a conversa de um cliente parou: a etapa, o item com modificador em
+/// escolha, a lista de produtos que ele recebeu e o que ja pediu.
+///
+/// No banco, e nao em memoria, porque o bot reinicia a cada deploy: um cliente
+/// no meio da escolha perdia o carrinho e voltava ao menu sem entender por que.
+/// Estado em memoria morre no pior momento.
+///
+/// E' conversa, entao entra na retencao da meia-noite junto com Chat e Message.
+model PedidoAberto {
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Endereco de envio do cliente, o mesmo do Chat.phone -- nao o telefone.
+  phone String
+  /// 'MENU', 'PEDINDO' ou 'ESCOLHENDO_MOD'. Texto e nao enum pelo mesmo motivo
+  /// do resto do schema: o passo novo nao pode exigir migration.
+  step String @default("MENU")
+  /// Produto cujo grupo de modificador esta em escolha.
+  productId String?
+  /// Qual grupo da sequencia o cliente esta respondendo.
+  groupIndex Int @default(0)
+  /// Opcoes marcadas, por grupo. JSON: a forma muda com o catalogo da loja.
+  picked String @default("{}")
+  /// Retrato da lista enviada, na ordem em que o cliente a viu. E' contra ele
+  /// que o numero digitado e' lido, e nao contra o cardapio do momento.
+  offered String @default("[]")
+  /// Linhas do pedido em aberto. JSON: a regra de juncao mora em carrinho.ts.
+  carrinho String @default("[]")
+
+  atualizadoEm DateTime @updatedAt
+
+  @@id([tenantId, phone])
+  @@index([atualizadoEm])
+}
+
 /// Uma mensagem dentro de uma conversa.
 ///
 /// Guarda o texto dos dois lados, inclusive o que o bot respondeu, porque e' o
@@ -703,9 +739,12 @@ model Assinatura {
 
   /// Cliente no Asaas (`cus_...`). Fica aqui porque o pagador e' sempre o dono da
   /// loja: a loja nunca paga com o cartao de outra.
-  asaasCustomer String
+asaasCustomer String
   /// Assinatura no Asaas (`sub_...`). Nulo ate a assinatura ser criada la.
   asaasSubscription String?
+  /// Primeira cobranca (`pay_...`). E' por ela que o dono paga: sem o id, a tela
+  /// de espera so consegue dizer que a cobranca existe, e nao onde pagar.
+  asaasCobranca String?
 
   /// E-mail do dono: e' o login do administrador, entao vem antes do pagamento.
   emailDono String
@@ -715,11 +754,32 @@ model Assinatura {
   /// 'pendente' | 'ativa' | 'atrasada' | 'cancelada'
   status String @default("pendente")
 
+  /// Teste que comecou: ate esta data a loja entra mesmo sem pagar. Nulo quando nao
+  /// ha teste -- `TESTE_DIAS=0` desliga o periodo, e a loja so abre com pagamento.
+  testeAte DateTime?
+
   proximoVencimento DateTime?
   ultimoPagamento   DateTime?
 
-  criadoEm     DateTime @default(now())
+criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
+}
+
+/// A senha de entrada do dono da loja, entre o pagamento e a primeira troca.
+///
+/// Tabela GLOBAL e sem loja, como a Assinatura: quem paga e' o dono, e e' a ele que
+/// a senha pertence. Fica aqui e nao em `User` porque a senha do primeiro acesso e'
+/// de UM cliente especifico e se resolve no primeiro login; esta e' a ponte entre
+/// "o pagamento caiu" e "o dono consegue entrar".
+///
+/// Some quando o dono troca a senha. ate la, e' o unico jeito de ele descobrir a
+/// propria senha: o log do servidor e' do administrador da nuvem, e nao dele.
+model CredencialProvisional {
+  tenantId String   @id
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email    String
+  senha    String
+  criadoEm DateTime @default(now())
 }
 
 /// Eventos do Asaas ja processados. A chave e' o id do evento porque o Asaas

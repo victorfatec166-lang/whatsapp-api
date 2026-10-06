@@ -76,6 +76,13 @@ const TELAS = [
 /** Telas de entrada: publicas, e por isso sem cookie. */
 const TELAS_DE_ENTRADA = ['/entrar', '/criar-conta', '/recuperar-senha'];
 
+/**
+ * O painel de administracao (`/ops`). Fora da lista acima porque tem guarda de
+ * rede, e o gate roda na maquina do dono -- a origem liberada. Sem estar aqui o
+ * JavaScript desta tela nunca seria conferido, e ela mostra os dados de todos.
+ */
+const TELA_OPS = { nome: 'ops', caminho: '/ops' };
+
 /** Cabecalho de cookie da sessao de teste. Vazio ate `main` entrar. */
 let cookieSessao = '';
 
@@ -323,6 +330,24 @@ async function main() {
     }
 
     /*
+     * `/ops` tambem e' sem cookie -- a guarda e' de rede, e o gate roda na maquina
+     * que esta' liberada. Fora do laco acima porque nao e' tela de entrada: e' o
+     * painel de administracao, e a contagem precisa dizer isso.
+     */
+    try {
+        const resposta = await pegar(TELA_OPS.caminho, null);
+        if (resposta.statusCode === 404) {
+            telasPuladas.push(TELA_OPS.nome);
+            console.log('  pulou   ops  (a rede deste gate nao esta na lista liberada)');
+        } else {
+            falha += await conferir(TELA_OPS.nome, resposta.corpo, null);
+        }
+    } catch (e) {
+        console.log(`  ERRO    ${TELA_OPS.caminho}: servidor nao respondeu (${e.message})`);
+        falha++;
+    }
+
+    /*
      * A conta de funcao orfa vem depois de todas as telas, e e' a ultima
      * palavra: pode acusar funcao que nenhuma tela chama, o que e' a unica
      * forma de o verificador achar codigo morto no JavaScript embutido.
@@ -347,14 +372,21 @@ async function main() {
      * que dizer isso em vez de somar a tela no total e deixar o numero feliz.
      */
     const entrada = telasConferidas.filter((n) => TELAS_DE_ENTRADA.includes('/' + n)).length;
-    const doPainel = telasConferidas.length - entrada;
+    /*
+     * `/ops` e' painel, mas nao do cliente: dizer "do painel" contaria ele com as
+     * abas que o dono ve, e o resumo passaria a dizer que o painel inteiro foi
+     * conferido. Fica a parte, com o nome que aparece na linha de cima.
+     */
+    const deOperacao = telasConferidas.includes(TELA_OPS.nome) ? 1 : 0;
+    const doPainel = telasConferidas.length - entrada - deOperacao;
     /*
      * A frase final so pode dizer "nenhuma funcao orfa" quando NAO ha nenhuma: dizer
      * isso abaixo de uma lista com seis nomes e' o resumo repetindo o defeito que o
      * script inteiro veio para acabar -- a tela verde contando o que nao foi conferido.
      */
     console.log(
-        `${telasConferidas.length} tela(s) conferida(s) (${doPainel} do painel + ${entrada} de entrada), ` +
+        `${telasConferidas.length} tela(s) conferida(s) (${doPainel} do painel + ${entrada} de entrada` +
+            `${deOperacao ? ' + 1 de operacao' : ''}), ` +
             `${totalBlocos} bloco(s) de script: sintaxe ok e todo data-* tem handler. ` +
             (funcoesOrfasDoPainel.length === 0
                 ? 'Nenhuma funcao orfa no painel inteiro.'

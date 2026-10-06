@@ -20,7 +20,9 @@ import {
     textoDoCarrinho,
     ehComandoFechar,
     ehComandoLimpar,
+    ehComandoMenu,
     ehComandoVerCarrinho,
+    ehSaudacao,
     type LinhaCarrinho,
 } from '../src/services/carrinho';
 
@@ -156,12 +158,66 @@ test('o texto do carrinho vazio diz como sair dele', () => {
 });
 
 test('o texto nao mostra dinheiro, porque o preco vem do servidor', () => {
-    // Se este texto passasse a mostrar um total, o preco teria saído do lugar
+    // Se este texto passasse a mostrar um total, o preco teria saido do lugar
     // -- e o lugar do preco e' a leitura do banco, no momento de fechar.
     const c: LinhaCarrinho[] = [];
     juntaItem(c, COXINHA(2));
     const t = textoDoCarrinho(c);
     assert.equal(/R\$/.test(t), false, 'nenhum valor em reais no resumo do pedido');
+});
+
+test('o texto nao manda digitar 1 para ver o cardapio, porque 1 aqui e' + ' o produto', () => {
+    /*
+     * Este texto so aparece com a lista na tela, entao "1" e' o numero do
+     * primeiro prato. O bot se mandava voltar por ali e a pessoa acrescentava o
+     * primeiro item de novo -- e era o jeito mais facil de pedir duas vezes.
+     */
+    const c: LinhaCarrinho[] = [];
+    juntaItem(c, COXINHA());
+    const t = textoDoCarrinho(c);
+
+    assert.equal(/para ver o card[aá]pio, \*1\*/i.test(t), false, 'o atalho de "1" nao pode aparecer aqui');
+    assert.match(t, /card[aá]pio/i, 'e o texto precisa dizer como chegar na lista de verdade');
+});
+
+/* ------------------------------------------------------ menu e saudacao */
+
+test('saudacao e' + ' reconhecida, e nao confundida com o pedido', () => {
+    // "oi" e' a palavra mais comum do portugues e nao pode apagar o que a pessoa
+    // ja tinha escolhido.
+    for (const t of ['oi', 'ola', 'olá', 'bom dia', 'boa noite']) {
+        assert.equal(ehSaudacao(t), true, `"${t}" devia ser saudacao`);
+    }
+    assert.equal(ehSaudacao('coxinha'), false);
+    assert.equal(ehSaudacao('menu'), false, 'menu e' + ' pedido de menu, nao saudacao');
+});
+
+test('menu e' + ' reconhecido pelas palavras que a pessoa usa', () => {
+    for (const t of ['menu', 'inicio', 'início', 'cardapio', 'cardápio', 'voltar', 'opcoes']) {
+        assert.equal(ehComandoMenu(t), true, `"${t}" devia mostrar o menu`);
+    }
+    assert.equal(ehComandoMenu('cardápio da semana'), false, 'frase e' + ' interpretador, nao menu');
+});
+
+test('zero e' + ' pular modificador, e so menu fora da escolha', () => {
+    /*
+     * No meio dos modificadores, "0" e' a forma curta de "nenhum". Tratar como
+     * "voltar" jogava a pessoa no menu principal e perdia o item que ela estava
+     * escolhendo.
+     */
+    assert.equal(ehComandoMenu('0', 'ESCOLHENDO_MOD'), false);
+    assert.equal(ehComandoMenu('0', 'PEDINDO'), true);
+    assert.equal(ehComandoMenu('0', 'MENU'), true);
+});
+
+test('menu nunca come um item do pedido', () => {
+    // Os dois caminhos andam juntos: o menu mostra o balcao e o pedido em aberto.
+    // Se o "menu" aparecesse na lista de limpar, ver o menu apagaria o carrinho.
+    for (const t of ['menu', 'cardapio', 'cardápio', 'voltar', 'opcoes', 'inicio']) {
+        assert.equal(ehComandoLimpar(t), false, `"${t}" nao pode apagar o pedido`);
+        assert.equal(ehComandoFechar(t), false, `"${t}" nao pode fechar o pedido`);
+        assert.equal(ehSaudacao(t), false, `"${t}" nao e' saudacao`);
+    }
 });
 
 /* ---------------------------------------------------------------- comandos */

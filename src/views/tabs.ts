@@ -829,7 +829,7 @@ const GRUPOS_BOT: Array<{ titulo: string; descricao: string; campos: CampoBot[] 
                 key: 'attendantMessage',
                 label: 'Atendente solicitado',
                 rows: 3,
-                hint: 'Importante: o bot promete que alguem chama, e nao tem ninguemAutomatico. O atendente ve a conversa na aba Conversas.',
+                hint: 'O bot fica calado nessa conversa. Para voltar ao automatico, o proprio cliente escreve *menu*.',
             },
         ],
     },

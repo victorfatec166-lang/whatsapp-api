@@ -86,3 +86,17 @@ release-cliente/
 # instalador) e cria um lock la. O app nao tem dependencia nenhuma -- o Electron
 # esta no package.json do servidor --, entao esse lock nao versiona.
 cliente/package-lock.json
+
+# Artefatos do banco local (SQLite), usados pelo instalador do cliente.
+#
+# `schema.local.prisma` e' GERADO do schema.prisma por scripts/preparar-banco-local.mjs
+# e nunca editado a mao: versionar os dois faria os modelos divergirem sem ninguem
+# perceber. O banco inicial tambem e' build, e nao dado -- quem tem dado esta em
+# %APPDATA%, que nao entra no git.
+prisma/schema.local.prisma
+cliente/banco-inicial.db
+
+# A senha do primeiro acesso, quando o `DELIVERYADMIN_DATA` aponta para a raiz.
+# normally fica em %APPDATA%, mas quem roda com a pasta na raiz acabaria versionando
+# uma senha de administrador em texto claro.
+primeiro-acesso.json

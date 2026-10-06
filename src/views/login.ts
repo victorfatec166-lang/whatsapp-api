@@ -37,6 +37,12 @@ export type DadosTelaLogin = {
     destino: string;
     /** Marcado no primeiro acesso: o cadastro ainda esta aberto. */
     primeiroAcesso?: boolean;
+    /**
+     * E-mail recem-cadastrado, quando o dono acabou de se registrar com teste. A
+     * tela mostra o e-mail preenchido: ele escolheu a senha ha um minuto e agora
+     * precisa so lembrar e digitar, nao procurar a conta.
+     */
+    emailRecente?: string;
 };
 
 /*
@@ -304,9 +310,13 @@ export function renderLogin(d: DadosTelaLogin): string {
                             ? `                    <div role="status" class="mt-5 flex items-start gap-2.5 rounded-card border border-accent-orange bg-warning-bg p-3">
                         <i class="fa-solid fa-circle-info text-accent-orange mt-0.5 shrink-0" aria-hidden="true"></i>
                         <p class="text-caption text-ink-2">
-                            Primeiro acesso. Use o e-mail
+                            ${d.emailRecente
+                                ? `Sua loja ja esta criada. Entre com o e-mail
+                            <strong class="font-mono text-ink">${escapeHtml(d.emailRecente)}</strong>
+                            e a senha que voce escolheu no cadastro.`
+                                : `Primeiro acesso. Use o e-mail
                             <strong class="font-mono text-ink">${escapeHtml(ADMIN_PADRAO)}</strong>
-                            e a senha que aparece no log do servidor.
+                            e a senha que aparece no log do servidor.`}
                         </p>
                     </div>`
                             : ''
@@ -323,7 +333,7 @@ export function renderLogin(d: DadosTelaLogin): string {
                             // No primeiro acesso o e-mail ja vem preenchido: e' o mesmo
                             // para toda instalacao nova, e pedir que a pessoa digite o
                             // que o sistema acabou de criar e' trabalho a toa.
-                            valor: d.primeiroAcesso ? ADMIN_PADRAO : '',
+                            valor: d.emailRecente ?? (d.primeiroAcesso ? ADMIN_PADRAO : ''),
                         })}
 
                         ${campoSenha({
@@ -350,11 +360,7 @@ export function renderLogin(d: DadosTelaLogin): string {
 
                     <div class="mt-6 pt-5 border-t border-line text-center">
                         <p class="text-body text-ink-2">
-                            ${
-                                d.primeiroAcesso
-                                    ? `<span>Primeiro acesso? </span><a href="/criar-conta" class="font-semibold text-accent-strong hover:underline">Criar conta de administrador</a>`
-                                    : `<span>Ainda nao tem uma conta? </span><a href="/criar-conta" class="font-semibold text-accent-strong hover:underline">Criar conta</a>`
-                            }
+                            <span>Ainda nao tem uma loja? </span><a href="/criar-conta" class="font-semibold text-accent-strong hover:underline">Contrate o DeliveryAdmin</a>
                         </p>
                     </div>
                 </div>
@@ -600,15 +606,24 @@ export function renderCriarConta(d: { nomeNegocio: string }): string {
     return cascaFluxo({
         nomeNegocio: d.nomeNegocio,
         titulo: 'Criar conta',
-        subtitulo: 'A primeira conta do sistema administra tudo. As proximas sao de operador.',
+        subtitulo: 'Sua loja comeca assim que o pagamento da mensalidade cair.',
         conteudo: `                <form id="formCadastro" class="mt-6 space-y-4" novalidate>
                     ${campoTexto({
-                        id: 'nome',
-                        rotulo: 'Como quer ser chamado',
+                        id: 'nomeLoja',
+                        rotulo: 'Nome da loja',
                         tipo: 'texto',
-                        placeholder: 'Seu nome',
+                        placeholder: 'Ex.: Marmitaria do Bairro',
+                        dica: "E' o nome que os clientes veem no WhatsApp.",
                         obrigatorio: true,
                         autofocus: true,
+                    })}
+
+                    ${campoTexto({
+                        id: 'nome',
+                        rotulo: 'Seu nome',
+                        tipo: 'texto',
+                        placeholder: 'Como quer ser chamado',
+                        obrigatorio: true,
                     })}
 
                     ${campoTexto({
@@ -633,6 +648,65 @@ export function renderCriarConta(d: { nomeNegocio: string }): string {
                 </form>`,
         script: SCRIPT_CADASTRO,
         voltar: { href: '/entrar', texto: 'Voltar para o login' },
+    });
+}
+
+/*
+ * A tela entre o cadastro e o primeiro login. O dono pagou e AINDA nao pode entrar:
+ * a loja nasce desligada e quem liga e' o webhook do Asaas. Sem ela ele cairia no
+ * login, veria "conta inexistente" e acharia que o pagamento nao valia.
+ */
+export function renderAguardando(d: { nomeNegocio: string; email: string }): string {
+    return cascaFluxo({
+        nomeNegocio: d.nomeNegocio,
+        titulo: 'Pagamento pendente',
+        subtitulo: 'Sua loja foi criada. Pague a mensalidade para abrir o acesso.',
+        conteudo: `                <div role="status" class="mt-5 flex items-start gap-2.5 rounded-card border border-line bg-surface-2 p-3">
+                    <i class="fa-solid fa-clock text-accent mt-0.5 shrink-0" aria-hidden="true"></i>
+                    <div class="text-caption text-ink-2">
+                        <p class="font-medium text-ink">${escapeHtml(d.email)}</p>
+                        <p class="mt-1">
+                            A cobranca foi emitida. Assim que cair, sua loja abre e voce entra
+                            com o e-mail e a senha que escolheu agora.
+                        </p>
+                    </div>
+                </div>
+
+                <div id="caixaTeste" class="hidden mt-4">
+                    <div role="status" class="flex items-start gap-2.5 rounded-card border border-accent-orange bg-warning-bg p-3">
+                        <i class="fa-solid fa-gift text-accent-orange mt-0.5 shrink-0" aria-hidden="true"></i>
+                        <p class="text-caption text-ink-2">
+                            <strong class="text-ink" id="textoTeste"></strong>
+                            Aproveite para colocar o cardapio no ar. Se nao confirmar ate la,
+                            a loja pausa e o acesso so volta com a mensalidade.
+                        </p>
+                    </div>
+                </div>
+
+                <div id="caixaPagamento" class="hidden mt-5">
+                    <p class="text-body text-ink-2 mb-2">Pague a mensalidade:</p>
+                    <a id="linkPagamento" href="#" target="_blank" rel="noopener noreferrer"
+                       class="btn btn-primary w-full py-2.5 font-semibold">
+                        <i class="fa-solid fa-credit-card" aria-hidden="true"></i>
+                        <span>Pagar agora</span>
+                    </a>
+                    <p class="text-caption text-ink-3 mt-2">
+                        Voce escolhe cartao, PIX ou boleto. O pagamento cai direto na gente.
+                    </p>
+                </div>
+
+                <div class="mt-4">
+                    <p class="text-caption text-ink-3" id="textoStatus">Verificando o pagamento…</p>
+                </div>
+
+                <div class="mt-6">
+                    <a href="/entrar" class="btn btn-primary w-full py-2.5 font-semibold">
+                        <i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i>
+                        <span>Ir para o login</span>
+                    </a>
+                </div>`,
+        script: SCRIPT_AGUARDANDO,
+        voltar: { href: '/criar-conta', texto: 'Criar outra loja' },
     });
 }
 
@@ -993,6 +1067,11 @@ const SCRIPT_CADASTRO = COMUM + `
 
                     function checa() {
                         var ok = true;
+
+                        var loja = form.nomeLoja.value.trim();
+                        if (loja.length < 2) { window.marcaErro('nomeLoja', 'Informe o nome da loja.'); ok = false; }
+                        else window.marcaErro('nomeLoja', null);
+
                         var nome = form.nome.value.trim();
                         if (nome.length < 2) { window.marcaErro('nome', 'Informe o seu nome.'); ok = false; }
                         else window.marcaErro('nome', null);
@@ -1013,7 +1092,7 @@ const SCRIPT_CADASTRO = COMUM + `
                         return ok;
                     }
 
-                    ['nome', 'email', 'senha'].forEach(function (id) {
+                    ['nomeLoja', 'nome', 'email', 'senha'].forEach(function (id) {
                         form[id].addEventListener('input', function () {
                             if (form[id].getAttribute('aria-invalid') === 'true') checa();
                         });
@@ -1029,6 +1108,7 @@ const SCRIPT_CADASTRO = COMUM + `
                         comToken()
                             .then(function (t) {
                                 return postJSON('/api/auth/criar-conta', {
+                                    nomeLoja: form.nomeLoja.value.trim(),
                                     nome: form.nome.value.trim(),
                                     email: form.email.value.trim(),
                                     senha: form.senha.value,
@@ -1037,19 +1117,102 @@ const SCRIPT_CADASTRO = COMUM + `
                             })
                             .then(function (r) {
                                 window.estadoCarregando(false);
-                                if (r.ok) {
-                                    window.erroGeral(null);
-                                    alert('Conta criada. Agora entre com o e-mail e a senha.');
-                                    location.href = '/entrar';
+                                if (!r.ok) {
+                                    window.erroGeral(r.data.error || 'Nao foi possivel criar a conta.');
                                     return;
                                 }
-                                window.erroGeral(r.data.error || 'Nao foi possivel criar a conta.');
+                                window.erroGeral(null);
+                                /*
+                                 * Com teste, o dono ja entra: a conta e a loja existem.
+                                 * O e-mail viaja na URL para a tela ja vir preenchida.
+                                 * Sem teste, ele vai para a tela do link de pagamento.
+                                 */
+                                var email = encodeURIComponent(form.email.value.trim());
+                                location.href = r.data.emTeste
+                                    ? '/entrar?primeiraVez=1&email=' + email
+                                    : '/cadastro/aguardando?email=' + email;
                             })
                             .catch(function () {
                                 window.estadoCarregando(false);
                                 window.erroGeral('Nao foi possivel falar com o servidor.');
                             });
                     });
+                })();
+`;
+
+/*
+ * A tela de espera consulta o servidor até o pagamento cair. O dono espera o
+ * WhatsApp destravar e nao sabe que precisa recarregar. O `caixaSenha` mostra o
+ * e-mail: a senha e' o que ele vai digitar no login.
+ */
+const SCRIPT_AGUARDANDO = COMUM + `
+                (function aguardando() {
+                    var email = new URLSearchParams(location.search).get('email') || '';
+                    var texto = document.getElementById('textoStatus');
+                    var caixaPagamento = document.getElementById('caixaPagamento');
+                    var linkPagamento = document.getElementById('linkPagamento');
+                    var caixaTeste = document.getElementById('caixaTeste');
+                    var textoTeste = document.getElementById('textoTeste');
+                    var tentativas = 0;
+
+                    function mostraTeste(d) {
+                        if (!d.testeRestante) return;
+                        caixaTeste.classList.remove('hidden');
+                        textoTeste.textContent = d.testeRestante + ' dia(s) de teste restante(s).';
+                    }
+
+                    function mostraPagamento(d) {
+                        if (!d.pagina) return;
+                        /*
+                         * target _blank sem rel e' o jeito de o link do Asaas abrir
+                         * sem levar o dono embora do sistema: ele paga e volta para
+                         * esta tela, que ja esta procurando o pagamento.
+                         */
+                        linkPagamento.setAttribute('href', d.pagina);
+                        caixaPagamento.classList.remove('hidden');
+                    }
+
+                    function conferir() {
+                        if (!email) {
+                            texto.textContent = 'Falta o e-mail do cadastro nesta tela.';
+                            return;
+                        }
+                        fetch('/api/auth/minha-senha?email=' + encodeURIComponent(email))
+                            .then(function (r) { return r.json().then(function (c) { return { ok: r.ok, body: c }; }); })
+                            .then(function (res) {
+                                if (res.ok) {
+                                    clearInterval(rotina);
+                                    texto.textContent = 'Pagamento confirmado! Voce ja pode entrar.';
+                                    return;
+                                }
+                                if (res.body.aguardandoPagamento) {
+                                    mostraTeste(res.body);
+                                    mostraPagamento(res.body);
+                                    return;
+                                }
+                                if (res.body && res.body.error) texto.textContent = res.body.error;
+                            })
+                            .catch(function () {
+                                texto.textContent = 'Sem conexao com o servidor. Tentando de novo…';
+                            });
+                    }
+
+                    /*
+                     * A cada 20s e por um tempo: depois disso a tela para de cutidar.
+                     * O dono provavelmente foi pagar por outro caminho, e uma tela
+                     * piscando a noite inteira seria barulho sem informacao.
+                     */
+                    var rotina = setInterval(function () {
+                        tentativas += 1;
+                        if (tentativas > 45) {
+                            clearInterval(rotina);
+                            texto.textContent = 'O pagamento pode demorar alguns minutos. Recarregue esta tela mais tarde.';
+                            return;
+                        }
+                        conferir();
+                    }, 20000);
+
+                    conferir();
                 })();
 `;
 

@@ -13,6 +13,9 @@ const SEM_TENANT = new Set([
     'Sessao',
     'Assinatura',
     'EventoAssinatura',
+    // A senha de entrada do dono: quem busca e' a tela de login, que roda sem loja
+    // -- nao ha loja antes de existir sessao. Injetar aqui a impediria a busca.
+    'CredencialProvisional',
     // A sessao do WhatsApp e' lida fora de requisicao; quem chama passa a loja na
     // mao, e a injecao aqui atrapalharia em vez de ajudar.
     'SessaoWhatsApp',

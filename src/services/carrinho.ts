@@ -1,5 +1,5 @@
 /*
- * O carrinho do cliente, e os comandos de fecha-lo.
+ * O carrinho do cliente, e as palavras que mudam o fluxo.
  * A regra de um pedido de WhatsApp mora aqui e nao em bot.ts: estas funcoes nao
  * conhecem WhatsApp, banco nem preco. Preco nao entra -- vem do banco, em priceCart.
  */
@@ -62,7 +62,7 @@ export function juntaItem(carrinho: LinhaCarrinho[], novo: LinhaCarrinho): Linha
  */
 export function textoDoCarrinho(carrinho: LinhaCarrinho[]): string {
     if (carrinho.length === 0) {
-        return '🧾 Seu pedido está vazio. Diga o que você quer ou mande *1* para ver o cardápio.';
+        return '🧾 Seu pedido está vazio. Diga o que você quer ou mande *cardápio* para ver a lista.';
     }
 
     let texto = '🧾 *Seu pedido até agora:*\n\n';
@@ -71,7 +71,12 @@ export function textoDoCarrinho(carrinho: LinhaCarrinho[]): string {
         texto += `• ${l.qtd}x ${l.nome}${extra ? ` (${extra})` : ''}\n`;
     }
     texto += `\n_${totalUnidades(carrinho)} item(ns) no pedido._`;
-    texto += '\n\nMais alguma coisa? Diga o nome. Quando terminar, mande *finalizar*. Para ver o cardápio, *1*.';
+    /*
+ * Aqui "1" e' o produto numero um da lista, e nao o atalho do cardapio: este
+ * texto so aparece com a lista na tela, e mandar "1" para rever o cardapio
+ * acrescentava o primeiro prato de novo.
+ */
+    texto += '\n\nMais alguma coisa? Diga o nome. Quando terminar, mande *finalizar*. Para rever o cardápio, *cardápio*.';
     return texto;
 }
 
@@ -90,6 +95,25 @@ export function rotuloDosModificadores(linha: LinhaCarrinho, nomes?: string[]): 
 }
 
 /* ------------------------------------------------------------- os comandos */
+
+/*
+ * Saudeacao e' outra coisa: a pessoa cumprimenta, nao pede. Reconhecer antes do
+ * resto e' o que impede que um "oi" no meio da escolha apague o item com
+ * modificador pendente e mande a pessoa para o menu principal.
+ */
+export function ehSaudacao(t: string): boolean {
+    return ['oi', 'ola', 'olá', 'opa', 'eai', 'e ai', 'bom dia', 'boa tarde', 'boa noite'].includes(t);
+}
+
+/*
+ * Pedido explicito do menu, e nao saudacao: quem pede o menu esta recomecando.
+ * O passo entra so para o "0": no meio dos modificadores ele quer dizer "nenhum",
+ * e tratar como "voltar" apagaria o item que a pessoa estava escolhendo.
+ */
+export function ehComandoMenu(t: string, step?: string): boolean {
+    if (t === '0' && step === 'ESCOLHENDO_MOD') return false;
+    return ['menu', 'inicio', 'início', '0', 'cardapio', 'cardápio', 'opcoes', 'opções', 'voltar'].includes(t);
+}
 
 /*
  * Varias palavras para o mesmo comando: um bot que so conhece uma delas perde a

@@ -94,6 +94,14 @@ export const DIR_UPLOADS = path.join(DATA_DIR, 'uploads');
 /** Subpasta de foto de produto, que e' o que o sistema grava. */
 export const DIR_UPLOADS_PRODUTOS = garante(path.join(DIR_UPLOADS, 'produtos'));
 
+/**
+ * A senha do primeiro acesso, em arquivo em vez de so no log.
+ *
+ * O log resolve o desenvolvimento e nao resolve o dono do restaurante: ele abre o
+ * programa e ve tela de login. Fica na area do usuario e some em `trocaSenha`.
+ */
+export const ARQUIVO_PRIMEIRO_ACESSO = path.join(DATA_DIR, 'primeiro-acesso.json');
+
 /*
  * O caminho do banco NAO mora aqui: quem manda e' a `DATABASE_URL` do `.env`,
  * escrita na instalacao pelo `EscreveEnv`. O `CAMINHO_BANCO` que havia aqui era

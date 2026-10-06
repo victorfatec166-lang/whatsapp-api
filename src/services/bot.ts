@@ -29,6 +29,7 @@ import {
     type Conexao,
 } from './botLojas';
 import { confereAmarracao } from './maquina';
+import { carregaPedidoAberto, salvaPedidoAberto } from './botPedido';
 import {
     apagaSessao,
     estadoDaSessao,
@@ -39,18 +40,22 @@ import {
 import { comoLoja, lojaAtual, lojaDoBoot } from './loja';
 import {
     botPodeResponder,
+    devolverAoBot,
     guardaFoto,
     registrarMensagem,
     vincularPedido,
     assumirConversa,
 } from './chat';
 import { interpreta, type ItemCatalogo } from './entender';
+import { extraiComIa } from './ia';
 import {
     juntaItem,
     textoDoCarrinho as textoCarrinho,
     ehComandoFechar,
     ehComandoLimpar,
+    ehComandoMenu,
     ehComandoVerCarrinho,
+    ehSaudacao,
     type LinhaCarrinho,
 } from './carrinho';
 import { notifyChat } from './sse';
@@ -73,6 +78,71 @@ async function assumirConversaPorTelefone(telefone: string): Promise<{ id: strin
     return assumirConversa(chat.id);
 }
 
+/** As tres opcoes do balcao automatico. */
+function textoDoMenu(): string {
+    return getBotMessage('mainMenu',
+        '🍔 *BEM-VINDO* 🍕\n' +
+        '━━━━━━━━━━━━━━━━━━━━━\n' +
+        'Escolha uma opção:\n\n' +
+        '1️⃣ *Ver Cardápio e Pedir*\n' +
+        '2️⃣ *Consultar Meus Pedidos*\n' +
+        '3️⃣ *Falar com Atendente*\n\n' +
+        '👉 *Responda com o número* da opção desejada:');
+}
+
+/**
+ * Recomeco limpo do balcao. O carrinho NAO e' apagado: quem pede o menu esta
+ * olhando as opcoes, nao desistindo do pedido, e apagar as linhas que ele ja
+ * tinha feito seria o jeito mais facil de a cozinha perder comida.
+ */
+function recomecaSessao(jid: string): void {
+    const sessao = sessoes()[jid];
+    sessao.step = 'MENU';
+    sessao.offered = undefined;
+    sessao.productId = undefined;
+    sessao.picked = undefined;
+    sessao.groupIndex = 0;
+}
+
+/**
+ * Saudeacao no meio de um pedido nao recomeca nada: ela so mostra em que ponto a
+ * pessoa esta. Era aqui que o "oi" mais comum do portugues apagava o item com
+ * modificador pendente e devolvia o cliente ao menu sem ele ter pedido nada.
+ */
+async function reancora(jid: string): Promise<void> {
+    const emObra = carrinhoDe(jid).length > 0 || sessoes()[jid].step !== 'MENU';
+    const texto = emObra
+        ? 'Oi! 👋\n\n' + textoCarrinho(carrinhoDe(jid))
+        : 'Oi! 👋 ' + textoDoMenu();
+    await socket()?.sendMessage(jid, { text: texto });
+}
+
+/**
+ * Recovery que devolve a PESSOA para a lista de produtos, e nao para o menu de
+ * tres opcoes. A lista e' o que ela veio buscar; o menu era o obrigo de passar
+ * por um degrau que nao levava a lugar nenhum.
+ */
+async function retomaNoCardapio(jid: string, aviso: string): Promise<void> {
+    const sessao = sessoes()[jid];
+    sessao.productId = undefined;
+    sessao.picked = undefined;
+    sessao.groupIndex = 0;
+
+    const produtos = await buildBotMenu();
+    if (produtos.length === 0) {
+        sessao.step = 'MENU';
+        await socket()?.sendMessage(jid, {
+            text: aviso + '\n\n' + getBotMessage('menuEmpty', '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!'),
+        });
+        return;
+    }
+
+    sessao.step = 'PEDINDO';
+    sessao.offered = produtos.map((p) => ({ id: p.id, name: p.name, price: p.price }));
+    await socket()?.sendMessage(jid, { text: renderBotMenuText(produtos) });
+    await socket()?.sendMessage(jid, { text: aviso });
+}
+
 /**
  * Caminho do pedido natural, sem numero e sem lista: transforma "quero 3 coxinhas"
  * em item. Cartao que precisa de modificador pergunta em vez de entrar errado, e o
@@ -85,7 +155,16 @@ async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
         return;
     }
 
-    const intencao = interpreta(texto, catalogo);
+    /*
+     * As regras primeiro: "coxinha de frango 3" casa por string e sai sem rede.
+     * A IA so entra no que sobrou -- a frase que o dono nao antecipou ao
+     * escrever o cardapio -- e devolve null se falhar.
+     */
+    let intencao = interpreta(texto, catalogo);
+    if (intencao.itens.length === 0) {
+        const pelaIa = await extraiComIa(texto, catalogo);
+        if (pelaIa) intencao = pelaIa;
+    }
 
     if (intencao.itens.length === 0) {
         const naoEntendidos = intencao.naoEntendidos.length > 0 ? intencao.naoEntendidos.join(', ') : null;
@@ -94,7 +173,7 @@ async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
                 (naoEntendidos
                     ? `🤖 Não encontrei ${naoEntendidos} no cardápio.`
                     : '🤖 Não entendi o que você pediu.') +
-                '\n\nEscreva o **nome do produto** (com ou sem quantidade) ou mande *1* para ver a lista.'
+                '\n\nEscreva o **nome do produto** (com ou sem quantidade) ou mande *cardápio* para ver a lista.'
         });
         return;
     }
@@ -217,7 +296,7 @@ async function fechaCarrinho(jid: string, onOrderCreated?: () => void): Promise<
     const carrinho = carrinhoDe(jid);
 
     if (carrinho.length === 0) {
-        await socket()?.sendMessage(jid, { text: '🧾 Nao ha nada no pedido ainda. Manda *1* para ver o cardapio.' });
+        await socket()?.sendMessage(jid, { text: '🧾 Nao ha nada no pedido ainda. Manda *cardápio* para ver a lista.' });
         return;
     }
 
@@ -298,7 +377,7 @@ async function fechaCarrinho(jid: string, onOrderCreated?: () => void): Promise<
         '🎉 *Pedido Recebido com Sucesso!* \n\n' +
         '📦 *Itens:* {items}\n' +
         '💵 *Total:* R$ {total}\n\n' +
-        'O seu pedido já foi registado na cozinha! Digite *2* para consultar os seus pedidos.'
+        'O seu pedido já foi registado na cozinha! Para pedir de novo, mande *cardápio*.'
     )
         .replaceAll('{items}', itemsField.replace(/\n/g, ' | '))
         .replaceAll('{total}', total.toFixed(2));
@@ -583,11 +662,21 @@ export async function startWhatsAppBot(
                     }
                 }
 
-                if (!sessoes()[senderPhone]) {
-                    sessoes()[senderPhone] = { step: 'MENU' };
-                }
+                const sessaoDoCliente = await carregaPedidoAberto(senderPhone);
+                const currentStep = sessaoDoCliente.step;
 
-                const currentStep = sessoes()[senderPhone].step;
+                /*
+                 * Fica ACIMA do corte do humano: e' a unica saida que o cliente
+                 * tem depois de pedir atendente, e o texto que o bot mandou dizia
+                 * que digitar "menu" trazia o automatico de volta.
+                 */
+                if (ehComandoMenu(textLower, currentStep)) {
+                    await devolverAoBot(senderPhone);
+                    recomecaSessao(senderPhone);
+                    await socket().sendMessage(senderPhone, { text: textoDoMenu() });
+                    await salvaPedidoAberto(senderPhone);
+                    continue;
+                }
 
                 /*
                  * Sem este corte, quem pediu para falar com uma pessoa receberia o
@@ -599,20 +688,8 @@ export async function startWhatsAppBot(
                 }
 
                 try {
-                    if (['menu', 'oi', 'ola', 'olá', '0', 'inicio', 'início'].includes(textLower)) {
-                        sessoes()[senderPhone].step = 'MENU';
-                        sessoes()[senderPhone].offered = undefined;
-
-                        const mainMenu = getBotMessage('mainMenu',
-                            '🍔 *BEM-VINDO* 🍕\n' +
-                            '━━━━━━━━━━━━━━━━━━━━━\n' +
-                            'Escolha uma opção:\n\n' +
-                            '1️⃣ *Ver Cardápio e Pedir*\n' +
-                            '2️⃣ *Consultar Meus Pedidos*\n' +
-                            '3️⃣ *Falar com Atendente*\n\n' +
-                            '👉 *Responda com o número* da opção desejada:');
-
-                        await socket().sendMessage(senderPhone, { text: mainMenu });
+                    if (ehSaudacao(textLower)) {
+                        await reancora(senderPhone);
                         continue;
                     }
 
@@ -628,11 +705,7 @@ export async function startWhatsAppBot(
 
                     if (ehComandoLimpar(textLower)) {
                         carrinhoDe(senderPhone).length = 0;
-                        sessoes()[senderPhone].step = 'MENU';
-                        sessoes()[senderPhone].offered = undefined;
-                        sessoes()[senderPhone].productId = undefined;
-                        sessoes()[senderPhone].picked = undefined;
-                        sessoes()[senderPhone].groupIndex = 0;
+                        recomecaSessao(senderPhone);
                         await socket().sendMessage(senderPhone, {
                             text: '🧾 Pedido apagado. Comece de novo quando quiser.'
                         });
@@ -674,13 +747,18 @@ export async function startWhatsAppBot(
                             });
 
                             if (orders.length === 0) {
-                                await socket().sendMessage(senderPhone, { text: getBotMessage('noOrders', '📦 Não encontrámos pedidos recentes. Digite *1* para ver o cardápio ou *menu*.') });
+                                await socket().sendMessage(senderPhone, { text: getBotMessage('noOrders', '📦 Não encontrámos pedidos recentes. Mande *1* para ver o cardápio.') });
                             } else {
                                 let text = '📦 *OS SEUS PEDIDOS RECENTES:*\n\n';
                                 orders.forEach(o => {
                                     text += `- *${o.items}* (R$ ${o.total.toFixed(2)}) ➡️ Status: *${o.status.toUpperCase()}*\n`;
                                 });
-                                text += '\nDigite *menu* para voltar ao início.';
+                                /*
+                                 * O rodape apontava para "menu", o atalho do cardapio:
+                                 * seguir a instrucao do bot levava a pessoa de volta ao menu
+                                 * de tres opcoes. A proxima acao util e' pedir de novo.
+                                 */
+                                text += '\nPara pedir de novo, mande *1*.';
                                 await socket().sendMessage(senderPhone, { text });
                             }
                         } 
@@ -721,21 +799,12 @@ export async function startWhatsAppBot(
                             const index = Number(textLower) - 1;
 
                             if (!offered || !offered[index]) {
-                                // Retrato perdido (reinicio do servidor): manda o
-                                // cardapio de novo em vez de adivinhar o prato.
-                                const fresh = await buildBotMenu();
-                                if (fresh.length === 0) {
-                                    await socket().sendMessage(senderPhone, {
-                                        text: getBotMessage('menuEmpty', '⚠️ O cardápio está vazio no momento. Cadastre produtos no painel web!'),
-                                    });
-                                    session.step = 'MENU';
-                                    continue;
-                                }
-                                session.offered = fresh.map((p) => ({ id: p.id, name: p.name, price: p.price }));
-                                await socket().sendMessage(senderPhone, { text: renderBotMenuText(fresh) });
-                                await socket().sendMessage(senderPhone, {
-                                    text: 'ℹ️ O cardápio mudou. Escolha novamente pelo número — ou escreva o nome do produto.',
-                                });
+                                // Retrato perdido (reinicio do servidor, ou o dono
+                                // editou o cardapio): manda a lista de novo em vez
+                                // de adivinhar o prato.
+                                session.step = 'PEDINDO';
+                                await retomaNoCardapio(senderPhone,
+                                    'ℹ️ O cardápio mudou. Escolha novamente pelo número — ou escreva o nome do produto.');
                                 continue;
                             }
 
@@ -768,10 +837,7 @@ export async function startWhatsAppBot(
                                     await socket().sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
                                 }
                             } else {
-                                await socket().sendMessage(senderPhone, {
-                                    text: '⚠️ Esse item saiu do cardápio. Peça *1* para ver a lista atualizada.',
-                                });
-                                sessoes()[senderPhone].step = 'MENU';
+                                await retomaNoCardapio(senderPhone, '⚠️ Esse item saiu do cardápio. Escolha outro na lista.');
                             }
                         } else {
                             // Nao e' numero: e' frase. E o caminho que a pessoa
@@ -784,13 +850,12 @@ export async function startWhatsAppBot(
                         const session = sessoes()[senderPhone];
                         const full = await loadProductFull(session.productId);
                         if (!full) {
-                            session.step = 'MENU';
-                            await socket().sendMessage(senderPhone, { text: '⚠️ Produto indisponível. Digite *menu*.' });
+                            await retomaNoCardapio(senderPhone, '⚠️ Esse produto não está mais disponível.');
                             continue;
                         }
 
                         const group = full.modifierGroups[session.groupIndex];
-                        if (textLower === 'pular' || textLower === 'nenhum') {
+                        if (textLower === 'pular' || textLower === 'nenhum' || textLower === '0') {
                             session.groupIndex += 1;
                         } else if (group) {
                             const choice = Number(textLower) - 1;
@@ -812,7 +877,15 @@ export async function startWhatsAppBot(
                                     }
                                     session.picked[group.id] = [...current, group.options[choice].id];
                                 }
-                                await socket().sendMessage(senderPhone, { text: `✅ *${group.name}*: ${current.length + 1}/${group.maxSelect} escolhida(s). Digite *pular* para seguir.` });
+                                /*
+                                 * A conta vem da lista ja gravada: "current + 1" dizia
+                                 * "2/2 escolhida" no momento em que a pessoa tirava
+                                 * uma opcao, e ela achava que o limite naoava.
+                                 */
+                                const agora = session.picked[group.id].length;
+                                await socket().sendMessage(senderPhone, {
+                                    text: `✅ *${group.name}*: ${agora}/${group.maxSelect} escolhida(s). Digite *pular* para seguir.`
+                                });
                                 continue;
                             }
                         }
@@ -827,8 +900,8 @@ export async function startWhatsAppBot(
                             (g) => g.required && (session.picked[g.id] ?? []).length < Math.max(1, g.minSelect)
                         );
                         if (missing) {
-                            await socket().sendMessage(senderPhone, { text: `❌ Obrigatório escolher em *${missing.name}*. Digite *menu* para recomeçar.` });
-                            sessoes()[senderPhone].step = 'MENU';
+                            await retomaNoCardapio(senderPhone,
+                                `❌ Faltou escolher em *${missing.name}*. Escolha o item de novo e siga as perguntas.`);
                             continue;
                         }
 
@@ -845,17 +918,27 @@ export async function startWhatsAppBot(
                                 qtd: 1,
                                 modificadores: session.picked ?? {},
                             });
+                            recomecaSessao(senderPhone);
                             sessoes()[senderPhone].step = 'PEDINDO';
-                            sessoes()[senderPhone].productId = undefined;
-                            sessoes()[senderPhone].picked = undefined;
-                            sessoes()[senderPhone].groupIndex = 0;
                             await socket().sendMessage(senderPhone, { text: textoCarrinho(carrinhoDe(senderPhone)) });
                         }
                     }
                 } catch (err) {
                     log.error('❌ Erro crítico ao processar mensagem do bot:', err);
-                    sessoes()[senderPhone].step = 'MENU';
-                    await socket().sendMessage(senderPhone, { text: '⚠️ Ocorreu um erro ao processar o seu pedido. Digite *menu* para reiniciar.' });
+                    /*
+                     * Recomecar no menu de tres opcoes jogava o cliente no degrau que
+                     * ele nao queria, e ainda falava com ele como se nada tivesse
+                     * acontecido. Volta para a lista e diz que foi um erro nosso.
+                     */
+                    await retomaNoCardapio(senderPhone,
+                        '⚠️ Deu um erro aqui do nosso lado e não consegui ler a sua mensagem. Tente de novo.');
+                } finally {
+                    /*
+                     * Todo `continue` acima passa por aqui. Sem isso, o caminho que
+                     * respondia e voltava sem gravar deixaria o passo antigo no
+                     * banco -- e o proximo deploy repetiria a pergunta ja respondida.
+                     */
+                    await salvaPedidoAberto(senderPhone);
                 }
             }
         });

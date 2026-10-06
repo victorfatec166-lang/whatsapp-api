@@ -1,9 +1,12 @@
 import crypto from 'node:crypto';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { Request, Response, NextFunction } from 'express';
 import { prisma } from '../database/prisma';
 import { logDoModulo } from './logger';
 import { REGRA_EMAIL_TS } from './regras';
 import { comoLoja, exigeLoja, lojaDoBoot } from './loja';
+import { ARQUIVO_PRIMEIRO_ACESSO } from './paths';
+import { apagaSenhaDoDono } from './assinaturas-destino';
 const log = logDoModulo('auth');
 
 /**
@@ -582,7 +585,52 @@ export async function garanteAdministrador(): Promise<void> {
         log.info(`  senha ..... ${senha}`);
         log.info('  Troca obrigatoria no primeiro acesso.');
         log.info('='.repeat(64));
+
+        /*
+         * O log serve quem desenvolve. Quem instala o programa nunca abre um: ve
+         * tela de login e nao tem de onde tirar a senha. `trocaSenha` apaga o
+         * arquivo, para a promessa de "uma vez so" valer nos dois lugares.
+         */
+        gravaPrimeiroAcesso(senha);
     });
+}
+
+/** Escreve a senha do primeiro acesso. Falhar aqui nao impede o boot. */
+function gravaPrimeiroAcesso(senha: string): void {
+    try {
+        writeFileSync(
+            ARQUIVO_PRIMEIRO_ACESSO,
+            JSON.stringify({ email: ADMIN_PADRAO, senha, criadoEm: new Date().toISOString() }, null, 2),
+            'utf8'
+        );
+    } catch (erro) {
+        log.warn('Nao consegui gravar o arquivo de primeiro acesso:', String(erro));
+    }
+}
+
+/**
+ * A senha do primeiro acesso, ou `null`. Le ONLY no modo local: na nuvem o log ja
+ * resolve e um endpoint que entrega senha a quem chega na porta e' risco demais.
+ */
+export function primeiroAcessoLocal(): { email: string; senha: string } | null {
+    if (!process.env.MODO_LOCAL) return null;
+    try {
+        if (!existsSync(ARQUIVO_PRIMEIRO_ACESSO)) return null;
+        const lido = JSON.parse(readFileSync(ARQUIVO_PRIMEIRO_ACESSO, 'utf8')) as { email?: string; senha?: string };
+        return lido.email && lido.senha ? { email: lido.email, senha: lido.senha } : null;
+    } catch {
+        return null;
+    }
+}
+
+/** Apaga a senha do primeiro acesso, depois que ela foi trocada. */
+export function apagaPrimeiroAcesso(): void {
+    try {
+        if (existsSync(ARQUIVO_PRIMEIRO_ACESSO)) rmSync(ARQUIVO_PRIMEIRO_ACESSO, { force: true });
+    } catch {
+        // Sem apagar, o arquivo fica com senha velha: e' melhor um aviso do que
+        // um boot que falha por causa de arquivo de texto.
+    }
 }
 
 /**
@@ -602,6 +650,17 @@ export async function trocaSenha(userId: string, senhaNova: string): Promise<voi
         },
     });
     await encerraSessoesDe(userId);
+
+    // A senha do primeiro acesso valeu ate aqui. Depois disto ela nao abre mais nada.
+    apagaPrimeiroAcesso();
+
+    /*
+     * Mesma promessa para a senha de loja: vale ate ele trocar. Sem esta linha a
+     * `CredencialProvisional` ficaria para sempre, e `/minha-senha` entregaria uma
+     * senha velha a quem soubesse o e-mail.
+     */
+    const lojaDaConta = await prisma.user.findUnique({ where: { id: userId }, select: { tenantId: true } });
+    if (lojaDaConta) await apagaSenhaDoDono(lojaDaConta.tenantId);
 }
 
 /** Apaga sessoes vencidas. Chamado no boot e de hora em hora. */

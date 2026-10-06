@@ -12,6 +12,7 @@ import calendarioRoutes from './routes/calendarioRoutes';
 import sistemaRoutes from './routes/sistemaRoutes';
 import backupRoutes from './routes/backupRoutes';
 import comandaRoutes from './routes/comandaRoutes';
+import opsRoutes from './routes/opsRoutes';
 import marketplaceRoutes from './routes/marketplaceRoutes';
 import assinaturaRoutes from './routes/assinaturaRoutes';
 import { addClient, notifyClients, notifyConnection, getClientCount, fechaClientes } from './services/sse';
@@ -229,6 +230,13 @@ app.use('/api/admin/usuarios', usuariosRoutes);
 app.use(calendarioRoutes);
 app.use(sistemaRoutes);
 app.use(backupRoutes);
+
+/*
+ * Administracao (as lojas de todos os clientes), em `/ops`. Fora do `/admin` de
+ * proposito: e' a tela que atravessa loja, e quem chega nela esta na rede do dono
+ * e nao numa sessao de cliente. A guarda e' do proprio arquivo.
+ */
+app.use('/', opsRoutes);
 
 // Marketplace (iFood/99Food). O router traz o webhook publico junto; ver o
 // arquivo para por que ele fica separado das rotas do painel.

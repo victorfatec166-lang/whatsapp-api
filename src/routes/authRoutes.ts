@@ -15,13 +15,15 @@ import {
     limitePorTentativa,
 normalizaEmail,
     pedidoSeguro as pedidoSeguroNoProxy,
+    primeiroAcessoLocal,
     recuperaComCodigo,
     sessaoDoRequest,
     trocaSenha,
 } from '../services/auth';
 import { logDoModulo } from '../services/logger';
 import { problemaDaSenha } from '../services/regras';
-import { renderLogin, renderTrocaSenha, renderCriarConta, renderRecuperar, renderSobre, renderAjuda, seguroInterno } from '../views/login';
+import { guardaSenhaEscolhida, registraVenda, senhaDoDonoPendente, statusDoDono } from '../services/assinaturas';
+import { renderLogin, renderTrocaSenha, renderCriarConta, renderAguardando, renderRecuperar, renderSobre, renderAjuda, seguroInterno } from '../views/login';
 import { carregarConfig } from '../services/config';
 /** O nome que a tela de entrada mostra. E' o produto, e nao a loja -- ver o GET /entrar. */
 const NOME_DO_PRODUTO = 'DeliveryAdmin';
@@ -90,15 +92,27 @@ router.get('/entrar', async (req, res) => {
     }
 
     /*
+     * Recem-cadastrado com teste: a conta ja existe e ele vem da tela de cadastro.
+     * Sem este e-mail preenchido, ele procuraria uma conta que acabou de criar e
+     * acharia que o cadastro falhou.
+     */
+    let emailRecente = '';
+    if (req.query.primeiraVez === '1') {
+        emailRecente = normalizaEmail(String(req.query.email ?? ''));
+        if (!emailValido(emailRecente)) emailRecente = '';
+    }
+
+    /*
      * O nome e' do PRODUTO, e nao da loja: esta rota roda sem sessao, e sem sessao
      * nao ha loja. E antes de autenticar a tela nao tem como saber de quem e' a
      * conta que esta entrando -- o nome da loja aparece no painel, depois.
      */
-    res.send(
+res.send(
         renderLogin({
             nomeNegocio: NOME_DO_PRODUTO,
             destino,
             primeiroAcesso: (await prisma.user.count()) === 0,
+            emailRecente,
         })
     );
 });
@@ -156,6 +170,21 @@ router.post('/api/auth/token', (req, res) => {
         httpOnly: true,
     });
     res.json({ token });
+});
+
+/*
+ * A senha do primeiro acesso, para o programa instalado mostrar na tela. Fora do
+ * `/api/admin` de proposito: quem ainda nao entrou e' exatamente quem precisa dela.
+ * E `null` fora do MODO_LOCAL, entao na nuvem a rota responde 404 e nao entrega nada.
+ */
+router.get('/api/auth/primeiro-acesso', (_req, res) => {
+    const acesso = primeiroAcessoLocal();
+    if (!acesso) {
+        res.status(404).json({ error: 'Sem primeiro acesso pendente.' });
+        return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(acesso);
 });
 
 router.post('/api/auth/login', limitePorTentativa({ max: 12, janelaMs: 5 * 60 * 1000 }), async (req, res) => {
@@ -298,17 +327,89 @@ router.post('/api/auth/trocar-senha', exigeSessao(), exigeCsrf(), async (req, re
  * cria admin e' um botao que qualquer pessoa com o e-mail da loja aperta para tomar
  * o painel. E o cadastro se fecha sozinho assim que a primeira conta existe.
  */
-router.get('/criar-conta', async (req, res) => {
-    if ((await prisma.user.count()) > 0) {
-        res.redirect(303, '/entrar?cadastro=fechado');
+/** A tela entre o cadastro e o login, com o e-mail do dono para consultar o status. */
+router.get('/cadastro/aguardando', async (req, res) => {
+    const email = normalizaEmail(String(req.query.email ?? ''));
+    const destino = seguroInterno(String(req.query.destino ?? '/admin'));
+    if (await sessaoDoRequest(req)) {
+        res.redirect(303, destino);
         return;
     }
-    // O nome do PRODUTO, e nao `carregarConfig()`: o `Config` e' da loja, e esta
-    // rota roda sem loja. A razao e' a mesma do GET /entrar, e o efeito seria o
-    // mesmo -- a tela nao abriria.
+    res.send(renderAguardando({ nomeNegocio: NOME_DO_PRODUTO, email }));
+});
+
+router.get('/criar-conta', (_req, res) => {
+    /*
+     * Antes era a primeira conta do sistema e se fechava sozinha depois dela.
+     * Isso descreve loja unica; num SaaS de assinatura a marmitaria n.o 2 entra
+     * sem depender da n.o 1. O que decide se o cadastro abre e' o POST.
+     */
     res.send(renderCriarConta({ nomeNegocio: NOME_DO_PRODUTO }));
 });
 
+/**
+ * A senha que o dono recebe ao pagar, buscada pelo e-mail. Fora do `/api/admin`
+ * porque quem nao entrou ainda e' quem precisa dela. Quem sabe o e-mail ve a
+ * senha -- por isso o limite apertado, e ela some quando o dono troca.
+ */
+router.get('/api/auth/minha-senha', limitePorTentativa({ max: 8, janelaMs: 5 * 60 * 1000 }), async (req, res) => {
+    const email = normalizaEmail(String(req.query.email ?? ''));
+    if (!emailValido(email)) {
+        res.status(400).json({ error: 'Informe um e-mail valido.' });
+        return;
+    }
+
+    const assinatura = await prisma.assinatura.findFirst({
+        where: { emailDono: email },
+        select: { tenantId: true },
+    });
+    if (!assinatura) {
+        res.status(404).json({ error: 'Nao encontramos nenhuma loja com esse e-mail.' });
+        return;
+    }
+
+    const status = await statusDoDono(assinatura.tenantId);
+    const pendente = await senhaDoDonoPendente(assinatura.tenantId);
+
+    /*
+     * 402 e' "pague para entrar". O `pagina` vem junto porque e' a unica coisa que
+     * o dono pode fazer agora -- mandar so "o pagamento nao caiu" o deixa parado
+     * olhando uma tela que ele nao consegue mudar.
+     */
+    if (!status?.ativo) {
+        res.status(402).json({
+            error: 'O pagamento da sua loja ainda nao caiu.',
+            aguardandoPagamento: true,
+            pagina: status?.pagina ?? null,
+            testeRestante: status?.testeRestante ?? 0,
+            testeAte: status?.testeAte ?? null,
+        });
+        return;
+    }
+
+    if (!pendente) {
+        res.status(404).json({ error: 'Essa senha ja foi usada. Entre com a sua senha atual.' });
+        return;
+    }
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(pendente);
+});
+
+/** O plano e o preco saem do servidor, nunca do formulario. */
+const PLANO_PADRAO = process.env.PLANO_PADRAO?.trim() || 'DeliveryAdmin Mensal';
+const VALOR_PADRAO = Number(process.env.VALOR_MENSAL?.trim() || '0');
+
+/**
+ * Quantos dias o dono usa sem pagar. `0` desliga o teste: a loja so abre com a
+ * mensalidade paga, e e' o que a cobranca de verdade precisa.
+ */
+function testeDias(): number {
+    const n = Number(process.env.TESTE_DIAS?.trim() || '0');
+    return Number.isFinite(n) && n > 0 ? Math.min(60, Math.round(n)) : 0;
+}
+
+/** 5 por hora e' o limite do token de CSRF; o do cadastro e' mais apertado. */
 router.post(
     '/api/auth/criar-conta',
     limitePorTentativa({ max: 5, janelaMs: 60 * 60 * 1000 }),
@@ -317,16 +418,18 @@ router.post(
             res.status(403).json({ error: 'Recarregue a pagina e tente de novo.' });
             return;
         }
-        if ((await prisma.user.count()) > 0) {
-            res.status(403).json({ error: 'O cadastro esta fechado. Peca a um administrador para criar a sua conta.' });
-            return;
-        }
 
         const body = (req.body ?? {}) as Record<string, unknown>;
         const email = typeof body.email === 'string' ? normalizaEmail(body.email) : '';
         const nome = typeof body.nome === 'string' ? body.nome.trim() : '';
+        const nomeLoja = typeof body.nomeLoja === 'string' ? body.nomeLoja.trim() : '';
         const senha = typeof body.senha === 'string' ? body.senha : '';
 
+        /*
+         * A senha que o dono digita e' a DEFINITIVA dele: quem assina precisa poder
+         * escolher. Com teste, ela ja entra na conta agora -- e o acesso sem pago
+         * e' o prazo no banco, nao uma exemptao no login.
+         */
         if (!emailValido(email)) {
             res.status(400).json({ error: 'Informe um e-mail valido.' });
             return;
@@ -335,26 +438,82 @@ router.post(
             res.status(400).json({ error: 'Informe o nome que aparecera no painel.' });
             return;
         }
+        if (nomeLoja.length < 2 || nomeLoja.length > 60) {
+            res.status(400).json({ error: 'Informe o nome da loja.' });
+            return;
+        }
         const erro = problemaDaSenha(senha);
         if (erro) {
             res.status(400).json({ error: erro });
             return;
         }
 
-const { hash, sal } = await derivaSenha(senha);
-        await prisma.user.create({
-            data: {
-                tenantId: lojaDoBoot(),
-                email,
-                nome,
-                senhaHash: hash,
-                senhaSalt: sal,
-                papel: 'operador',
-            },
-        });
-        log.info('Conta de operador criada', { email });
+        /*
+         * E-mail repetido e' a loja DO DONO: ele pode ter duas marmitarias. Como
+         * `User.email` e' unico, o segundo cadastro cai aqui -- e a mensagem tem
+         * que mandar ele para a conta certa, nao dizer "e-mail ja usado".
+         */
+        const jaTem = await prisma.user.findFirst({ where: { email }, select: { tenantId: true } });
+        if (jaTem) {
+            res.status(409).json({
+                error: 'Ja existe uma conta com este e-mail. Entre nela, ou recupere a senha.',
+            });
+            return;
+        }
 
-        res.json({ success: true });
+        const valor = VALOR_PADRAO;
+        if (!(valor > 0)) {
+            log.error('Cadastro recusado: VALOR_MENSAL nao esta cadastrado no servidor.');
+            res.status(503).json({ error: 'O cadastro esta temporariamente indisponivel. Tente mais tarde.' });
+            return;
+        }
+
+        /*
+         * O primeiro vencimento e' o FIM do teste, e nao uma data arbitraria: com
+         * teste de 14 dias, cobrar no dia 7 daria a quem esta provando o produto.
+         * Sem teste, o vencimento e' em uma semana.
+         */
+        const dias = testeDias();
+        const primeiroVencimento = new Date(Date.now() + (dias || 7) * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .slice(0, 10);
+
+        let venda;
+        try {
+            venda = await registraVenda({
+                nomeLoja,
+                emailDono: email,
+                nome,
+                senha,
+                valor,
+                plano: PLANO_PADRAO,
+                primeiroVencimento,
+                testeDias: dias,
+            });
+        } catch (erro) {
+            log.error('Cadastro falhou ao registrar a venda:', String(erro));
+            res.status(502).json({ error: 'Nao conseguimos iniciar sua assinatura. Tente de novo.' });
+            return;
+        }
+
+        /*
+         * A senha escolhida e' guardada para a tela de espera mostrar onde esta o
+         * link de pagamento, e apagada no primeiro acesso. Com teste a conta ja
+         * existe: ele entra direto, e isto aqui so cobre a consulta de status.
+         */
+        await guardaSenhaEscolhida(venda.loja, senha).catch((erro) =>
+            log.error('Venda ok, mas a senha do dono nao foi guardada:', String(erro))
+        );
+
+        log.info('Cadastro publico concluido', { loja: venda.loja, nomeLoja, testeDias: dias });
+        res.json({
+            success: true,
+            loja: venda.loja,
+            emTeste: venda.testeAte !== null,
+            // Sem teste o dono tem que pagar para entrar: ele vai para a espera.
+            destino: venda.testeAte ? '/entrar?primeiraVez=1' : '/cadastro/aguardando',
+            email,
+        });
     }
 );
 

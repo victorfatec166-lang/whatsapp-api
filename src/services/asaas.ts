@@ -28,6 +28,12 @@ export type AssinaturaAsaas = {
     status: string;
     nextDueDate: string | null;
     billingType: string;
+    /**
+     * A cobranca da proxima parcela. Sem este campo a tela de espera so diz que a
+     * cobranca existe -- e nao onde o dono paga, que e' a unica coisa que ele
+     * precisa fazer. No Asaas vem em snake_case.
+     */
+    latestInvoice?: string | null;
 };
 
 export type CobrancaAsaas = {
@@ -114,6 +120,16 @@ export async function atualizaAssinatura(id: string, dados: { valor?: number; pr
         value: dados.valor,
         nextDueDate: dados.proximoVencimento,
     });
+}
+
+/**
+ * Onde o dono paga. O Asaas hospeda a pagina e mostra cartao, PIX e boleto na
+ * mesma tela -- nenhuma exige codigo nosso, e o dinheiro cai direto na conta
+ * cadastrada. Sem isto o dono sabe que a cobranca existe e nao sabe onde pagar.
+ */
+export function urlDePagamento(idDaCobranca: string): string {
+    const id = idDaCobranca.trim();
+    return `${base()}/v3/payments/${encodeURIComponent(id)}/paymentForm`;
 }
 
 /** Cancela a recorrencia la no Asaas. O acesso e' desligado a parte, em `assinaturas`. */

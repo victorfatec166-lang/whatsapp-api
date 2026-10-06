@@ -209,6 +209,15 @@ export async function assumirConversa(chatId: string): Promise<ResumoConversa | 
     return toResumo(c);
 }
 
+/**
+ * Devolve a conversa ao bot. Sem isto o botao "falar com atendente" e' um beco
+ * sem volta: o cliente pedia secours e nunca mais recebia resposta automatica,
+ * mesmo escrevendo "menu", que era o que o proprio bot tinha prometido.
+ */
+export async function devolverAoBot(telefone: string): Promise<void> {
+    await prisma.chat.updateMany({ where: { phone: telefone }, data: { atendente: 'bot', assumidoAt: null } });
+}
+
 /** Total de nao lidas, para a barra lateral sinalizar conversa nova. */
 export async function totalNaoLidas(): Promise<number> {
     const r = await prisma.chat.aggregate({ _sum: { naoLidas: true } });

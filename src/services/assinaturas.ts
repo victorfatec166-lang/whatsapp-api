@@ -6,7 +6,12 @@
  */
 import crypto from 'node:crypto';
 import { prisma } from '../database/prisma';
-import { criaAssinatura as criaAssinaturaAsaas, criaCliente } from './asaas';
+import {
+    criaAssinatura as criaAssinaturaAsaas,
+    criaCliente,
+    leAssinatura,
+    urlDePagamento,
+} from './asaas';
 import { derivaSenha, senhaAleatoria } from './auth';
 import { logDoModulo } from './logger';
 const log = logDoModulo('assinaturas');
@@ -61,7 +66,12 @@ async function ligaLoja(tenantId: string, emailDono: string, nome: string): Prom
     const jaTem = await prisma.user.findFirst({ where: { tenantId } });
     if (jaTem) return;
 
-    const senha = senhaAleatoria();
+    /*
+     * Vale a senha que o DONO escolheu no cadastro. Dar outra, que ficaria so no
+     * log que ele nunca abre, seria um sistema que parece nao funcionar.
+     */
+    const escolhida = await prisma.credencialProvisional.findUnique({ where: { tenantId } });
+    const senha = escolhida?.senha || senhaAleatoria();
     const { hash, sal } = await derivaSenha(senha);
 
     await prisma.user.create({
@@ -72,7 +82,9 @@ async function ligaLoja(tenantId: string, emailDono: string, nome: string): Prom
             senhaHash: hash,
             senhaSalt: sal,
             papel: 'admin',
-            precisaTrocarSenha: true,
+            // A senha escolhida no cadastro ja e' definitiva: pedir troca na
+            // primeira entrada seria exigir que ele digite duas vezes a mesma.
+            precisaTrocarSenha: !escolhida,
         },
     });
 
@@ -80,9 +92,102 @@ async function ligaLoja(tenantId: string, emailDono: string, nome: string): Prom
     log.info('CONTA DO ADMINISTRADOR CRIADA (assinatura paga)');
     log.info(`  e-mail .... ${emailDono}`);
     log.info(`  loja ...... ${tenantId}`);
-    log.info(`  senha ..... ${senha}`);
-    log.info('  Troca obrigatoria no primeiro acesso.');
+    log.info(`  senha ..... ${escolhida ? '(a escolhida no cadastro)' : senha}`);
+    log.info(escolhida ? '  Entra direto, sem troca obrigatoria.' : '  Troca obrigatoria no primeiro acesso.');
     log.info('='.repeat(64));
+}
+
+/**
+ * A senha de entrada do dono, guardada no cadastro para ele buscar. `User` nao
+ * serve: ela some quando ele troca, e ele pagou e vai entrar agora. Some na troca.
+ */
+export async function senhaDoDonoPendente(tenantId: string): Promise<{ email: string; senha: string } | null> {
+    const linha = await prisma.credencialProvisional.findUnique({ where: { tenantId } });
+    if (!linha) return null;
+    return { email: linha.email, senha: linha.senha };
+}
+
+/** A senha que o dono digitou no cadastro, esperando o pagamento chegar. */
+export async function guardaSenhaEscolhida(tenantId: string, senha: string): Promise<void> {
+    const assinatura = await prisma.assinatura.findUnique({
+        where: { tenantId },
+        select: { emailDono: true },
+    });
+    await prisma.credencialProvisional.upsert({
+        where: { tenantId },
+        create: { tenantId, email: assinatura?.emailDono ?? '', senha, criadoEm: new Date() },
+        update: { senha, criadoEm: new Date() },
+    });
+}
+
+/**
+ * Onde o dono paga, e quantos dias de teste faltam. `pagina` e' null enquanto nao
+ * existe cobranca, e a tela diz para aguardar em vez de mostrar link quebrado.
+ */
+export async function statusDoDono(tenantId: string): Promise<{
+    pagina: string | null;
+    testeAte: Date | null;
+    testeRestante: number;
+    ativo: boolean;
+} | null> {
+    const assinatura = await prisma.assinatura.findUnique({ where: { tenantId } });
+    if (!assinatura) return null;
+
+    /*
+     * A assinatura pode ter nascido antes desta coluna existir, e o dono precisa
+     * pagar do mesmo jeito: sem id guardado, uma leitura no Asaas devolve a cobranca
+     * e a tela volta a ter link.
+     */
+    let cobranca = assinatura.asaasCobranca;
+    if (!cobranca && assinatura.asaasSubscription) {
+        try {
+            const la = await leAssinatura(assinatura.asaasSubscription);
+            cobranca = la.latestInvoice ?? null;
+            if (cobranca) {
+                await prisma.assinatura.update({
+                    where: { tenantId },
+                    data: { asaasCobranca: cobranca },
+                });
+            }
+        } catch (erro) {
+            log.warn('Nao consegui buscar a cobranca da assinatura:', String(erro));
+        }
+    }
+
+    const testeAte = assinatura.testeAte;
+    const testeRestante = testeAte ? Math.max(0, Math.ceil((testeAte.getTime() - Date.now()) / 86_400_000)) : 0;
+
+    return {
+        pagina: cobranca ? urlDePagamento(cobranca) : null,
+        testeAte,
+        testeRestante,
+        ativo: assinatura.status === 'ativa',
+    };
+}
+
+/**
+ * O teste acabou: a loja perde o acesso ate a mensalidade cair. Roda no mesmo
+ * tique da virada do dia -- sem isto, "14 dias" seria teste eterno, e a loja que
+ * mais usaria o sistema seria a que menos pagou.
+ */
+export async function venceTestes(): Promise<number> {
+    const vencidas = await prisma.assinatura.findMany({
+        where: {
+            testeAte: { lte: new Date() },
+            status: { not: 'ativa' },
+        },
+        select: { tenantId: true },
+    });
+
+    for (const { tenantId } of vencidas) {
+        await desligaLoja(tenantId, 'teste de 14 dias encerrado sem pagamento');
+    }
+    return vencidas.length;
+}
+
+/** Chamado quando o dono troca a senha: o acesso provisorio cumpriu o papel. */
+export async function apagaSenhaDoDono(tenantId: string): Promise<void> {
+    await prisma.credencialProvisional.deleteMany({ where: { tenantId } }).catch(() => 0);
 }
 
 /** Desliga a loja sem apagar nada: o historico de pedidos e' do dono. */
@@ -169,19 +274,23 @@ export async function assinaturaAlterada(
 }
 
 /**
- * Venda nova: cria a loja desligada e a assinatura la no Asaas. A conta do dono
- * nasce no pagamento, e' por isso que a loja comeca com `ativo: false`.
+ * Venda nova: cria a loja, a assinatura no Asaas e a conta do dono. A loja nasce
+ * LIGADA quando ha teste, desligada quando nao ha: o acesso sem pago e' um PRAZO
+ * no banco, e nao uma exemptao no login.
  */
 export async function registraVenda(dados: {
     nomeLoja: string;
     emailDono: string;
+    nome: string;
+    senha: string;
     valor: number;
     plano: string;
     primeiroVencimento: string;
+    testeDias: number;
     cpfCnpj?: string;
     telefone?: string;
     formaPagamento?: 'UNDEFINED' | 'BOLETO' | 'CREDIT_CARD' | 'PIX';
-}): Promise<{ loja: string; assinatura: string }> {
+}): Promise<{ loja: string; assinatura: string; testeAte: Date | null }> {
     const cliente = await criaCliente({
         nome: dados.nomeLoja,
         email: dados.emailDono,
@@ -204,18 +313,40 @@ export async function registraVenda(dados: {
         referencia: lojaId,
     });
 
+    const testeAte = dados.testeDias > 0 ? new Date(Date.now() + dados.testeDias * 24 * 60 * 60 * 1000) : null;
+
     try {
-        await prisma.tenant.create({ data: { id: lojaId, name: dados.nomeLoja, ativo: false } });
+        await prisma.tenant.create({ data: { id: lojaId, name: dados.nomeLoja, ativo: testeAte !== null } });
         await prisma.assinatura.create({
             data: {
                 tenantId: lojaId,
                 asaasCustomer: cliente.id,
                 asaasSubscription: assinatura.id,
+                asaasCobranca: assinatura.latestInvoice ?? null,
                 emailDono: dados.emailDono.toLowerCase(),
                 plano: dados.plano,
                 valor: dados.valor,
                 status: 'pendente',
+                testeAte,
                 proximoVencimento: comoData(assinatura.nextDueDate),
+            },
+        });
+
+        /*
+         * A conta nasce junto com a loja, e nao no webhook: com teste, o dono entra
+         * HOJE e a senha e' a que ele digitou. Esperar o pagamento entregaria um
+         * produto que so funciona depois de pagar -- e o teste justamente nao espera.
+         */
+        const { hash, sal } = await derivaSenha(dados.senha);
+        await prisma.user.create({
+            data: {
+                tenantId: lojaId,
+                email: dados.emailDono.toLowerCase(),
+                nome: dados.nome,
+                senhaHash: hash,
+                senhaSalt: sal,
+                papel: 'admin',
+                precisaTrocarSenha: false,
             },
         });
     } catch (erro) {
@@ -224,6 +355,10 @@ export async function registraVenda(dados: {
         throw erro;
     }
 
-    log.info('Venda registrada, aguardando pagamento', { loja: lojaId, assinatura: assinatura.id });
-    return { loja: lojaId, assinatura: assinatura.id };
+    log.info('Venda registrada', {
+        loja: lojaId,
+        assinatura: assinatura.id,
+        testeAte: testeAte ? testeAte.toISOString() : 'sem teste',
+    });
+    return { loja: lojaId, assinatura: assinatura.id, testeAte };
 }

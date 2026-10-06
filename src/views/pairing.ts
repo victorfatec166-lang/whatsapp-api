@@ -1,6 +1,6 @@
 import { escapeHtml } from './html';
-import type { ConnectionState } from '../services/bot';
-import { QR_TTL_MS } from '../services/bot';
+import type { ConnectionState } from '../services/botLojas';
+import { QR_TTL_MS } from '../services/botLojas';
 
 export type PairData = {
     state: ConnectionState;

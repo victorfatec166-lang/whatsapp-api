@@ -62,6 +62,8 @@ model Tenant {
   cashMovements CashMovement[]
   reminders     Reminder[]
   messages      Message[]
+  sessoesWhatsApp SessaoWhatsApp[]
+  chavesWhatsApp  ChaveWhatsApp[]
 
   @@index([ativo])
 }
@@ -727,4 +729,49 @@ model EventoAssinatura {
   id       String   @id
   evento   String
   criadoEm DateTime @default(now())
+}
+
+/// A sessao pareada do WhatsApp, no banco.
+///
+/// Vivia num arquivo dentro de `%APPDATA%`, que na nuvem nao sobrevive ao deploy:
+/// todo deploy devolvia o bot para a tela de QR e o dono tinha que parear de novo.
+/// Aqui a sessao sobrevive ao deploy e ao restart.
+///
+/// A chave leva a instalacao porque o MESMO numero nao pode conectar em dois
+/// lugares ao mesmo tempo -- o WhatsApp derruba um dos dois. Uma sessao por loja e
+/// por instalacao, nao uma por loja.
+model SessaoWhatsApp {
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Impressao da instalacao que pareou. Ver `idDaInstalacao` no servico.
+  maquinaId String
+  /// `AuthenticationCreds` do Baileys em JSON, com os bytes em base64.
+  creds     String
+  /// Numero pareado, so para o painel mostrar sem esperar o socket abrir.
+  telefone  String?
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@id([tenantId, maquinaId])
+  @@index([atualizadoEm])
+}
+
+/// As chaves de sinal do Baileys: pre-keys, sessoes cifradas e o estado do app.
+///
+/// Uma linha por chave, e nao um JSON com todas, porque e' o Baileys quem grava
+/// chave por chave e quem apaga uma so quando ela morre: num unico blob, cada
+/// mensagem reescreveria o estado inteiro.
+model ChaveWhatsApp {
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  maquinaId String
+  /// 'pre-key' | 'session' | 'sender-key' | 'app-state-sync-key' ...
+  tipo      String
+  /// O id da chave dentro do tipo: o jid da conversa, ou o numero da pre-key.
+  chave     String
+  valor     String
+  atualizadoEm DateTime @updatedAt
+
+  @@id([tenantId, maquinaId, tipo, chave])
+  @@index([atualizadoEm])
 }

@@ -101,7 +101,7 @@ async function agendaDaLoja(now: Date): Promise<ScheduleOutcome> {
 let timer: NodeJS.Timeout | null = null;
 
 /** Sobe o agendamento. Idempotente: chamar duas vezes nao cria dois timers. */
-export function startCashScheduler(onAction?: (o: ScheduleOutcome) => void): void {
+export function startCashScheduler(onAction?: (o: ScheduleOutcome, loja: string) => void): void {
     if (timer) return;
 
     const tick = async () => {
@@ -116,12 +116,12 @@ export function startCashScheduler(onAction?: (o: ScheduleOutcome) => void): voi
                     log.info(
                         `Turno aberto automaticamente as ${new Date().toLocaleTimeString('pt-BR')} (loja ${id})`
                     );
-                    onAction?.(outcome);
+                    onAction?.(outcome, id);
                 } else if (outcome.action === 'fechou') {
                     log.info(
                         `Turno fechado automaticamente (loja ${id}). Esperado R$ ${outcome.expected.toFixed(2)} (conferencia pendente)`
                     );
-                    onAction?.(outcome);
+                    onAction?.(outcome, id);
                 }
             }
         } catch (error) {

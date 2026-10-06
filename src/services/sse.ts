@@ -1,24 +1,39 @@
 import { Response } from 'express';
+import { lojaAtual, lojaDoBoot } from './loja';
 
-let clients: Response[] = [];
+/**
+ * Cada tela conectada e' de uma loja. Sem a loja no cliente do SSE, um pedido novo
+ * de uma loja recarregava o painel das outras: o dado nao vazava, mas o dono da
+ * loja vizinha via o ritmo de movimento do concorrente na propria tela.
+ */
+type Cliente = { loja: string; res: Response };
+
+let clientes: Cliente[] = [];
 
 /** Evita vazamento de memoria: remove clientes que ja fecharam o socket. */
 function prune(): void {
-    clients = clients.filter((c) => !c.writableEnded && c.writableLength < 1_000_000);
+    clientes = clientes.filter((c) => !c.res.writableEnded && c.res.writableLength < 1_000_000);
 }
 
-export function addClient(res: Response) {
-    clients.push(res);
+/** A loja de quem esta chamando; fora de requisicao, a loja do boot. */
+function lojaDoChamador(): string {
+    return lojaAtual() ?? lojaDoBoot();
+}
+
+export function addClient(res: Response, loja = lojaDoChamador()) {
+    const cliente: Cliente = { loja, res };
+    clientes.push(cliente);
     prune();
     return () => {
-        clients = clients.filter((c) => c !== res);
+        clientes = clientes.filter((c) => c !== cliente);
     };
 }
 
-function write(event: string, payload: string): void {
-    for (const client of clients) {
+function write(loja: string, event: string, payload: string): void {
+    for (const cliente of clientes) {
+        if (cliente.loja !== loja) continue;
         try {
-            client.write(`event: ${event}\ndata: ${payload}\n\n`);
+            cliente.res.write(`event: ${event}\ndata: ${payload}\n\n`);
         } catch {
             // cliente morto: sera removido no proximo prune
         }
@@ -26,15 +41,15 @@ function write(event: string, payload: string): void {
 }
 
 /** Avisa o painel que houve mudanca em pedidos/produtos (recarrega a view). */
-export function notifyClients(): void {
+export function notifyClients(loja = lojaDoChamador()): void {
     prune();
-    write('update', 'update');
+    write(loja, 'update', 'update');
 }
 
 /** Envia o estado de conexao do WhatsApp (QR, escaneado, conectado...). */
-export function notifyConnection(payload: string): void {
+export function notifyConnection(loja: string, payload: string): void {
     prune();
-    write('connection', payload);
+    write(loja, 'connection', payload);
 }
 
 /**
@@ -42,32 +57,32 @@ export function notifyConnection(payload: string): void {
  * Separado do `notifyClients` de proposito: recarregar a tela de chat a cada
  * mensagem jogaria fora o que a pessoa estava digitando.
  */
-export function notifyChat(chatId: string): void {
+export function notifyChat(chatId: string, loja = lojaDoChamador()): void {
     prune();
-    write('chat', JSON.stringify({ chatId }));
+    write(loja, 'chat', JSON.stringify({ chatId }));
 }
 
-export function getClientCount(): number {
+export function getClientCount(loja?: string): number {
     prune();
-    return clients.length;
+    return loja ? clientes.filter((c) => c.loja === loja).length : clientes.length;
 }
 
 /**
  * Encerra todas as conexoes SSE, avisando antes.
- * `res.end()` puro deixa a aba em "atualizando..." ate o navegador desistir
- * sozinho; o evento `encerrando` e' o que faz a tela recarregar por conta propria.
+ * `res.end` puro deixa a aba em "atualizando..." ate o navegador desistir do
+ * outro lado; o evento `encerrando` e' o que faz a tela recarregar sozinha.
  */
 export function fechaClientes(motivo: string): number {
     prune();
-    const total = clients.length;
-    for (const client of clients) {
+    const total = clientes.length;
+    for (const cliente of clientes) {
         try {
-            client.write(`event: encerrando\ndata: ${JSON.stringify({ motivo })}\n\n`);
-            client.end();
+            cliente.res.write(`event: encerrando\ndata: ${JSON.stringify({ motivo })}\n\n`);
+            cliente.res.end();
         } catch {
-            // cliente ja morto: fechar e' o que queriamos mesmo
+            // cliente ja morto; fechar era o que queriamos mesmo
         }
     }
-    clients = [];
+    clientes = [];
     return total;
 }

@@ -23,14 +23,32 @@ const PUBLICAS = ['/entrar', '/sobre', '/ajuda', '/recuperar-senha', '/criar-con
 
 let cookieSessao = '';
 
+/**
+ * O QUE CADA TELA DEVE RESPONDER. Nem toda tela responde 200, e exigir 200 reprovaria
+ * o que foi feito de proposito: `/entrar` manda quem tem sessao para o painel, a
+ * pagina de erro tem que responder 404, e Usuarios e' 403 para a conta de teste.
+ */
+function esperado(caminho) {
+    if (caminho.startsWith('/admin')) return caminho.includes('usuarios') ? [403] : [200];
+    if (caminho.includes('nao-existe')) return [404];
+    return [200, 303, 404];
+}
+
 function pegar(caminho) {
+    const aceitos = esperado(caminho);
     return new Promise((resolve, reject) => {
         const opcoes = cookieSessao ? { headers: { Cookie: cookieSessao } } : undefined;
         http
             .get(BASE + caminho, opcoes, (res) => {
                 let corpo = '';
                 res.on('data', (d) => (corpo += d));
-                res.on('end', () => resolve(corpo));
+                res.on('end', () => {
+                    if (!aceitos.includes(res.statusCode)) {
+                        reject(new Error(`${caminho} respondeu ${res.statusCode}, e o esperado era ${aceitos.join(' ou ')}`));
+                        return;
+                    }
+                    resolve(corpo);
+                });
             })
             .on('error', reject);
     });

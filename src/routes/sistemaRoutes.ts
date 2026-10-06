@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 
 import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { montarPainel } from '../services/notificacoes';
-import { isBotOnline, getConnectionState } from '../services/bot';
+import { isBotOnline, getConnectionState } from '../services/botLojas';
 import { getClientCount } from '../services/sse';
 import { exigeCsrf, exigeSessaoApi } from '../services/auth';
 import { logDoModulo } from '../services/logger';

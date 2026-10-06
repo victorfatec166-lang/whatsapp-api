@@ -850,7 +850,7 @@ function campoBot(f: CampoBot, e: EstadoMensagem): string {
                             </div>`
         : '';
 
-    return `                    <div class="bg-surface-2 border border-line rounded-card p-4" data-campo="${escapeHtml(f.key)}">
+    return `                    <div class="bg-surface-2 border border-line rounded-card p-4">
                         <div class="flex items-start justify-between gap-3 mb-1.5">
                             <label class="label mb-0" for="${id}">${escapeHtml(f.label)}</label>
                             <span class="flex items-center gap-2 shrink-0">

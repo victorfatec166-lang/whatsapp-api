@@ -48,9 +48,9 @@ const VARIACOES = {
 let cookieSessao = '';
 
 /**
- * Sem o cabecalho, o painel responde 401 e este script conferiria a tela de login
- * dez vezes, dando "ok" a dez telas que ninguem pediu. E' preciso que o token entre
- * pelo mesmo caminho do navegador.
+ * Sem o cabecalho, o painel responde 401 e este script conferiria a tela de login dez
+ * vezes, dando "ok" a telas que ninguem pediu. O STATUS tambem e' conferido, e aqui da
+ * para exigir 200: a pagina de erro tem rotulo e id em ordem tanto quanto o painel.
  */
 function pegar(caminho) {
     return new Promise((resolve, reject) => {
@@ -64,7 +64,13 @@ function pegar(caminho) {
             .get(BASE + caminho, opcoes, (res) => {
                 let corpo = '';
                 res.on('data', (d) => (corpo += d));
-                res.on('end', () => resolve(corpo));
+                res.on('end', () => {
+                    if (res.statusCode !== 200) {
+                        reject(new Error(`${caminho} respondeu ${res.statusCode}, e nao 200`));
+                        return;
+                    }
+                    resolve(corpo);
+                });
             })
             .on('error', reject);
     });

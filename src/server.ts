@@ -18,7 +18,8 @@ import { addClient, notifyClients, notifyConnection, getClientCount, fechaClient
 // QR_TTL_MS saiu daqui: era usado para expire o QR antigo, e a sessao do
 // Baileys ja resolve isso sozinha. O import nao custava nada, mas deixava
 // parecer que o TTL era configuravel por aqui.
-import { initBot, sendOrderStatusNotification, isBotOnline, loadBotMessages, reconnectBot, logoutBot, desconectaBot, getConnectionState, onConnectionChange, AUTH_DIR } from './services/bot';
+import { startBots, asseguraBot, sendOrderStatusNotification, loadBotMessages, reconnectBot, logoutBot, desconectaTodosOsBots, AUTH_DIR } from './services/bot';
+import { getConnectionState, isBotOnline } from './services/botLojas';
 import { renderLayout, tabHint, isTabId, LEGACY_TABS, type TabId } from './views/layout';
 import { paginaDeErro } from './views/erro';
 import { PAIRING_CLIENT_SCRIPT } from './views/pairing';
@@ -239,33 +240,6 @@ app.use('/', marketplaceRoutes);
  */
 app.use('/', assinaturaRoutes);
 
-/*
- * Fim das rotas: o que sobrou nao existe. `/api` responde em JSON porque quem chama
- * essa rota e' `fetch` no painel -- um HTML aqui viraria tela de erro no meio de um
- * `json.parse`, que e' a falha mais dificil de achar depois.
- */
-app.use((req: Request, res: Response) => {
-    if (req.path.startsWith('/api/')) {
-        res.status(404).json({ error: 'Rota nao encontrada.' });
-        return;
-    }
-    res.status(404).type('text/html; charset=utf-8').send(paginaDeErro(404));
-});
-
-/*
- * Rede de seguranca do `try/catch` de cada rota: uma excecao que ninguem pegou vira
- * a pagina de erro em vez do HTML do Express com o stack. O log e' do servidor, o
- * corpo nao -- stack em resposta e' mapa do miolo.
- */
-app.use((erro: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    log.error('Erro nao tratado:', erro);
-    if (res.headersSent) return;
-    if (_req.path.startsWith('/api/')) {
-        res.status(500).json({ error: 'Erro interno.' });
-        return;
-    }
-    res.status(500).type('text/html; charset=utf-8').send(paginaDeErro(500));
-});
 
 /* ------------------------------------------------------------------ Utils */
 
@@ -357,16 +331,15 @@ function toStockRow(p: {
  */
 
 /**
- * Procura `creds.json` pelo nome exato, e nao "qualquer .json": a pasta ganha
- * outros arquivos ao lado das chaves (a marcacao de maquina), e "tem .json"
- * responderia verdadeiro sem sessao pareada -- a tela abriria um QR vazio.
+ * A sessao pareada desta loja esta no banco, e nao num arquivo da pasta: o que
+ * decide e' se o socket tem identidade, e nao se existe `creds.json` -- depois do
+ * primeiro deploy o arquivo some e o numero continua pareado.
  */
-function hasSavedSession(): boolean {
-    try {
-        return fs.existsSync(AUTH_DIR) && fs.readdirSync(AUTH_DIR).some((f) => f === 'creds.json');
-    } catch {
-        return false;
-    }
+async function temSessaoPareada(loja: string): Promise<boolean> {
+    const linhas = await prisma.sessaoWhatsApp
+        .findMany({ where: { tenantId: loja }, select: { maquinaId: true } })
+        .catch(() => []);
+    return linhas.length > 0;
 }
 
 app.get('/api/calendar.js', (_req, res) => {
@@ -1681,7 +1654,11 @@ app.get('/admin/events', (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    const remove = addClient(res);
+    const lojaDaTela = exigeLoja();
+    // Quem abre a tela do WhatsApp de uma loja que nunca pareou recebe o QR aqui.
+    asseguraBot(lojaDaTela);
+
+    const remove = addClient(res, lojaDaTela);
     // Envia o estado atual imediatamente: quem abre a aba ja recebe o QR
     // valido sem precisar esperar a proxima mudanca de estado.
     res.write(`event: connection\ndata: ${JSON.stringify(getConnectionState())}\n\n`);
@@ -1743,19 +1720,10 @@ app.post('/admin/bot/reconnect', async (_req, res) => {
 
 app.post('/admin/bot/logout', async (_req, res) => {
     try {
+        // A pasta tambem e' limpa, dentro do `logoutBot`: e' o arquivo de onde a
+        // sessao volta a entrar no banco, entao deixar ele ali faria a proxima
+        // instalacao reimportar o numero que acabou de sair.
         await logoutBot();
-        // Apaga TUDO da pasta, e nao so os .json: a marcacao de maquina tambem
-        // precisa ir, senao o proximo pareamento nasceria marcado com a identidade
-        // da sessao desfeita. Ver src/services/maquina.ts.
-        try {
-            if (fs.existsSync(AUTH_DIR)) {
-                for (const file of fs.readdirSync(AUTH_DIR)) {
-                    fs.unlinkSync(path.join(AUTH_DIR, file));
-                }
-            }
-        } catch (error) {
-            log.error('Erro ao limpar credenciais:', error);
-        }
         res.json({ success: true });
     } catch (error) {
         log.error('Erro ao desconectar bot:', error);
@@ -2284,7 +2252,7 @@ app.get('/admin', async (req, res) => {
                     pair: {
                         state: getConnectionState(),
                         authPath: AUTH_DIR,
-                        hasSavedSession: hasSavedSession(),
+                        hasSavedSession: await temSessaoPareada(lojaDoBoot()),
                     },
                     bot: { mensagens: mapaParaTela() },
                 });
@@ -2328,6 +2296,40 @@ counters: {
  * loja. Como ha senha, isso significa "aceitar login de qualquer maquina da
  * rede": o risco e' a senha fraca. "127.0.0.1" corta o acesso de fora.
  */
+/*
+ * Fim das rotas: o que sobrou nao existe. `/api` responde em JSON porque quem chama
+ * essa rota e' `fetch` no painel -- um HTML aqui viraria tela de erro no meio de um
+ * `json.parse`, que e' a falha mais dificil de achar depois.
+ */
+app.use((req: Request, res: Response) => {
+    if (req.path.startsWith('/api/')) {
+        res.status(404).json({ error: 'Rota nao encontrada.' });
+        return;
+    }
+    res.status(404).type('text/html; charset=utf-8').send(paginaDeErro(404));
+});
+
+/*
+ * Rede de seguranca do `try/catch` de cada rota: uma excecao que ninguem pegou vira
+ * a pagina de erro em vez do HTML do Express com o stack. O log e' do servidor, o
+ * corpo nao -- stack em resposta e' mapa do miolo.
+ */
+app.use((erro: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    log.error('Erro nao tratado:', erro);
+    if (res.headersSent) return;
+    if (_req.path.startsWith('/api/')) {
+        res.status(500).json({ error: 'Erro interno.' });
+        return;
+    }
+    res.status(500).type('text/html; charset=utf-8').send(paginaDeErro(500));
+});
+
+/*
+ * Onde este bloco fica e' a parte dele: um middleware sem next() engole tudo que vier
+ * depois. Com o 404 em cima das rotas de tela, o painel inteiro respondia "Nao achamos
+ * esta pagina" -- e os gates passavam, porque conferem o HTML que chegou, nao o codigo.
+ */
+
 const HOST = process.env.HOST?.trim() || '0.0.0.0';
 
 /*
@@ -2369,12 +2371,10 @@ const servidor = app.listen(PORT, HOST, async () => {
     // Textos do bot e cache sao segmentados por loja;
     // no boot local, carrega apenas as mensagens da loja ativa.
     await loadBotMessages(lojaDoBoot());
-    // Espelha o estado de conexao do bot para o painel via SSE.
-    onConnectionChange((state) => notifyConnection(JSON.stringify(state)));
 
     // Agenda de abertura/fechamento do caixa: notifica o painel quando um
     // turno abre ou fecha sozinho, para a tela atualizar sem recarregar.
-    startCashScheduler(() => notifyClients());
+    startCashScheduler((_resultado, loja) => notifyClients(loja));
 
     // Backup no startup e a cada 6h: sem ele nao ha de onde reconstruir o negocio.
     // Aguardado de proposito -- a virada do dia abaixo escreve no banco, e e' o
@@ -2402,7 +2402,12 @@ const servidor = app.listen(PORT, HOST, async () => {
     // aconteceu meia hora atras abre o arquivo do dia.
     log.info(`Logs em: ${pastaDeLogs()}`);
 
-    await initBot(notifyClients);
+    /*
+     * Um bot por loja, e so das lojas que ja parearam um numero: quem entra pela
+     * primeira vez tem o QR aberto pelo `asseguraBot` quando abre a tela do WhatsApp.
+     */
+    const botsAbertos = await startBots(notifyClients);
+    log.info(`Bots do WhatsApp: ${botsAbertos} loja(s) verificadas no boot.`);
 });
 
 /* ---------------------------------------------------------------- Desligar */
@@ -2505,7 +2510,8 @@ async function desliga(motivo: string): Promise<void> {
 
     // 5. As duas conexoes que ficam abertas mesmo com o HTTP fechado.
     try {
-        if (await desconectaBot()) log.info('WhatsApp desconectado, sessao preservada');
+const botsFechados = await desconectaTodosOsBots();
+    if (botsFechados) log.info(`WhatsApp: ${botsFechados} loja(s) desconectada(s), sessao preservada`);
     } catch (e) {
         log.error('Falha ao fechar o socket do WhatsApp:', e);
     }

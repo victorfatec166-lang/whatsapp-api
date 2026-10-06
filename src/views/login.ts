@@ -109,11 +109,20 @@ const BOTAO_TEMA = `
                 </button>
 `;
 
-/** O icone precisa nascer ja certo: quem entra no escuro ve o sol, nao a lua. */
+/**
+ * O icone precisa nascer ja certo: quem entra no escuro ve o sol, nao a lua.
+ *
+ * Com guarda porque este trecho roda no fim do `script` da tela: um `null` aqui
+ * derrubaria o resto do bloco, e o que vier depois e' justamente o login.
+ */
 const AJUSTA_ICONE = `
-                document.documentElement.classList.contains('dark')
-                    ? document.getElementById('themeIcon').className = 'fa-solid fa-sun'
-                    : document.getElementById('themeIcon').className = 'fa-solid fa-moon';
+                (function () {
+                    var icon = document.getElementById('themeIcon');
+                    if (!icon) return;
+                    icon.className = document.documentElement.classList.contains('dark')
+                        ? 'fa-solid fa-sun'
+                        : 'fa-solid fa-moon';
+                })();
 `;
 
 /**

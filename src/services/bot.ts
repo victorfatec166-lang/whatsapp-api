@@ -37,7 +37,7 @@ import {
     outraInstalacaoComSessao,
     type CodecsDaSessao,
 } from './whatsappSessao';
-import { comoLoja, lojaAtual, lojaDoBoot } from './loja';
+import { comoLoja, exigeLoja, lojaAtual, lojaDoBoot } from './loja';
 import {
     botPodeResponder,
     devolverAoBot,
@@ -47,7 +47,7 @@ import {
     assumirConversa,
 } from './chat';
 import { interpreta, type ItemCatalogo } from './entender';
-import { extraiComIa } from './ia';
+import { extraiComIa, respondeComIa } from './ia';
 import {
     juntaItem,
     textoDoCarrinho as textoCarrinho,
@@ -167,14 +167,7 @@ async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
     }
 
     if (intencao.itens.length === 0) {
-        const naoEntendidos = intencao.naoEntendidos.length > 0 ? intencao.naoEntendidos.join(', ') : null;
-        await socket()?.sendMessage(jid, {
-            text:
-                (naoEntendidos
-                    ? `🤖 Não encontrei ${naoEntendidos} no cardápio.`
-                    : '🤖 Não entendi o que você pediu.') +
-                '\n\nEscreva o **nome do produto** (com ou sem quantidade) ou mande *cardápio* para ver a lista.'
-        });
+        await respondeSemPedido(jid, texto, catalogo, intencao.naoEntendidos);
         return;
     }
 
@@ -225,6 +218,43 @@ async function interpretaEAdiciona(jid: string, texto: string): Promise<void> {
     const extras = intencao.naoEntendidos;
     await socket()?.sendMessage(jid, {
         text: textoCarrinho(carrinho) + (extras.length > 0 ? `\n\n_Não entendi: ${extras.join(', ')}._` : '')
+    });
+}
+
+/**
+ * A frase nao virou pedido. O bot dizia "nao entendi" para TUDO, inclusive para
+ * "tudo bem?" -- a primeira frase que a pessoa manda. E' aqui que ele virava robo.
+ * Tres saidas: a IA responde, uma frase pronta, e so entao o "nao encontrei".
+ */
+async function respondeSemPedido(
+    jid: string,
+    texto: string,
+    catalogo: ItemCatalogo[],
+    naoEntendidos: string[]
+): Promise<void> {
+    const nomeDaLoja = (await prisma.config.findUnique({ where: { id: exigeLoja() }, select: { businessName: true } }))
+        ?.businessName;
+
+    const daIa = await respondeComIa(texto, catalogo, nomeDaLoja ?? '');
+    if (daIa) {
+        await socket()?.sendMessage(jid, { text: daIa });
+        return;
+    }
+
+    // A IA falhou ou nao sabe responder: o texto ainda diz o que ela tentou ler.
+    if (naoEntendidos.length > 0) {
+        await socket()?.sendMessage(jid, {
+            text:
+                `🤖 Não encontrei ${naoEntendidos.join(', ')} no cardápio.` +
+                '\n\nEscreva o **nome do produto** (com ou sem quantidade) ou mande *cardápio* para ver a lista.'
+        });
+        return;
+    }
+
+    await socket()?.sendMessage(jid, {
+        text:
+            '🤖 Não entendi o que você pediu.' +
+            '\n\nEscreva o **nome do produto** (com ou sem quantidade) ou mande *cardápio* para ver a lista.'
     });
 }
 

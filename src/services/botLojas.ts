@@ -65,7 +65,17 @@ export type Conexao = {
     onOrderCreated?: () => void;
     /** Trava de abertura: duas chamadas seguidas nao podem abrir dois sockets. */
     abrindo?: Promise<void>;
+    /** Quantas vezes reconectou sem sucesso. Zera quando o socket abre. */
+    tentativas?: number;
 };
+
+/**
+ * Quantas vezes o bot pode reconectar sozinho antes de parar e esperar o dono.
+ *
+ * Sem teto, um erro que se repete (QR expirado, rede fora) vira ciclo eterno: o
+ * log enche de "conexao fechada" e o painel nunca sai do "reconectando".
+ */
+export const TENTATIVAS_MAXIMAS = 8;
 
 /** O registro, exposto para quem precisar consultar (o ot.ts e o desligamento). */
 export function registroDeLojas(): Map<string, Conexao> {

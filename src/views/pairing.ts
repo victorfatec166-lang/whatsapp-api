@@ -127,6 +127,7 @@ export function renderPairing(d: PairData): string {
         '                <div id="waitingBox" class="' + (showQr || connected ? 'hidden' : '') + ' py-8 text-center">',
         '                    <i class="fa-solid fa-circle-notch fa-spin text-3xl text-ink-3"></i>',
         '                    <p class="text-body text-ink-3 mt-3">Aguardando o WhatsApp emitir um codigo de pareamento...</p>',
+        '                    <p id="waitHint" class="text-caption text-ink-3 mt-1"></p>',
         '                </div>',
 
         '                <div id="conectadoBox" class="' + (connected ? '' : 'hidden') + ' py-6 text-center">',
@@ -227,14 +228,32 @@ export const PAIRING_CLIENT_SCRIPT = [
     '            var qrBox = document.getElementById("qrBox");',
     '            var waitBox = document.getElementById("waitingBox");',
     '            var feitoBox = document.getElementById("conectadoBox");',
-    '            if (qrBox) qrBox.classList.toggle("hidden", !wantsQr);',
-    /*
-     * A caixa de espera so fica visivel quando ha algo para esperar. Com o
-     * celular ja conectado, o girador ficava parado na tela a toa: o sistema
-     * ja estava pronto e a unica coisa que faltava era a tela dizer isso.
-     */
-    '            if (waitBox) waitBox.classList.toggle("hidden", wantsQr || isConectado);',
+    '            /*',
+    '             * A caixa do QR so abre com QR NA MAO. A fase continua',
+    '             * "aguardando-qr" depois que o codigo expira, e isso deixava uma',
+    '             * caixa vazia na tela -- sem QR e sem girador, nada para o dono',
+    '             * olhar e nenhuma pista do que fazer.',
+    '             */',
+    '            var querQr = wantsQr && !!state.qr;',
+    '            if (qrBox) qrBox.classList.toggle("hidden", !querQr);',
+/*
+ * O girador e' so para QUANDO HA QR CHEGANDO. Na fase "desconectado" o servidor
+ * reconecta sozinho: dizer "aguardando um codigo" ali era mentira, e o dono
+ * achava que o sistema tinha travado -- que era a duvida que o erro ja respondia.
+ */
+    '            var querEsperar = querQr || state.phase === "sincronizando" || !state.phase;',
+    '            if (waitBox) waitBox.classList.toggle("hidden", querEsperar ? false : true);',
     '            if (feitoBox) feitoBox.classList.toggle("hidden", !isConectado);',
+    '            var dica = document.getElementById("waitHint");',
+    '            if (dica) {',
+    '                dica.textContent = state.phase === "desconectado"',
+    '                    ? "Reconectando sozinho. Se nao voltar em 1 minuto, use Reconectar."',
+    '                    : wantsQr && !state.qr',
+    '                    ? "O codigo expirou. Abrindo um novo..."',
+    '                    : state.phase === "deslogado"',
+    '                    ? "Eparee o numero de novo pelo celular."',
+    '                    : "";',
+    '            }',
     '            if (state.qr && state.qr !== lastQr) {',
     '                lastQr = state.qr;',
     '                fetch("/api/bot/qr.svg?v=" + encodeURIComponent(state.qrIssuedAt || 0))',

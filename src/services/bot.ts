@@ -25,7 +25,8 @@ import {
     lojaDoChamador,
     setConnection,
     socket,
-    sessoes,
+sessoes,
+    TENTATIVAS_MAXIMAS,
     type Conexao,
 } from './botLojas';
 import { confereAmarracao } from './maquina';
@@ -635,15 +636,40 @@ export async function startWhatsAppBot(
                 return;
             }
 
+const motivo = lastDisconnect?.error ? String((lastDisconnect.error as Boom).message ?? 'Conexao perdida') : null;
+
+/*
+ * Reconectar em 3s fixos gerava 12 QRs em sequencia: o socket nasce, morre, e o
+ * proximo entra antes do anterior sair. O backoff cresce ate 30s e depois PARA --
+ * quem forca a mao depois disso e' o dono, nao uma repeticao invisivel.
+ */
+            const tentativa = (conexao.tentativas = (conexao.tentativas ?? 0) + 1);
+            if (tentativa > TENTATIVAS_MAXIMAS) {
+                setConnection(loja, {
+                    phase: 'desconectado',
+                    online: false,
+                    qr: null,
+                    qrIssuedAt: null,
+                    since: null,
+                    lastError:
+                        (motivo ? motivo + ' · ' : '') +
+                        `Nao reconnectou sozinho apos ${TENTATIVAS_MAXIMAS} tentativas. Use Reconectar.`,
+                });
+                log.error(`Bot da loja ${loja} desistiu de reconectar apos ${tentativa - 1} tentativas.`);
+                conexao.sock = null;
+                return;
+            }
+
+            const espera = Math.min(3000 * tentativa, 30_000);
             setConnection(loja, {
                 phase: 'desconectado',
                 online: false,
                 qr: null,
                 qrIssuedAt: null,
                 since: null,
-                lastError: lastDisconnect?.error ? String((lastDisconnect.error as Boom).message ?? 'Conexao perdida') : null,
+                lastError: motivo,
             });
-            log.info(`Conexao fechada. Reconectando em 3s (${statusCode ?? 'sem codigo'})`);
+            log.info(`Conexao fechada. Reconectando em ${espera / 1000}s, tentativa ${tentativa}/${TENTATIVAS_MAXIMAS} (${statusCode ?? 'sem codigo'})`);
 
             setTimeout(async () => {
                 try {
@@ -652,7 +678,7 @@ export async function startWhatsAppBot(
                     log.error('Erro ao reconectar bot:', e);
                     setConnection(loja, { phase: 'desconectado', online: false, lastError: 'Falha ao reconectar' });
                 }
-            }, 3000);
+            }, espera);
         } else if (conn === 'connecting') {
             setConnection(loja, { phase: 'sincronizando', lastError: null });
         } else if (conn === 'open') {
@@ -668,7 +694,8 @@ export async function startWhatsAppBot(
                 since: Date.now(),
                 lastError: null,
             });
-            log.info('Bot do WhatsApp conectado com sucesso!');
+log.info('Bot do WhatsApp conectado com sucesso!');
+            conexao.tentativas = 0;
         }
     });
 
@@ -1056,7 +1083,14 @@ const conversa = await assumirConversaPorTelefone(senderPhone);
             }
         });
     });
-    })();
+    })().finally(() => {
+/*
+ * A trava `abrindo` existe so para nao abrir dois sockets ao mesmo tempo.
+ * Deixada presa, a reconexao virava no-op: o `close` agendava um start, ele caia
+ * na trava e nao abria socket -- painel em "reconectando" para sempre.
+ */
+        conexao.abrindo = undefined;
+    });
 }
 
 const DEFAULT_STATUS_MESSAGES: Record<string, string> = {
@@ -1314,9 +1348,14 @@ export async function reconnectBot(): Promise<void> {
         }
         conexao.sock = null;
     }
-    // A trava e' solta aqui: sem isto o reconnect cairia na promessa do start anterior
+// A trava e' solta aqui: sem isto o reconnect cairia na promessa do start anterior
     // e nao abriria socket nenhum, e o painel ficaria em "sincronizando" para sempre.
-    if (conexao) conexao.abrindo = undefined;
+    if (conexao) {
+        conexao.abrindo = undefined;
+        // Botao e' a unica saida depois de uma desistencia: zera a contagem para o
+        // proximo ciclo ter o mesmo teto de tentativas.
+        conexao.tentativas = 0;
+    }
     setConnection(loja, { phase: 'sincronizando', qr: null, qrIssuedAt: null, lastError: null });
     await startWhatsAppBot(loja);
 }

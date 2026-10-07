@@ -1,4 +1,5 @@
 import { prismaComLoja as prisma } from '../database/prisma-com-loja';
+import { exigeLoja } from './loja';
 import { serializeItems } from './items';
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -37,7 +38,7 @@ export type ProductFull = {
 
 export async function loadProductFull(productId: string): Promise<ProductFull | null> {
     const product = await prisma.product.findUnique({
-        where: { id: productId },
+        where: { tenantId_id: { tenantId: exigeLoja(), id: productId } },
         select: {
             id: true,
             name: true,

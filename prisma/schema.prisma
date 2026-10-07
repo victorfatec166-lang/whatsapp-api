@@ -126,6 +126,10 @@ model Product {
   /// composto e' o que a torna barata quando o catalogo cresce.
   @@index([tenantId, name])
   @@unique([tenantId, sku])
+  /// Chave do id dentro da loja. A extensao recusa `findUnique`/`update` por `id`
+  /// sozinho -- sem isto um id de produto da loja vizinha entraria na consulta.
+  /// Indice puro: nao mexe em dado, so torna a chave composta possivel.
+  @@unique([tenantId, id])
 }
 
 /// Menu do dia: os pratos que a loja destaca em uma data especifica.

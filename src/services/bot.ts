@@ -1065,7 +1065,9 @@ const conversa = await assumirConversaPorTelefone(senderPhone);
                             continue;
                         }
 
-                        const product = await prisma.product.findUnique({ where: { id: session.productId } });
+                        const product = await prisma.product.findUnique({
+                            where: { tenantId_id: { tenantId: exigeLoja(), id: session.productId } },
+                        });
                         if (product) {
                             /*
                              * Entra no carrinho e a pessoa continua escolhendo: antes

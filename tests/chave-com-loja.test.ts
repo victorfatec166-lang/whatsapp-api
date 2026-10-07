@@ -1,6 +1,6 @@
-/* `update`, `upsert` e `delete` por chave sem a loja. A extensao recusa: sem a loja
- * na chave, um id da loja vizinha entraria. Foi medido -- `Product.update` estoura
- * igual ao `Chat`. `updateMany`/`deleteMany` sao filtros e ficam livres. */
+/* Operacoes por chave unica sem a loja: `findUnique`, `findUniqueOrThrow`, `update`,
+ * `upsert` e `delete`. Sem a loja na chave um id da loja vizinha entraria, e
+ * `Product.findUnique` foi medido estourando -- impedia o bot de ler o produto. */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -68,9 +68,13 @@ function modeloDaChamada(antes: string): string {
  * Conta as chaves para achar onde o `where` termina: ele quase sempre esta em
  * varias linhas, e um regex de linha so deixaria passar o defeito onde ele mora.
  */
-export function chamadasSemLoja(fonte: string): string[] {
+export const METODOS_CHAVE = 'findUniqueOrThrow|findUnique|update|upsert|delete';
+
+function chamadasSemLoja(fonte: string): string[] {
     const problemas: string[] = [];
-    const regex = /prisma\w*\.(\w+)\.(update|upsert|delete)\b(?!\w)\(\s*\{/g;
+    // `(?!\w)` depois do metodo e' o que separa `update` de `updateMany` -- sem
+    // isso o filtro virava acento de metodo que a extensao deixa passar.
+    const regex = new RegExp(String.raw`prisma\w*\.(\w+)\.(${METODOS_CHAVE})\b(?!\w)\(\s*\{`, 'g');
     let achado: RegExpExecArray | null;
 
     while ((achado = regex.exec(fonte))) {
@@ -121,15 +125,17 @@ export function chamadasSemLoja(fonte: string): string[] {
  */
 const JA_CONHECIDOS = [
     'src\\controllers\\adminController.ts',
+    'src\\routes\\comandaRoutes.ts',
+    'src\\routes\\marketplaceRoutes.ts',
     'src\\routes\\usuariosRoutes.ts',
     'src\\server.ts',
     'src\\services\\auth.ts',
+    'src\\services\\bot.ts',
     'src\\services\\cash.ts',
     'src\\services\\lembretes.ts',
     'src\\services\\marketplace.ts',
     'src\\services\\products.ts',
     'src\\services\\stock.ts',
-    'src\\views\\faturamento.ts',
 ];
 
 /**
@@ -190,4 +196,18 @@ test('o detector aponta o defeito de verdade e nao acusa o certo', () => {
     assert.equal(chamadasSemLoja('await prisma.assinatura.update({ where: { id: x }, data: {} })').length, 0);
     // `where` em varias linhas tambem e' lido.
     assert.equal(chamadasSemLoja('await prisma.chat.update({\n  where: { id: x },\n  data: {},\n})').length, 1);
+
+    /*
+     * `findUnique` tambem exige a loja, e era o que faltava: o bot nao conseguia nem
+     * LER o produto escolhido pelo numero, entao o cliente caia no "deu um erro" e
+     * o menu voltava -- que e' exatamente o sintoma do print.
+     */
+    assert.equal(chamadasSemLoja('await prisma.product.findUnique({ where: { id: x } })').length, 1);
+    assert.equal(chamadasSemLoja('await prisma.product.findUniqueOrThrow({ where: { id: x } })').length, 1);
+    // A chave composta e' o jeito certo e nao entra na conta.
+    assert.equal(
+        chamadasSemLoja('await prisma.product.findUnique({ where: { tenantId_id: { tenantId: t, id: x } } })')
+            .length,
+        0
+    );
 });

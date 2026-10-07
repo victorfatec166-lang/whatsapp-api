@@ -3,6 +3,7 @@ import { prisma as prismaGlobal } from '../database/prisma';
 import { comoLoja, exigeLoja } from './loja';
 import { startShift, closeShiftAuto } from './cash';
 import { logDoModulo } from './logger';
+import { horaDoDono } from './fuso';
 const log = logDoModulo('cashSchedule');
 
 /**
@@ -114,7 +115,7 @@ export function startCashScheduler(onAction?: (o: ScheduleOutcome, loja: string)
                 const outcome = await runScheduleTick(id);
                 if (outcome.action === 'abriu') {
                     log.info(
-                        `Turno aberto automaticamente as ${new Date().toLocaleTimeString('pt-BR')} (loja ${id})`
+                        `Turno aberto automaticamente as ${horaDoDono(new Date())} (loja ${id})`
                     );
                     onAction?.(outcome, id);
                 } else if (outcome.action === 'fechou') {

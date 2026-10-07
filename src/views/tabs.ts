@@ -3,6 +3,7 @@ import { currency, statusLabel, type OrderWithProductless } from '../services/st
 import type { DashboardStats } from '../services/stats';
 import { renderComandaModal, COMANDA_SCRIPT } from './comandaModal';
 import { kpi, faixaKpi, cardVazio } from './ui/card';
+import { horaDoDono } from '../services/fuso';
 
 type Product = {
     id: string;
@@ -22,7 +23,7 @@ function phone(p: string): string {
 }
 
 function timeOf(d: Date): string {
-    return escapeHtml(d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+    return escapeHtml(horaDoDono(d));
 }
 
 /* ------------------------------------------------------------------ Kanban */

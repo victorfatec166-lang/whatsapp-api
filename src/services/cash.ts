@@ -1,6 +1,7 @@
 import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { logDoModulo } from './logger';
 import { exigeLoja } from './loja';
+import { horaDoDono } from './fuso';
 const log = logDoModulo('cash');
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -462,7 +463,7 @@ export async function parkedSales(): Promise<ParkedSaleView[]> {
             items,
             total: round(total),
             count,
-            when: r.createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            when: horaDoDono(r.createdAt),
         };
     });
 }

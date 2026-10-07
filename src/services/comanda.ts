@@ -1,4 +1,5 @@
 import { parseItems } from './items';
+import { horaDoDono } from './fuso';
 
 /**
  * Comanda da cozinha: nao espelha o PDV, porque e' lida com as maos sujas e as
@@ -65,15 +66,8 @@ function telefoneCurto(enderco: string): string {
     return digitos.slice(-11);
 }
 
-/**
- * Fuso do papel. O Render roda em UTC, entao `getHours()` -- ou `toLocaleTimeString`
- * sem `timeZone` -- sairiam 3 horas atrasadas de quem le a comanda. A loja nao tem fuso
- * guardado e o produto e' brasileiro: o padrao e' Sao Paulo, FUSO_PADRAO cobre o resto.
- */
-const FUSO = process.env.FUSO_PADRAO || 'America/Sao_Paulo';
-
 function horaLocal(d: Date): string {
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: FUSO });
+    return horaDoDono(d);
 }
 
 /**

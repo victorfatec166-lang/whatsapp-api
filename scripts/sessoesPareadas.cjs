@@ -6,6 +6,14 @@
  * o celular mostra, entao saber quem tem a sessao e' o primeiro passo do diagnostico.
  */
 
+/*
+ * O id da maquina vem do servico, e nao de uma copia do calculo: o sal do hash
+ * mudou uma vez e o painel passou a acusar "sessao de outra maquina" na propria
+ * maquina. Duplicar o sal aqui seria o mesmo erro com mais um lugar para errar.
+ */
+require('tsx/cjs');
+const { idDaInstalacao } = require('../src/services/whatsappSessao.ts');
+
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient({
@@ -28,6 +36,11 @@ const conta = (linhas, chave) => {
     });
 
     console.log('--- sessoes pareadas ---');
+    // Quem esta rodando este script: sem esta linha, "nuvem" numa sessao parece
+    // ser esta maquina, e o diagnostico vai procurar conflito onde nao ha.
+    const idDaqui = idDaInstalacao();
+    const temSessaoAqui = sessoes.some((x) => x.maquinaId === idDaqui);
+    console.log(`esta maquina=${idDaqui} ${temSessaoAqui ? '(com sessao)' : '(SEM sessao nesta maquina)'}`);
     if (sessoes.length === 0) console.log('(nenhuma)');
     for (const x of sessoes) {
         const quando = x.atualizadoEm.toISOString();

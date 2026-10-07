@@ -39,7 +39,7 @@ import {
     outraInstalacaoComSessao,
     type CodecsDaSessao,
 } from './whatsappSessao';
-import { comoLoja, exigeLoja, lojaAtual, lojaDoBoot, bootAutorizado } from './loja';
+import { comoLoja, exigeLoja, lojaAtual, lojaDoBoot, bootAutorizado, botPodeSubir } from './loja';
 import {
     botPodeResponder,
     devolverAoBot,
@@ -540,6 +540,10 @@ async function avisaSeOutraInstalacaoPareou(loja: string): Promise<{ motivo: str
  * conexoes no pool ao mesmo tempo, o recurso mais apertado da nuvem.
  */
 export async function startBots(onOrderCreated?: () => void): Promise<number> {
+    if (!botPodeSubir()) {
+        log.info('BOT_BOOT=0: o WhatsApp nao sobe nesta maquina.');
+        return 0;
+    }
     const pareadas = await lojasComSessao().catch((erro) => {
         log.error('Nao deu para listar as lojas com sessao de WhatsApp:', erro);
         return [] as string[];
@@ -566,6 +570,8 @@ export async function startBots(onOrderCreated?: () => void): Promise<number> {
  * liga as lojas que ja tem numero, e essa e' a primeira visita dela.
  */
 export function asseguraBot(loja: string): void {
+    if (!botPodeSubir()) return;
+    if (!bootAutorizado(loja)) return;
     if (registroDeLojas().get(loja)?.sock) return;
     startWhatsAppBot(loja).catch((erro) => {
         log.error(`Bot da loja ${loja} nao pode abrir agora:`, erro);

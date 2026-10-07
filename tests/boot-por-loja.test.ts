@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 
 const CHAVE = 'DELIVERYADMIN_LOJAS';
 const TENANT = 'DELIVERYADMIN_TENANT';
+const BOOT = 'BOT_BOOT';
 
 /**
  * Recarrega `loja.ts` com o ambiente atual.
@@ -78,5 +79,43 @@ test('espaco e linha em branco na lista nao viram loja', async () => {
         assert.equal(bootAutorizado(''), false, 'entrou uma loja de nome vazio');
     } finally {
         restaura({ [CHAVE]: undefined });
+    }
+});
+
+test('BOT_BOOT=0 desliga o WhatsApp nesta maquina, sem excecao para a loja do boot', async () => {
+    /*
+     * Caso do PC de desenvolvimento com o numero pareado na nuvem: a lista nunca
+     * diz "nenhuma", porque ela sempre une a loja do boot. Sem este interruptor o PC
+     * abre socket do mesmo numero e o dono ve o celular avisar que sincronizou.
+     */
+    process.env[BOOT] = '0';
+    process.env[TENANT] = 'minha-loja-do-boot';
+    try {
+        const mod = await import(`../src/services/loja.ts?caso=${Math.random()}`);
+        assert.equal(mod.botPodeSubir(), false);
+        assert.equal(mod.bootAutorizado('minha-loja-do-boot'), false, 'a loja do boot subiu assim mesmo');
+        assert.equal(mod.bootAutorizado('outra-loja'), false);
+    } finally {
+        restaura({ [BOOT]: undefined, [TENANT]: undefined });
+    }
+});
+
+test('BOT_BOOT ligado por padrao: o PC do dono nao perde o bot', async () => {
+    process.env[BOOT] = '';
+    try {
+        const mod = await import(`../src/services/loja.ts?caso=${Math.random()}`);
+        assert.equal(mod.botPodeSubir(), true);
+    } finally {
+        restaura({ [BOOT]: undefined });
+    }
+});
+
+test('"0" escrito de outro jeito tambem desliga', async () => {
+    process.env[BOOT] = ' OFF ';
+    try {
+        const mod = await import(`../src/services/loja.ts?caso=${Math.random()}`);
+        assert.equal(mod.botPodeSubir(), false);
+    } finally {
+        restaura({ [BOOT]: undefined });
     }
 });

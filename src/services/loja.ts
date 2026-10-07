@@ -33,8 +33,21 @@ export function lojasAutorizadasNoBoot(): Set<string> | null {
     return new Set([...lista, lojaDoBoot()]);
 }
 
+/**
+ * Esta maquina pode abrir socket de WhatsApp? Ligado por padrao. A lista nunca diz
+ * "nenhuma" -- ela sempre une a loja do boot --, e sem este interruptor o PC de
+ * desenvolvimento briga com a nuvem pelo mesmo numero: um dos dois cai (408).
+ */
+export function botPodeSubir(): boolean {
+    return !DESLIGA_BOT.has((process.env.BOT_BOOT ?? '').trim().toLowerCase());
+}
+
+/** O que quer dizer "nao". `0` e' o valor documentado; o resto e' por tolerancia. */
+const DESLIGA_BOT = new Set(['0', 'off', 'nao', 'false']);
+
 /** Esta loja pode ter o bot ligado nesta maquina? */
 export function bootAutorizado(loja: string): boolean {
+    if (!botPodeSubir()) return false;
     const permitidas = lojasAutorizadasNoBoot();
     return permitidas === null || permitidas.has(loja);
 }

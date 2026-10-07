@@ -307,11 +307,14 @@ export function limpaArquivoDeSessao(): void {
 }
 
 /**
- * As lojas que ja parearam um numero em alguma instalacao. E' a lista que o boot
- * usa para religar os WhatsApp: sem ela, um deploy derrubaria todos de uma vez.
+ * As lojas que ja parearam um numero NESTA instalacao.
+ *
+ * O filtro impede o conflito que mais custa: banco e' o mesmo na nuvem e no PC,
+ * entao sem ele os dois abriam socket do mesmo numero e o WhatsApp recusava.
  */
-export async function lojasComSessao(): Promise<string[]> {
+export async function lojasComSessao(maquinaId = idDaInstalacao()): Promise<string[]> {
     const linhas = await prisma.sessaoWhatsApp.findMany({
+        where: maquinaId ? { maquinaId } : undefined,
         select: { tenantId: true },
         distinct: ['tenantId'],
     });

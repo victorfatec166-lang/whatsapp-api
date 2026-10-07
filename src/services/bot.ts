@@ -39,7 +39,7 @@ import {
     outraInstalacaoComSessao,
     type CodecsDaSessao,
 } from './whatsappSessao';
-import { comoLoja, exigeLoja, lojaAtual, lojaDoBoot } from './loja';
+import { comoLoja, exigeLoja, lojaAtual, lojaDoBoot, bootAutorizado } from './loja';
 import {
     botPodeResponder,
     devolverAoBot,
@@ -533,15 +533,20 @@ async function avisaSeOutraInstalacaoPareou(loja: string): Promise<{ motivo: str
 
 /**
  * Liga o bot de cada loja que ja pareou um numero, e o da loja do boot. Sem isto, o
- * deploy derrubaria todos os WhatsApp. Uma por vez: abrir N sockets juntos sao N
- * conexoes no pool ao mesmo tempo, que e' o recurso mais apertado da nuvem.
+ * deploy derrubaria todos os WhatsApp. Uma por vez: abrir N sockets junto sao N
+ * conexoes no pool ao mesmo tempo, o recurso mais apertado da nuvem.
  */
 export async function startBots(onOrderCreated?: () => void): Promise<number> {
     const pareadas = await lojasComSessao().catch((erro) => {
         log.error('Nao deu para listar as lojas com sessao de WhatsApp:', erro);
         return [] as string[];
     });
-    const lojas = [...new Set([lojaDoBoot(), ...pareadas])];
+    const todas = [...new Set([lojaDoBoot(), ...pareadas])];
+    const ignoradas = todas.filter((loja) => !bootAutorizado(loja));
+    if (ignoradas.length) {
+        log.info(`Lojas fora desta maquina, sem subir o bot: ${ignoradas.join(', ')}`);
+    }
+    const lojas = todas.filter((loja) => bootAutorizado(loja));
     for (const loja of lojas) {
         try {
             await startWhatsAppBot(loja, onOrderCreated);
@@ -594,7 +599,12 @@ export async function startWhatsAppBot(
         const sock = makeWASocket({
             auth: state,
             logger: pino({ level: 'silent' }) as any,
-            browser: Browsers.macOS('Chrome'),
+            /*
+ * `appropriate`, e nao plataforma fixa. Dizia `macOS('Chrome')` no Windows da
+ * loja e no Linux do Render, e o WhatsApp recebe essa identidade antes de qualquer
+ * handshake -- um aparelho que se diz Mac num PC Windows convida a recusa.
+ */
+            browser: Browsers.appropriate('Chrome'),
         });
         conexao.sock = sock;
 
@@ -608,7 +618,14 @@ export async function startWhatsAppBot(
         if (qr) {
             setConnection(loja, { phase: 'aguardando-qr', qr, qrIssuedAt: Date.now(), lastError: null });
             log.info('\n[QR] Codigo de pareamento gerado. Abra o painel em /admin?tab=whatsapp');
-            qrcode.generate(qr, { small: true });
+            /*
+             * Desenhar o QR no terminal era util com o Baileys solto. Aqui e' ruido: o QR
+             * renova a cada 30s, o log do Render e' finito, e o desenho escondia o
+             * que importava -- o codigo 408, o logout, o erro de banco.
+             */
+            if (process.env.BOT_QR_NO_TERMINAL === '1') {
+                qrcode.generate(qr, { small: true });
+            }
         }
 
         if (conn === 'close') {

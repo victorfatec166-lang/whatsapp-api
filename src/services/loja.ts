@@ -18,6 +18,27 @@ export function lojaDoBoot(): string {
     return process.env.DELIVERYADMIN_TENANT?.trim() || 'local';
 }
 
+/**
+ * Lojas que esta maquina pode ligar no boot, ou `null` para todas.
+ *
+ * No PC subir tudo e' o que faz o dono ver o bot dele. Na nuvem e' o contrario: o
+ * banco tem as lojas de todos, e todas subiriam com o QR delas no log do dono.
+ */
+export function lojasAutorizadasNoBoot(): Set<string> | null {
+    const lista = (process.env.DELIVERYADMIN_LOJAS ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
+    if (lista.length === 0) return null;
+    return new Set([...lista, lojaDoBoot()]);
+}
+
+/** Esta loja pode ter o bot ligado nesta maquina? */
+export function bootAutorizado(loja: string): boolean {
+    const permitidas = lojasAutorizadasNoBoot();
+    return permitidas === null || permitidas.has(loja);
+}
+
 const armazenamento = new AsyncLocalStorage<Contexto>();
 
 /** A loja da requisicao em andamento, ou `null` fora de uma. */

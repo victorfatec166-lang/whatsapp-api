@@ -47,7 +47,12 @@ export function idDaMaquina(): string {
         // O GUID direto identificaria a maquina em qualquer lugar que este
         // arquivo fosse lido. O hash com um sal fixo do app nao vaza o valor
         // original, e so precisa comparar, nunca ser decodificado.
-        return createHash('sha256').update('omniroute-amarracao:' + achado[1]).digest('hex').slice(0, 32);
+        /*
+ * O sal e' deste projeto. Veio `omniroute-amarracao` de outro codigo, e a pasta
+ * de sessao gravada antes da troca deixava de casar com a maquina: o painel
+ * acusava "sessao de outra maquina" na propria maquina.
+ */
+return createHash('sha256').update('deliveryadmin-amarracao:' + achado[1]).digest('hex').slice(0, 32);
     } catch (erro) {
         log.debug(`Nao foi possivel ler o id da maquina: ${String(erro)}`);
         return '';

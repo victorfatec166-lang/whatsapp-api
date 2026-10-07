@@ -113,9 +113,10 @@ export function renderPairing(d: PairData): string {
         '                </div>',
 
         '                <div id="qrBox" class="' + (showQr ? '' : 'hidden') + ' flex flex-col items-center gap-3 py-2">',
-        // O fundo branco e' proposital: QR so e' lido com modulos escuros sobre
-        // fundo claro, entao este container nao acompanha o tema escuro.
-        '                    <div id="qrCode" class="p-3 rounded-card bg-white border border-line max-w-[15rem]"></div>',
+// O fundo branco e' proposital: QR so e' lido com modulos escuros sobre fundo
+         // claro. A largura fica no CSS (`#qrCode`): o SVG traz 260px fixos e o
+         // `max-w` daqui nao segurava, entao a caixa ficava menor que o desenho.
+        '                    <div id="qrCode" class="p-3 rounded-card bg-white border border-line"></div>',
         '                    <p class="text-caption text-ink-3 text-center">O codigo renova sozinho e expira em ~' + Math.round(QR_TTL_MS / 1000) + 's.</p>',
         '                </div>',
 

@@ -916,3 +916,22 @@
         color: var(--surface);
     }
 }
+
+/* ==========================================================================
+   QR DO PAREAMENTO
+   O SVG chega do servidor com width/height fixos em 260px. O container tinha
+   so `max-w`, que nao e' largura: ele cresce ate o conteudo e estoura a caixa
+   branca, e o QR ficava torto sobre o fundo escuro. Largura fixa no container e
+   `width:100%` no desenho resolvem, e ainda acompanham a tela.
+   ========================================================================== */
+
+#qrCode {
+    width: 15rem;
+    max-width: 100%;
+}
+
+#qrCode svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}

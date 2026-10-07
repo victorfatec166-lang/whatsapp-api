@@ -207,7 +207,7 @@ let intencao = interpreta(texto, catalogo);
          * para fora e e' transferencia internacional (art. 33 da LGPD).
          * Sem consentimento, as regras ja cobrem o cardapio.
          */
-        if (await iaLiberada(lojaDoBoot())) {
+        if (await iaLiberada(lojaAtual() ?? lojaDoBoot())) {
             await comEspera(jid, async () => {
                 const pelaIa = await extraiComIa(texto, catalogo);
                 if (pelaIa) intencao = pelaIa;
@@ -279,12 +279,15 @@ async function respondeSemPedido(
     jid: string,
     texto: string,
     catalogo: ItemCatalogo[],
-    naoEntendidos: string[]
+naoEntendidos: string[]
 ): Promise<void> {
-    const loja = lojaDoBoot();
+    /* `lojaAtual()`, e nao `lojaDoBoot()`: a mensagem vem do socket da loja, e o boot
+     * so diz qual loja o processo acordou. Na nuvem os dois diferem -- o Render
+     * acorda em `local` e atende `ops-daebf73c` -- e o consentimento saia errado. */
+    const loja = lojaAtual() ?? lojaDoBoot();
 
     /*
-     * A conversa roda so com consentimento (mesmo risco que a extração).
+     * A conversa roda so com consentimento (mesmo risco que a extracao).
      * Sem ele as regras ja cobrem o cardapio e o pedido.
      */
     let daIa: string | null = null;
@@ -1081,7 +1084,16 @@ const conversa = await assumirConversaPorTelefone(senderPhone);
                         }
                     }
                 } catch (err) {
-                    log.error('❌ Erro crítico ao processar mensagem do bot:', err);
+                    /*
+                     * A excecao precisa aparecer inteira. O catch respondia a
+                     * desculpa e seguia: o cliente via o "deu um erro" e o dono via um
+                     * log mudo, e o defeito ficava sem endereco.
+                     */
+                    log.error(
+                        `❌ Erro ao tratar "${textLower.slice(0, 40)}" de ${senderPhone} ` +
+                            `no passo ${currentStep}:`,
+                        err
+                    );
                     /*
                      * Recomecar no menu de tres opcoes jogava o cliente no degrau que
                      * ele nao queria, e ainda falava com ele como se nada tivesse

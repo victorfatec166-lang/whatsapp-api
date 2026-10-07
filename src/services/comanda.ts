@@ -1,5 +1,5 @@
 import { parseItems } from './items';
-import { horaDoDono } from './fuso';
+import { FUSO, horaDoDono } from './fuso';
 
 /**
  * Comanda da cozinha: nao espelha o PDV, porque e' lida com as maos sujas e as
@@ -40,6 +40,8 @@ export type Comanda = {
     numero: number;
     /** Numero de verdade do cliente, quando o pedido guarda um endereco @lid. */
     telefone?: string;
+    /** Fuso de quem pediu a comanda; sem ele, o padrao do servidor. */
+    fuso?: string;
 };
 
 export type ComandaTexto = {
@@ -66,8 +68,8 @@ function telefoneCurto(enderco: string): string {
     return digitos.slice(-11);
 }
 
-function horaLocal(d: Date): string {
-    return horaDoDono(d);
+function horaLocal(d: Date, fuso?: string): string {
+    return horaDoDono(d, { hour: '2-digit', minute: '2-digit' }, fuso ?? FUSO);
 }
 
 /**
@@ -82,7 +84,7 @@ export function montarComanda(c: Comanda): ComandaTexto {
     L.push(centralizar(c.businessName.toUpperCase()));
     L.push(centralizar('PEDIDO #' + c.numero));
     L.push('');
-    L.push(`#${c.numero}   ${horaLocal(new Date(c.order.createdAt))}`);
+    L.push(`#${c.numero}   ${horaLocal(new Date(c.order.createdAt), c.fuso)}`);
     L.push(linha('='));
 
     // --- cliente: so o que ajuda a identificar ---

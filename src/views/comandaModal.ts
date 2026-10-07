@@ -45,6 +45,19 @@ export const COMANDA_SCRIPT = `        <script>
 
             var comandaPedidoAtual = '';
 
+            /*
+             * A comanda nasce no servidor, entao o relogio desta tela nao decide a hora
+             * sem avisar. O fuso do navegador vai junto do pedido e o papel sai na hora
+             * de quem imprimiu -- que e' a do balcao.
+             */
+            function fusoDoNavegador() {
+                try {
+                    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+                } catch (e) {
+                    return '';
+                }
+            }
+
             async function comandaAbrir(id) {
                 comandaPedidoAtual = id;
                 var caixa = document.getElementById('comandaTexto');
@@ -52,7 +65,7 @@ export const COMANDA_SCRIPT = `        <script>
                 modalShow('comandaModal');
 
                 try {
-                    var r = await fetch('/api/admin/comandas/' + id);
+                    var r = await fetch('/api/admin/comandas/' + id, { headers: { 'X-Fuso': fusoDoNavegador() } });
                     if (!r.ok) throw new Error('falha ao buscar a comanda');
                     var dados = await r.json();
                     if (caixa) caixa.textContent = dados.texto;
@@ -64,6 +77,8 @@ export const COMANDA_SCRIPT = `        <script>
 
             function comandaImprimir() {
                 if (!comandaPedidoAtual) { flash('err', 'Nenhum pedido selecionado.'); return; }
-                window.open('/api/admin/comandas/' + comandaPedidoAtual + '/escpos', '_blank');
+                // window.open nao leva header, entao o fuso viaja na query.
+                var url = '/api/admin/comandas/' + comandaPedidoAtual + '/escpos?fuso=' + encodeURIComponent(fusoDoNavegador());
+                window.open(url, '_blank');
             }
         </script>`;

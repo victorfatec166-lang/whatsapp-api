@@ -51,6 +51,15 @@ test('horario sai no fuso do balcao, nao no do servidor', () => {
     assert.match(comanda(), /^#47 {3}15:04$/m);
 });
 
+test('o fuso de quem pede manda na hora impressa', () => {
+    // 15:04 em Sao Paulo sao 18:04 UTC, que em Lisboa (UTC+1 em outubro) sao 19:04.
+    assert.match(comanda({ fuso: 'Europe/Lisbon' }), /^#47 {3}19:04$/m);
+});
+
+test('sem fuso do pedido, o papel sai no padrao', () => {
+    assert.match(comanda({ fuso: undefined }), /^#47 {3}15:04$/m);
+});
+
 test('o horario nao muda com o fuso da maquina que gera o papel', () => {
     // O Render roda em UTC; se a hora dependesse da maquina, o papel sairia 3h errado.
     const antes = process.env.TZ;

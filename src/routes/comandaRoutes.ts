@@ -5,6 +5,7 @@ import { montarComanda } from '../services/comanda';
 import { logDoModulo } from '../services/logger';
 import { exigeLoja } from '../services/loja';
 import { resolveTelefone } from '../services/bot';
+import { fusoDoRequisicao, fimDoDiaNoFuso, inicioDoDiaNoFuso } from '../services/fuso';
 const log = logDoModulo('comandaRoutes');
 
 /**
@@ -23,15 +24,13 @@ async function nomeDoNegocio(): Promise<string> {
 }
 
 /**
- * Numero curto do dia, e nao o UUID do banco: 36 caracteres nao cabem na boca de
- * quem grita "numero 47" para a cozinha, e misturar o 1 de hoje com o 1 de ontem
- * monta pedido errado na hora.
+ * Numero curto do dia, e nao o UUID do banco: 36 caracteres nao cabem na boca de quem
+ * grita "numero 47" para a cozinha. O corte do dia e' a meia-noite de quem pediu -- no Render,
+ * que roda em UTC, ele virava as 21h e o "#1" recomecava com o restaurante aberto.
  */
-async function numeroDoDia(orderId: string, createdAt: Date): Promise<number> {
-    const inicio = new Date(createdAt);
-    inicio.setHours(0, 0, 0, 0);
-    const fim = new Date(inicio);
-    fim.setDate(fim.getDate() + 1);
+async function numeroDoDia(orderId: string, createdAt: Date, fuso: string): Promise<number> {
+    const inicio = inicioDoDiaNoFuso(createdAt, fuso);
+    const fim = fimDoDiaNoFuso(createdAt, fuso);
 
     const quantosNoDia = await prisma.order.count({
         where: {
@@ -64,11 +63,13 @@ router.get('/comandas/:id', async (req: Request, res: Response) => {
         const order = await prisma.order.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: req.params.id } } });
         if (!order) return res.status(404).json({ error: 'Pedido nao encontrado.' });
 
+        const fuso = fusoDoRequisicao(req);
         const comanda = montarComanda({
             order,
             businessName: await nomeDoNegocio(),
-            numero: await numeroDoDia(order.id, order.createdAt),
+            numero: await numeroDoDia(order.id, order.createdAt, fuso),
             telefone: await telefoneDaComanda(order.clientPhone),
+            fuso,
         });
 
         res.json({ numero: comanda.linhas, texto: comanda.texto });
@@ -88,12 +89,15 @@ router.get('/comandas/:id/escpos', async (req: Request, res: Response) => {
         const order = await prisma.order.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: req.params.id } } });
         if (!order) return res.status(404).json({ error: 'Pedido nao encontrado.' });
 
-        const numero = await numeroDoDia(order.id, order.createdAt);
+        // O download vem de window.open, que nao leva header: o fuso chega por query.
+        const fuso = fusoDoRequisicao(req);
+        const numero = await numeroDoDia(order.id, order.createdAt, fuso);
         const comanda = montarComanda({
             order,
             businessName: await nomeDoNegocio(),
             numero,
             telefone: await telefoneDaComanda(order.clientPhone),
+            fuso,
         });
 
         res.setHeader('Content-Type', 'application/octet-stream');

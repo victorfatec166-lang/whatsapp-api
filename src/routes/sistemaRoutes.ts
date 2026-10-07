@@ -6,6 +6,7 @@ import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { montarPainel } from '../services/notificacoes';
 import { isBotOnline, getConnectionState } from '../services/botLojas';
 import { getClientCount } from '../services/sse';
+import { exigeLoja } from '../services/loja';
 import { exigeCsrf, exigeSessaoApi } from '../services/auth';
 import { logDoModulo } from '../services/logger';
 import type { StockRow } from '../services/stock';
@@ -84,13 +85,15 @@ router.get('/api/bot-status', sessao, csrf, (_req, res: Response) => {
  */
 router.get('/api/bot/connection', sessao, csrf, (_req, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json(getConnectionState());
+    // `exigeLoja()` e nao o padrao: no Render a loja do boot e' outra, e o painel
+    // passava a mostrar o estado de uma loja que a pessoa nao esta vendo.
+    res.json(getConnectionState(exigeLoja()));
 });
 
 /** QR renderizado como SVG no servidor. O texto do QR nunca sai do alem do painel. */
 router.get('/api/bot/qr.svg', sessao, csrf, async (_req, res: Response) => {
     try {
-        const state = getConnectionState();
+        const state = getConnectionState(exigeLoja());
         if (!state.qr) {
             res.status(404).type('text/plain').send('sem QR disponivel');
             return;

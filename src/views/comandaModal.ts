@@ -36,6 +36,13 @@ export function renderComandaModal(): string {
  * reclamar.
  */
 export const COMANDA_SCRIPT = `        <script>
+            // O Close do X e' derivado pelo modalBind do layout. Sem esta chamada o
+            // botao existe na tela e nao faz nada, e o noSubmit sozinho nao fecha
+            // janela nenhuma. DOMContentLoaded porque o script do layout vem depois.
+            document.addEventListener('DOMContentLoaded', function () {
+                modalBind('${COMANDA_MODAL_ID}', '', '', '');
+            });
+
             var comandaPedidoAtual = '';
 
             async function comandaAbrir(id) {

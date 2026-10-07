@@ -688,7 +688,6 @@ const APP_SCRIPTS = `
                 function modalBind(id, endpoint, pendingLabel, successMessage, after) {
                     window[id + 'Open'] = function () { modalShow(id); };
                     window[id + 'Close'] = function () { modalHide(id); };
-
                     window[id + 'Send'] = async function (ev) {
                         if (ev) ev.preventDefault();
                         var form = document.getElementById(id + '-form');

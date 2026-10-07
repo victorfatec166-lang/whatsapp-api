@@ -45,7 +45,7 @@ async function numeroDoDia(orderId: string, createdAt: Date): Promise<number> {
 /** Comanda em texto, para conferir na tela ou mandar no WhatsApp. */
 router.get('/comandas/:id', async (req: Request, res: Response) => {
     try {
-        const order = await prisma.order.findUnique({ where: { id: req.params.id } });
+        const order = await prisma.order.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: req.params.id } } });
         if (!order) return res.status(404).json({ error: 'Pedido nao encontrado.' });
 
         const comanda = montarComanda({
@@ -68,7 +68,7 @@ router.get('/comandas/:id', async (req: Request, res: Response) => {
  */
 router.get('/comandas/:id/escpos', async (req: Request, res: Response) => {
     try {
-        const order = await prisma.order.findUnique({ where: { id: req.params.id } });
+        const order = await prisma.order.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: req.params.id } } });
         if (!order) return res.status(404).json({ error: 'Pedido nao encontrado.' });
 
         const numero = await numeroDoDia(order.id, order.createdAt);

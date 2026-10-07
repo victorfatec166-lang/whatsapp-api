@@ -1668,10 +1668,13 @@ app.get('/admin/events', (req, res) => {
     // Quem abre a tela do WhatsApp de uma loja que nunca pareou recebe o QR aqui.
     asseguraBot(lojaDaTela);
 
-    const remove = addClient(res, lojaDaTela);
-    // Envia o estado atual imediatamente: quem abre a aba ja recebe o QR
-    // valido sem precisar esperar a proxima mudanca de estado.
-    res.write(`event: connection\ndata: ${JSON.stringify(getConnectionState())}\n\n`);
+const remove = addClient(res, lojaDaTela);
+    /*
+     * O estado vai **da loja desta tela**. Sem o argumento, `getConnectionState` cai
+     * em `lojaDoBoot()`, que no Render e' outra loja: o cabecalho dizia "conectado"
+     * enquanto o card dizia "desconectado", na mesma tela.
+     */
+    res.write(`event: connection\ndata: ${JSON.stringify(getConnectionState(lojaDaTela))}\n\n`);
 
     req.on('close', remove);
 });
@@ -2290,7 +2293,7 @@ app.get('/admin', async (req, res) => {
                 // Conexao + interruptor + textos do bot na mesma tela (eram dois itens).
                 body = renderWhatsApp({
                     pair: {
-                        state: getConnectionState(),
+                        state: getConnectionState(exigeLoja()),
                         authPath: AUTH_DIR,
                         hasSavedSession: await temSessaoPareada(lojaDoBoot()),
                     },

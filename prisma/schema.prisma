@@ -315,6 +315,9 @@ model Order {
   /// segunda loja seria rejeitado como duplicata do pedido da primeira -- e o
   /// dono perderia a venda sem nenhum erro visivel para ele.
   @@unique([tenantId, channel, externalId])
+  /// Chave do id dentro da loja. Sem isto a comanda nao abre: `findUnique` por
+  /// `id` sozinho e' recusado pela extensao, e e' assim que a cozinha ve o papel.
+  @@unique([tenantId, id])
   @@index([tenantId, createdAt])
 }
 

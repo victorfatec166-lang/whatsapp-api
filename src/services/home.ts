@@ -8,6 +8,7 @@ import { parseHhMm } from './cashSchedule';
 import { parseItems } from './items';
 import { getDailyMenu, previousDailyMenu, type DailyMenuView } from './dailyMenu';
 import { listarContas, type Canal, type StatusConta } from './marketplace';
+import { inicioDoDiaNoFuso } from './fuso';
 
 /**
  * Todas as queries da home ficam aqui: a view (src/views/home.ts) nao toca o
@@ -79,11 +80,6 @@ export type HomeData = {
  * proposito -- assim nao ha como o valor voltar a aparecer por engano.
  */
 
-function startOfDay(d: Date): Date {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-}
 
 function pct(today: number, yesterday: number): number | null {
     if (yesterday <= 0) return null;
@@ -269,8 +265,8 @@ export async function loadHomeData(opts: {
         previousDailyMenu(now),
     ]);
 
-    const todayStart = startOfDay(now);
-    const yesterdayStart = startOfDay(new Date(now.getTime() - 86_400_000));
+    const todayStart = inicioDoDiaNoFuso(now);
+    const yesterdayStart = inicioDoDiaNoFuso(new Date(now.getTime() - 86_400_000));
 
     const todayOrders = orders.filter((o) => o.createdAt >= todayStart);
     const yesterdayOrders = orders.filter((o) => o.createdAt >= yesterdayStart && o.createdAt < todayStart);

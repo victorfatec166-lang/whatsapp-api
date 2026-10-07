@@ -11,6 +11,12 @@ import {
     fusoDoRequisicao,
     fusoValido,
     inicioDoDiaNoFuso,
+    inicioDoMesNoFuso,
+    fimDoMesNoFuso,
+    instanteDoDiaNoFuso,
+    carimboDoDiaNoFuso,
+    partesNoFuso,
+    diaDaSemanaNoFuso,
 } from '../src/services/fuso';
 
 const SAO_PAULO = 'America/Sao_Paulo';
@@ -80,4 +86,31 @@ test('o dia tem 24 horas inteiras', () => {
     const qualquer = new Date('2026-10-07T12:00:00-03:00');
     const tamanho = fimDoDiaNoFuso(qualquer, SAO_PAULO).getTime() - inicioDoDiaNoFuso(qualquer, SAO_PAULO).getTime();
     assert.equal(tamanho, 86_400_000);
+});
+
+test('inicio e fim do mes no fuso cobrem o mes do dono', () => {
+    const dia = new Date('2026-10-15T15:00:00-03:00');
+    assert.equal(comoUtc(inicioDoMesNoFuso(dia, SAO_PAULO)), '2026-10-01T03:00:00.000Z');
+    assert.equal(comoUtc(fimDoMesNoFuso(dia, SAO_PAULO)), '2026-11-01T03:00:00.000Z');
+});
+
+test('instante do dia monta a meia-noite correta no fuso', () => {
+    const d = instanteDoDiaNoFuso(2026, 10, 7, SAO_PAULO);
+    assert.equal(comoUtc(d), '2026-10-07T03:00:00.000Z');
+});
+
+test('carimbo do dia devolve a data como vista no fuso', () => {
+    const d = new Date('2026-10-07T22:30:00-03:00');
+    assert.equal(carimboDoDiaNoFuso(d, SAO_PAULO), '2026-10-07');
+});
+
+test('partes e dia da semana respeitam o fuso do dono', () => {
+    const d = new Date('2026-10-07T22:30:00-03:00');
+    const p = partesNoFuso(d, SAO_PAULO);
+    assert.equal(p.ano, 2026);
+    assert.equal(p.mes, 10);
+    assert.equal(p.dia, 7);
+    assert.equal(p.hora, 22);
+    assert.equal(p.minuto, 30);
+    assert.equal(diaDaSemanaNoFuso(d, SAO_PAULO), 3);
 });

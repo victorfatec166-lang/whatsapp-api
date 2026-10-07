@@ -1,6 +1,7 @@
 import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { getBotMessage } from './botMessages';
 import { exigeLoja } from './loja';
+import { inicioDoDiaNoFuso, instanteDoDiaNoFuso, carimboDoDiaNoFuso } from './fuso';
 
 /**
  * Menu do dia. Regra central: `buildBotMenu` e a UNICA fonte da lista numerada
@@ -8,21 +9,16 @@ import { exigeLoja } from './loja';
  * divergirem, o cliente pede o prato errado.
  */
 
-/** Meia-noite local do dia de `d`. */
-export function startOfDay(d: Date = new Date()): Date {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-}
-
-/** Aceita "YYYY-MM-DD" ou Date e devolve a meia-noite local desse dia. */
+/** Aceita "YYYY-MM-DD" ou Date e devolve a meia-noite desse dia no fuso da loja. */
 export function normalizeDate(input: Date | string | null | undefined): Date {
-    if (input instanceof Date) return startOfDay(input);
+    if (input instanceof Date) return inicioDoDiaNoFuso(input);
     if (typeof input === 'string') {
         const m = input.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        // O dia escolhido e' do dono: "2026-10-07" e' a meia-noite de Sao Paulo, e nao
+        // a de UTC, que no Brasil e' as 21h do dia anterior.
+        if (m) return instanteDoDiaNoFuso(Number(m[1]), Number(m[2]), Number(m[3]));
     }
-    return startOfDay();
+    return inicioDoDiaNoFuso();
 }
 
 export type DailyMenuItemView = {
@@ -39,13 +35,6 @@ export type DailyMenuView = {
     items: DailyMenuItemView[];
 };
 
-function toDateKey(d: Date): string {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
-
 export async function getDailyMenu(input?: Date | string | null): Promise<DailyMenuView | null> {
     const date = normalizeDate(input);
     const menu = await prisma.dailyMenu.findFirst({
@@ -60,7 +49,7 @@ export async function getDailyMenu(input?: Date | string | null): Promise<DailyM
     if (!menu) return null;
 
     return {
-        date: toDateKey(menu.date),
+        date: carimboDoDiaNoFuso(menu.date),
         note: menu.note,
         items: menu.items.map((i) => ({
             id: i.product.id,
@@ -161,7 +150,7 @@ export async function previousDailyMenu(before: Date | string | null): Promise<D
     if (!menu) return null;
 
     return {
-        date: toDateKey(menu.date),
+        date: carimboDoDiaNoFuso(menu.date),
         note: menu.note,
         items: menu.items.map((i) => ({
             id: i.product.id,
@@ -194,7 +183,7 @@ export async function buildBotMenu(now = new Date()): Promise<BotMenuEntry[]> {
     });
 
     const menu = await prisma.dailyMenu.findFirst({
-        where: { date: startOfDay(now) },
+        where: { date: inicioDoDiaNoFuso(now) },
         include: { items: { orderBy: { sortOrder: 'asc' }, select: { productId: true } } },
     });
     const dailyIds = new Set(menu?.items.map((i) => i.productId) ?? []);

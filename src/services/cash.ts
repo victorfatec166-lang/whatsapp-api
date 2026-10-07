@@ -1,7 +1,7 @@
 import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { logDoModulo } from './logger';
 import { exigeLoja } from './loja';
-import { horaDoDono } from './fuso';
+import { horaDoDono, inicioDoDiaNoFuso } from './fuso';
 const log = logDoModulo('cash');
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -311,11 +311,6 @@ export async function shiftHistory(limit = 30): Promise<ShiftHistoryRow[]> {
 
 /* --------------------------------------------- Movimentos de caixa (dia) */
 
-function startOfDay(d: Date): Date {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-}
 
 export type CashSummary = {
     cashSales: number;
@@ -327,7 +322,7 @@ export type CashSummary = {
 };
 
 export async function cashSummary(now = new Date()): Promise<CashSummary> {
-    const from = startOfDay(now);
+    const from = inicioDoDiaNoFuso(now);
     const [orders, movements] = await Promise.all([
         prisma.order.findMany({
             where: { createdAt: { gte: from }, channel: 'pdv' },

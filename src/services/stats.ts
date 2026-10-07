@@ -2,6 +2,7 @@
 // memoria, a partir da lista de pedidos que o servidor ja carregou. Isso
 // mantem a regra unica de preco e status em um lugar so, sem consulta extra.
 import { parseItems } from './items';
+import { FUSO, inicioDoDiaNoFuso, inicioDoMesNoFuso, partesNoFuso, diaDaSemanaNoFuso, carimboDoDiaNoFuso } from './fuso';
 
 export type OrderWithProductless = {
     id: string;
@@ -39,16 +40,9 @@ export function statusLabel(status: string): string {
     return STATUS_LABELS[status] ?? status;
 }
 
-function startOfDay(d: Date): Date {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-}
 
 function addDays(d: Date, days: number): Date {
-    const x = new Date(d);
-    x.setDate(x.getDate() + days);
-    return x;
+    return new Date(d.getTime() + days * 86_400_000);
 }
 
 /** Reexporta o parser canonico de itens (com modificadores e retrocompativel). */
@@ -77,7 +71,7 @@ function currency(n: number): string {
 }
 
 function shortDate(d: Date): string {
-    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: FUSO });
 }
 
 /**
@@ -86,9 +80,9 @@ function shortDate(d: Date): string {
  */
 export async function computeStats(orders: OrderWithProductless[]): Promise<DashboardStats> {
     const now = new Date();
-    const todayStart = startOfDay(now);
+    const todayStart = inicioDoDiaNoFuso(now);
     const weekStart = addDays(todayStart, -6);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthStart = inicioDoMesNoFuso(now);
 
     const sum = (list: OrderWithProductless[]) => ({
         revenue: list.reduce((acc, o) => acc + o.total, 0),
@@ -123,11 +117,11 @@ export async function computeStats(orders: OrderWithProductless[]): Promise<Dash
         .slice(0, 8);
 
     const hourBuckets = new Array(24).fill(0).map((_, hour) => ({ hour, orders: 0 }));
-    for (const o of orders) hourBuckets[o.createdAt.getHours()].orders += 1;
+    for (const o of orders) hourBuckets[partesNoFuso(o.createdAt).hora].orders += 1;
 
     const dowBuckets = WEEKDAYS.map((label) => ({ label, orders: 0, revenue: 0 }));
     for (const o of orders) {
-        const b = dowBuckets[o.createdAt.getDay()];
+        const b = dowBuckets[diaDaSemanaNoFuso(o.createdAt)];
         b.orders += 1;
         b.revenue += o.total;
     }
@@ -140,7 +134,7 @@ export async function computeStats(orders: OrderWithProductless[]): Promise<Dash
     const dayMap = new Map<string, { date: string; label: string; revenue: number; orders: number }>();
     for (const o of orders) {
         const d = o.createdAt;
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const key = carimboDoDiaNoFuso(d);
         const cur = dayMap.get(key) ?? { date: key, label: shortDate(d), revenue: 0, orders: 0 };
         cur.revenue += o.total;
         cur.orders += 1;

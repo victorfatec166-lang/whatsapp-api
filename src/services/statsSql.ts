@@ -1,26 +1,21 @@
 /*
  * As mesmas metricas de `computeStats`, calculadas pelo banco. NADA E TRUNCADO:
  * truncar a lista faria o Faturamento mostrar menos dinheiro que o real. A data e'
- * formatada pelo `to_char`, no fuso do servidor.
+ * formatada pelo `to_char`, ja convertida para o fuso da loja.
  */
 
 import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { exigeLoja } from './loja';
 import { parseItems } from './items';
 import { ORDER_STATUSES, type DashboardStats } from './stats';
+import { FUSO, inicioDoDiaNoFuso, inicioDoMesNoFuso } from './fuso';
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-function startOfDay(d: Date): Date {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-}
-
 function addDays(d: Date, days: number): Date {
-    const x = new Date(d);
-    x.setDate(x.getDate() + days);
-    return x;
+    // Milissegundos, e nao `setDate`: a janela ja e' um instante de meia-noite no fuso
+    // da loja, e trocar o dia no relogio do servidor anda um dia errado em meia fuso.
+    return new Date(d.getTime() + days * 86_400_000);
 }
 
 /** COUNT e SUM no Postgres voltam como BigInt; o resto do codigo usa number. */
@@ -30,17 +25,17 @@ function n(v: unknown): number {
     return Number(v ?? 0);
 }
 
-function arredonda(v: number): number {
-    return Math.round(v * 100) / 100;
+function arredonda(v: unknown): number {
+    return Math.round(Number(v) * 100) / 100;
 }
 
 /*
- * A coluna de data, no formato do Postgres e no fuso do dono. O `EXTRACT(DOW)`
- * comeca na segunda e o `strftime` antigo comecava no domingo: dai a soma de 1.
+ * A data no fuso da loja: createdAt e' gravado em UTC. O AT TIME ZONE converte
+ * para o fuso do dono antes de agrupar por dia, hora ou dia da semana.
  */
-const DIA_LOCAL = `to_char("createdAt", 'YYYY-MM-DD')`;
-const HORA_LOCAL = `to_char("createdAt", 'HH24')`;
-const DOW_LOCAL = `(EXTRACT(DOW FROM "createdAt")::int + 6) % 7`;
+const DIA_LOCAL = `to_char("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE $2, 'YYYY-MM-DD')`;
+const HORA_LOCAL = `to_char("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE $2, 'HH24')`;
+const DOW_LOCAL = `EXTRACT(DOW FROM ("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE $2))::int`;
 
 /**
  * Agregacoes em SQL cru para faturamento. ExigeLoja e' passado explicitamente
@@ -49,9 +44,9 @@ const DOW_LOCAL = `(EXTRACT(DOW FROM "createdAt")::int + 6) % 7`;
 export async function computeStatsSql(): Promise<DashboardStats> {
     const LOJA = exigeLoja();
     const agora = new Date();
-    const inicioHoje = startOfDay(agora);
+    const inicioHoje = inicioDoDiaNoFuso(agora);
     const inicioSemana = addDays(inicioHoje, -6);
-    const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
+    const inicioMes = inicioDoMesNoFuso(agora);
 
     const [
         totais,
@@ -99,17 +94,20 @@ export async function computeStatsSql(): Promise<DashboardStats> {
         ),
         prisma.$queryRawUnsafe<{ hora: string; n: unknown }[]>(
             `SELECT ${HORA_LOCAL} AS hora, COUNT(*) AS n FROM "Order" WHERE "tenantId" = $1 GROUP BY hora`,
-            LOJA
+            LOJA,
+            FUSO
         ),
         prisma.$queryRawUnsafe<{ dow: string; n: unknown; receita: unknown }[]>(
             `SELECT ${DOW_LOCAL} AS dow, COUNT(*) AS n, COALESCE(SUM(total), 0) AS receita
              FROM "Order" WHERE "tenantId" = $1 GROUP BY dow`,
-            LOJA
+            LOJA,
+            FUSO
         ),
         prisma.$queryRawUnsafe<{ dia: string; receita: unknown; n: unknown }[]>(
             `SELECT ${DIA_LOCAL} AS dia, COALESCE(SUM(total), 0) AS receita, COUNT(*) AS n
              FROM "Order" WHERE "tenantId" = $1 GROUP BY dia ORDER BY dia DESC LIMIT 14`,
-            LOJA
+            LOJA,
+            FUSO
         ),
         prisma.$queryRawUnsafe<{ descontos: unknown; gorjetas: unknown }[]>(
             `SELECT COALESCE(SUM(discount), 0) AS descontos, COALESCE(SUM(tip), 0) AS gorjetas
@@ -181,7 +179,7 @@ export async function computeStatsSql(): Promise<DashboardStats> {
             const data = new Date(`${d.dia}T12:00:00`);
             return {
                 date: d.dia,
-                label: data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+                label: data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: FUSO }),
                 revenue: arredonda(n(d.receita)),
                 orders: n(d.n),
             };

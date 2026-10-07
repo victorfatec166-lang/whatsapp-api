@@ -147,7 +147,12 @@ export async function registrarMensagem(opts: {
     };
 
     const chat = atual
-        ? await prisma.chat.update({ where: { id: atual.id }, data: dados })
+        ? /* `updateMany` e nao `update`: o `Chat` so tem chave unica com a loja e o telefone,
+         * nunca com `id` sozinho, e a extensao recusa. O efeito era pior que erro: a
+         * excecao saia a CADA mensagem, e o bot nunca gravava a conversa. */
+        await prisma.chat
+            .updateMany({ where: { id: atual.id }, data: dados })
+            .then(async () => prisma.chat.findFirst({ where: { id: atual.id } }))
         : await prisma.chat.create({
               data: {
                   tenantId: exigeLoja(),
@@ -159,6 +164,12 @@ export async function registrarMensagem(opts: {
                   naoLidas: contaNaoLida ? 1 : 0,
               },
           });
+
+    if (!chat) {
+        // A sessao do chat sumiu entre o `findFirst` e o `update`. Perder a
+        // mensagem e' melhor que derrubar a conversa inteira.
+        throw new Error(`Conversa ${atual!.id} sumiu no meio da gravacao`);
+    }
 
     await prisma.message.create({
         data: {
@@ -206,8 +217,9 @@ export async function guardaFoto(
     }
 
     // Sem foto e' resultado legitimo, mas gravar "nao tem" com a data de hoje evita
-    // refazer a chamada a cada mensagem.
-    await prisma.chat.update({
+    // refazer a chamada a cada mensagem. `updateMany` pelo mesmo motivo acima: o
+    // `Chat` nao tem chave unica com `id` sozinho.
+    await prisma.chat.updateMany({
         where: { id: chatId },
         data: { avatarUrl: url || null, avatarAt: agora },
     });

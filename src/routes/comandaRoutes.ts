@@ -4,6 +4,7 @@ import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { montarComanda } from '../services/comanda';
 import { logDoModulo } from '../services/logger';
 import { exigeLoja } from '../services/loja';
+import { resolveTelefone } from '../services/bot';
 const log = logDoModulo('comandaRoutes');
 
 /**
@@ -42,6 +43,21 @@ async function numeroDoDia(orderId: string, createdAt: Date): Promise<number> {
     return quantosNoDia;
 }
 
+/**
+ * Telefone de verdade para a comanda. O pedido guarda o endereco do WhatsApp, e
+ * ele pode ser "192...@lid": indice de privacidade, sem telefone. Primeiro o que a
+ * conversa ja gravou, que nao depende do bot estar no ar; so entao o mapa do socket.
+ */
+async function telefoneDaComanda(clientPhone: string): Promise<string | undefined> {
+    if (!clientPhone.endsWith('@lid')) return undefined;
+    const conversa = await prisma.chat.findFirst({
+        where: { phone: clientPhone },
+        select: { telefone: true },
+    });
+    const guardado = conversa?.telefone?.trim();
+    return guardado || (await resolveTelefone(clientPhone)) || undefined;
+}
+
 /** Comanda em texto, para conferir na tela ou mandar no WhatsApp. */
 router.get('/comandas/:id', async (req: Request, res: Response) => {
     try {
@@ -52,6 +68,7 @@ router.get('/comandas/:id', async (req: Request, res: Response) => {
             order,
             businessName: await nomeDoNegocio(),
             numero: await numeroDoDia(order.id, order.createdAt),
+            telefone: await telefoneDaComanda(order.clientPhone),
         });
 
         res.json({ numero: comanda.linhas, texto: comanda.texto });
@@ -76,6 +93,7 @@ router.get('/comandas/:id/escpos', async (req: Request, res: Response) => {
             order,
             businessName: await nomeDoNegocio(),
             numero,
+            telefone: await telefoneDaComanda(order.clientPhone),
         });
 
         res.setHeader('Content-Type', 'application/octet-stream');

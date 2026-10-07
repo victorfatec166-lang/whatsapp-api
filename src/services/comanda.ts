@@ -37,6 +37,8 @@ export type Comanda = {
     businessName: string;
     /** Numero curto e falado, para o balcao gritar "numero 47". */
     numero: number;
+    /** Numero de verdade do cliente, quando o pedido guarda um endereco @lid. */
+    telefone?: string;
 };
 
 export type ComandaTexto = {
@@ -49,20 +51,29 @@ export type ComandaTexto = {
 };
 
 /**
- * Telefone do cliente em formato curto, como quem anota no papel.
- *
- * O bot grava o jid inteiro (5511999999999@s.whatsapp.net). Na comanda isso
- * sao 30 caracteres que ninguem copia, entao fica so o numero.
+ * Telefone do cliente em formato curto, como quem anota no papel. O bot grava o
+ * endereco inteiro (55188887777@s.whatsapp.net), 30 caracteres que ninguem copia,
+ * entao fica so o numero -- e o ":12" depois dele e' o DEVICE, nao entra.
  */
-function telefoneCurto(jid: string): string {
-    const digitos = jid.replace(/\D/g, '');
+function telefoneCurto(enderco: string): string {
+    // "@lid" nao tem telefone: e' o indice de privacidade do WhatsApp, e tirar os
+    // nao-digitos dele fabricava um numero que nao existe. A linha simplesmente nao
+    // sai -- quem resolve o numero de verdade passa em `Comanda.telefone`.
+    if (enderco.endsWith('@lid')) return '';
+    const digitos = enderco.split('@')[0].split(':')[0].replace(/\D/g, '');
     if (digitos.length <= 11) return digitos;
     return digitos.slice(-11);
 }
 
+/**
+ * Fuso do papel. O Render roda em UTC, entao `getHours()` -- ou `toLocaleTimeString`
+ * sem `timeZone` -- sairiam 3 horas atrasadas de quem le a comanda. A loja nao tem fuso
+ * guardado e o produto e' brasileiro: o padrao e' Sao Paulo, FUSO_PADRAO cobre o resto.
+ */
+const FUSO = process.env.FUSO_PADRAO || 'America/Sao_Paulo';
+
 function horaLocal(d: Date): string {
-    const p = (n: number) => String(n).padStart(2, '0');
-    return `${p(d.getHours())}:${p(d.getMinutes())}`;
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: FUSO });
 }
 
 /**
@@ -82,7 +93,7 @@ export function montarComanda(c: Comanda): ComandaTexto {
 
     // --- cliente: so o que ajuda a identificar ---
     const nome = (c.order.clientName ?? '').trim();
-    const tel = telefoneCurto(c.order.clientPhone);
+    const tel = telefoneCurto(c.telefone?.trim() || c.order.clientPhone);
     if (nome) L.push(truncar(nome, COLUNAS));
     if (tel) L.push(truncar('Tel ' + tel, COLUNAS));
     if (nome || tel) L.push(linha('-'));

@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { ehBancoArquivo as ehArquivo } from './driver';
 
 /**
  * O teto de conexoes mora no codigo: o Prisma dimensiona o pool pelos nucleos da maquina
@@ -19,7 +20,7 @@ export function urlComTeto(url: string | undefined): string | undefined {
  * so estoura no boot de um PC de cliente. Por isso a trava abaixo, e nao um aviso.
  */
 const url = urlComTeto(process.env.DATABASE_URL);
-const local = typeof url === 'string' && url.startsWith('file:');
+const local = ehArquivo;
 
 if (local && !process.env.MODO_LOCAL) {
     console.warn(
@@ -33,5 +34,11 @@ if (!local && process.env.MODO_LOCAL) {
             'para outro banco: rode `npm run banco:local` antes de empacotar o instalador.'
     );
 }
+
+/**
+ * O banco e' um arquivo. E' o que decide o dialeto do SQL cru: o Postgres na nuvem e' o
+ * mesmo codigo com outra gramatica. Exportado aqui porque quem decide ja' era este arquivo.
+ */
+export const ehBancoArquivo = ehArquivo;
 
 export const prisma = new PrismaClient({ datasourceUrl: url });

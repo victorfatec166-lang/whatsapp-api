@@ -174,7 +174,7 @@ export async function computeStats(orders: OrderWithProductless[]): Promise<Dash
         byChannel: [...channelMap.entries()]
             .map(([channel, v]) => ({
                 channel,
-                label: channel === 'pdv' ? 'PDV / Balcao' : 'WhatsApp',
+                label: channel === 'pdv' ? 'PDV / Balcão' : 'WhatsApp',
                 orders: v.orders,
                 revenue: Math.round(v.revenue * 100) / 100,
             }))

@@ -14,11 +14,19 @@ import type {
 } from '@whiskeysockets/baileys';
 
 import { prisma } from '../database/prisma';
+import { ehSqlite } from './sqlDial';
 import { logDoModulo } from './logger';
 import { idDaMaquina } from './maquina';
 import { DIR_SESSAO_WHATSAPP } from './paths';
 
 const log = logDoModulo('whatsapp-sessao');
+
+/*
+ * Uma sessao com meses de conversa tem dezenas de mil chaves, e o Postgres corta o
+ * INSERT em 65.535 parametros: 24 mil linhas estouram isso numa so. O lote de 500
+ * deixa cada INSERT com folga e nao depende do tamanho da sessao.
+ */
+const LOTE = 500;
 
 /** O que o Baileys precisa saber para ler e escrever o estado; vem de quem o usa. */
 export type CodecsDaSessao = {
@@ -131,21 +139,39 @@ async function importaDoArquivo(
 
     await prisma.sessaoWhatsApp.create({ data: { tenantId, maquinaId, creds: codecs.serializa(creds) } });
 
-    /*
-     * Uma sessao com meses de conversa tem dezenas de mil chaves, e o Postgres corta
-     * o INSERT em 65.535 parametros: 24 mil linhas estouram isso numa so. O lote de
-     * 500 deixa cada INSERT com folga e nao depende do tamanho da sessao.
-     */
     const chaves = chavesDoArquivo();
-    const LOTE = 500;
     for (let i = 0; i < chaves.length; i += LOTE) {
-        await prisma.chaveWhatsApp.createMany({
-            data: chaves.slice(i, i + LOTE).map((c) => ({ tenantId, maquinaId, ...c })),
-            skipDuplicates: true,
-        });
+        await gravaChavesIgnorandoRepetida(
+            chaves.slice(i, i + LOTE).map((c) => ({ tenantId, maquinaId, ...c }))
+        );
     }
     log.info(`Sessao do WhatsApp importada do arquivo: ${chaves.length} chave(s).`);
     return creds;
+}
+
+/**
+ * O mesmo pedido nos dois bancos: gravar chave que ja existe e' esperado. No Postgres
+ * e' a flag `skipDuplicates`; no SQLite ela nao existe no Prisma e o jeito nativo e'
+ * `INSERT OR IGNORE`. O `atualizadoEm` vai escrito porque o `@updatedAt` e' do cliente.
+ */
+async function gravaChavesIgnorandoRepetida(
+    linhas: Array<{ tenantId: string; maquinaId: string; tipo: string; chave: string; valor: string }>
+): Promise<void> {
+    if (!ehSqlite) {
+        // O `any` e' so no tipo: o cliente gerado para SQLite recusa a flag, mesmo no
+        // ramo que nunca roda nele.
+        await (prisma.chaveWhatsApp.createMany as any)({ data: linhas, skipDuplicates: true });
+        return;
+    }
+    for (let i = 0; i < linhas.length; i += LOTE) {
+        const parte = linhas.slice(i, i + LOTE);
+        const tuplas = parte.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+        await prisma.$executeRawUnsafe(
+            `INSERT OR IGNORE INTO "ChaveWhatsApp" ("tenantId", "maquinaId", "tipo", "chave", "valor", "atualizadoEm") ` +
+                `VALUES ${tuplas}`,
+            ...parte.flatMap((l) => [l.tenantId, l.maquinaId, l.tipo, l.chave, l.valor, new Date()])
+        );
+    }
 }
 
 /**
@@ -208,16 +234,15 @@ function storeDeChaves(tenantId: string, maquinaId: string, codecs: CodecsDaSess
                 const jaGravadas = new Set(existentes.map((linha) => linha.chave));
                 const novas = paraGravar.filter((id) => !jaGravadas.has(id));
                 if (novas.length) {
-                    await prisma.chaveWhatsApp.createMany({
-                        data: novas.map((chave) => ({
+                    await gravaChavesIgnorandoRepetida(
+                        novas.map((chave) => ({
                             tenantId,
                             maquinaId,
                             tipo,
                             chave,
                             valor: codecs.serializa(itens[chave]),
-                        })),
-                        skipDuplicates: true,
-                    });
+                        }))
+                    );
                 }
                 for (const chave of paraGravar) {
                     const valor = itens[chave];

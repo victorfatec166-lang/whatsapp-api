@@ -2,6 +2,7 @@ import { prismaComLoja as prisma } from '../database/prisma-com-loja';
 import { emFila } from './writeQueue';
 import { logDoModulo } from './logger';
 import { exigeLoja } from './loja';
+import { p, zeroOuMais } from './sqlDial';
 const log = logDoModulo('stock');
 
 export type MovementType = 'entrada' | 'saida' | 'perda' | 'ajuste';
@@ -228,9 +229,11 @@ export async function decrementStock(
 
         /*
          * `GREATEST` e nao `MAX` de dois argumentos: no Postgres o `MAX` e' agregacao.
+         * No SQLite e' o contrario, e `MAX` de varios argumentos e' a funcao escalar.
          */
         await tx.$executeRawUnsafe(
-            'UPDATE "Product" SET "stock" = GREATEST(0, "stock" - $1) WHERE "id" = $2 AND "tenantId" = $3',
+            `UPDATE "Product" SET "stock" = ${zeroOuMais(`"stock" - ${p(1)}`)} ` +
+                `WHERE "id" = ${p(2)} AND "tenantId" = ${p(3)}`,
             qty,
             productId,
             exigeLoja()

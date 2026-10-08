@@ -5,6 +5,16 @@ import { inicioDoDia } from './retencao';
 import { backupDir } from './backup';
 import { pastaDeLogs } from './logger';
 import { DIR_SESSAO_WHATSAPP } from './paths';
+import { ehSqlite } from './sqlDial';
+
+/**
+ * O arquivo do banco, no modo SQLite. A URL e' `file:<caminho>`, e no Windows o
+ * caminho vem com `/` e com letra de drive -- e por isso que ele passa por `path`.
+ */
+export function caminhoDoBanco(): string {
+    const url = process.env.DATABASE_URL ?? '';
+    return path.resolve(url.replace(/^file:/, ''));
+}
 
 /**
  * Onde estao os dados, quanto ocupam, e o que o sistema guarda.
@@ -94,21 +104,31 @@ export async function resumoArmazenamento(agora: Date = new Date()): Promise<Res
     const pastaSessao = pastaDaSessao();
 
     /*
-     * O tamanho vem do proprio Postgres (pg_database_size), e nao de `stat` num
-     * arquivo: no banco gerenciado nao ha arquivo local. Sem este numero, a tela
-     * mostraria zero e a pessoa acharia que o banco sumiu.
+     * O tamanho vem do proprio banco, e nao de `stat` num arquivo: no Postgres
+     * gerenciado nao ha arquivo local. No SQLite, que E' um arquivo, o caminho e' o
+     * inverso -- e `stat` e' exato, sem perguntar nada ao banco.
      */
     let bancoBytes: number | null = null;
-    try {
-        const linhas = await prisma.$queryRawUnsafe<{ bytes: bigint | number }[]>(
-            `SELECT pg_database_size(current_database()) AS bytes`
-        );
-        bancoBytes = linhas[0] ? Number(linhas[0].bytes) : null;
-    } catch {
-        bancoBytes = null;
+    let nomeDoBanco = 'banco (Postgres)';
+    if (ehSqlite) {
+        nomeDoBanco = 'banco (SQLite)';
+        try {
+            bancoBytes = fs.statSync(caminhoDoBanco()).size;
+        } catch {
+            bancoBytes = null;
+        }
+    } else {
+        try {
+            const linhas = await prisma.$queryRawUnsafe<{ bytes: bigint | number }[]>(
+                `SELECT pg_database_size(current_database()) AS bytes`
+            );
+            bancoBytes = linhas[0] ? Number(linhas[0].bytes) : null;
+        } catch {
+            bancoBytes = null;
+        }
     }
 
-    const bancoArquivos = bancoBytes === null ? [] : [{ nome: 'banco (Postgres)', bytes: bancoBytes }];
+    const bancoArquivos = bancoBytes === null ? [] : [{ nome: nomeDoBanco, bytes: bancoBytes }];
 
     const [mensagensHoje, conversasAtivas, pedidosHoje] = await Promise.all([
         prisma.message.count({ where: { sentAt: { gte: inicio } } }),

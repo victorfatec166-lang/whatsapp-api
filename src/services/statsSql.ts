@@ -9,6 +9,7 @@ import { exigeLoja } from './loja';
 import { parseItems } from './items';
 import { ORDER_STATUSES, type DashboardStats } from './stats';
 import { FUSO, inicioDoDiaNoFuso, inicioDoMesNoFuso } from './fuso';
+import { fusoComoParametro, frag, p } from './sqlDial';
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -31,11 +32,15 @@ function arredonda(v: unknown): number {
 
 /*
  * A data no fuso da loja: createdAt e' gravado em UTC. O AT TIME ZONE converte
- * para o fuso do dono antes de agrupar por dia, hora ou dia da semana.
+ * para o fuso do dono antes de agrupar por dia, hora ou dia da semana. No SQLite
+ * quem faz isso e' o `localtime`, porque a maquina do servidor e' a propria loja.
  */
-const DIA_LOCAL = `to_char("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE $2, 'YYYY-MM-DD')`;
-const HORA_LOCAL = `to_char("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE $2, 'HH24')`;
-const DOW_LOCAL = `EXTRACT(DOW FROM ("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE $2))::int`;
+const DIA_LOCAL = frag('dia');
+const HORA_LOCAL = frag('hora');
+const DOW_LOCAL = frag('dow');
+
+/** O fuso so e' parametro no Postgres; ver `fusoComoParametro`. */
+const FUSO_P = fusoComoParametro();
 
 /**
  * Agregacoes em SQL cru para faturamento. ExigeLoja e' passado explicitamente
@@ -58,22 +63,22 @@ export async function computeStatsSql(): Promise<DashboardStats> {
         ajustesHoje,
         itens,
     ] = await Promise.all([
-        // Uma linha so, com as tres janelas e o total, em vez de uma varredura
+// Uma linha so, com as tres janelas e o total, em vez de uma varredura
         // em JavaScript sobre tudo.
         /*
-         * Placeholders `$1`, `$2`... e nao `?`: o `?` e' do SQLite, e no Postgres
-         * ele nao vira bind. O `unsafe` fica porque o Prisma nao infere o tipo de
-         * uma agregacao, mas a loja e' parametro, nunca texto na string.
+         * O placeholder vem de `p()`: `$1` no Postgres e `?` no SQLite, que vincula
+         * por ordem. O `unsafe` fica porque o Prisma nao infere o tipo de uma agregacao,
+         * mas a loja e' parametro, nunca texto na string.
          */
         prisma.$queryRawUnsafe<{ periodo: string; receita: unknown; n: unknown }[]>(
             `SELECT periodo, COALESCE(SUM(total), 0) AS receita, COUNT(*) AS n FROM (
-                 SELECT total, 'hoje'   AS periodo FROM "Order" WHERE "tenantId" = $1 AND "createdAt" >= $2
+                 SELECT total, 'hoje'   AS periodo FROM "Order" WHERE "tenantId" = ${p(1)} AND "createdAt" >= ${p(2)}
                  UNION ALL
-                 SELECT total, 'semana' AS periodo FROM "Order" WHERE "tenantId" = $3 AND "createdAt" >= $4
+                 SELECT total, 'semana' AS periodo FROM "Order" WHERE "tenantId" = ${p(3)} AND "createdAt" >= ${p(4)}
                  UNION ALL
-                 SELECT total, 'mes'    AS periodo FROM "Order" WHERE "tenantId" = $5 AND "createdAt" >= $6
+                 SELECT total, 'mes'    AS periodo FROM "Order" WHERE "tenantId" = ${p(5)} AND "createdAt" >= ${p(6)}
                  UNION ALL
-                 SELECT total, 'tudo'   AS periodo FROM "Order" WHERE "tenantId" = $7
+                 SELECT total, 'tudo'   AS periodo FROM "Order" WHERE "tenantId" = ${p(7)}
              ) GROUP BY periodo`,
             LOJA,
             inicioHoje,
@@ -84,34 +89,34 @@ export async function computeStatsSql(): Promise<DashboardStats> {
             LOJA
         ),
         prisma.$queryRawUnsafe<{ status: string; n: unknown }[]>(
-            `SELECT status, COUNT(*) AS n FROM "Order" WHERE "tenantId" = $1 GROUP BY status`,
+            `SELECT status, COUNT(*) AS n FROM "Order" WHERE "tenantId" = ${p(1)} GROUP BY status`,
             LOJA
         ),
         prisma.$queryRawUnsafe<{ canal: string; n: unknown; receita: unknown }[]>(
             `SELECT channel AS canal, COUNT(*) AS n, COALESCE(SUM(total), 0) AS receita
-             FROM "Order" WHERE "tenantId" = $1 GROUP BY canal`,
+             FROM "Order" WHERE "tenantId" = ${p(1)} GROUP BY canal`,
             LOJA
         ),
         prisma.$queryRawUnsafe<{ hora: string; n: unknown }[]>(
-            `SELECT ${HORA_LOCAL} AS hora, COUNT(*) AS n FROM "Order" WHERE "tenantId" = $1 GROUP BY hora`,
+            `SELECT ${HORA_LOCAL} AS hora, COUNT(*) AS n FROM "Order" WHERE "tenantId" = ${p(1)} GROUP BY hora`,
             LOJA,
-            FUSO
+            ...FUSO_P
         ),
         prisma.$queryRawUnsafe<{ dow: string; n: unknown; receita: unknown }[]>(
             `SELECT ${DOW_LOCAL} AS dow, COUNT(*) AS n, COALESCE(SUM(total), 0) AS receita
-             FROM "Order" WHERE "tenantId" = $1 GROUP BY dow`,
+             FROM "Order" WHERE "tenantId" = ${p(1)} GROUP BY dow`,
             LOJA,
-            FUSO
+            ...FUSO_P
         ),
         prisma.$queryRawUnsafe<{ dia: string; receita: unknown; n: unknown }[]>(
             `SELECT ${DIA_LOCAL} AS dia, COALESCE(SUM(total), 0) AS receita, COUNT(*) AS n
-             FROM "Order" WHERE "tenantId" = $1 GROUP BY dia ORDER BY dia DESC LIMIT 14`,
+             FROM "Order" WHERE "tenantId" = ${p(1)} GROUP BY dia ORDER BY dia DESC LIMIT 14`,
             LOJA,
-            FUSO
+            ...FUSO_P
         ),
         prisma.$queryRawUnsafe<{ descontos: unknown; gorjetas: unknown }[]>(
             `SELECT COALESCE(SUM(discount), 0) AS descontos, COALESCE(SUM(tip), 0) AS gorjetas
-             FROM "Order" WHERE "tenantId" = $1 AND "createdAt" >= $2`,
+             FROM "Order" WHERE "tenantId" = ${p(1)} AND "createdAt" >= ${p(2)}`,
             LOJA,
             inicioHoje
         ),
@@ -121,7 +126,7 @@ export async function computeStatsSql(): Promise<DashboardStats> {
          * em SQL seria uma segunda regra de preco.
          */
         prisma.$queryRawUnsafe<{ items: string; total: unknown }[]>(
-            `SELECT items, total FROM "Order" WHERE "tenantId" = $1`,
+            `SELECT items, total FROM "Order" WHERE "tenantId" = ${p(1)}`,
             LOJA
         ),
     ]);

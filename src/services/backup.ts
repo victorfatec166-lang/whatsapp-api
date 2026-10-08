@@ -4,14 +4,16 @@ import { execFile as execFileCallback } from 'child_process';
 import { promisify } from 'util';
 import { logDoModulo } from './logger';
 import { DIR_BACKUPS as DIR_BACKUPS_CENTRAL } from './paths';
+import { ehSqlite } from './sqlDial';
+import { prisma } from '../database/prisma';
 
 const execFile = promisify(execFileCallback);
 const log = logDoModulo('backup');
 
 /**
- * Backup do banco: o negocio inteiro cabe num Postgres, e nao ha de onde reconstruir
- * se ele some. E' o `pg_dump` e nao "ler tabela por tabela": a copia precisa sair
- * consistente com o servidor no ar.
+ * Backup do banco: o negocio inteiro cabe num banco, e nao ha de onde reconstruir
+ * se ele some. No Postgres e' `pg_dump`; no banco da loja, que e' um arquivo, e'
+ * `VACUUM INTO`. Nos dois a copia precisa sair consistente com o servidor no ar.
  */
 
 const BACKUP_DIR = DIR_BACKUPS_CENTRAL;
@@ -36,14 +38,14 @@ function carimbo(): string {
 
 /**
  * As copias do sistema, mais novas primeiro.
- * O filtro e' `backup-*.sql`, e nao `*.sql`: um dump manual do dono nao pode ser
- * apagado por uma regra de rotacao.
+ * O filtro e' `backup-*.sql` ou `backup-*.db` conforme o banco, e nao `*.sql`: um
+ * dump manual do dono nao pode ser apagado por uma regra de rotacao.
  */
 function copias(): string[] {
     try {
         return fs
             .readdirSync(BACKUP_DIR)
-            .filter((f) => f.startsWith('backup-') && f.endsWith('.sql'))
+            .filter((f) => f.startsWith('backup-') && (f.endsWith('.sql') || f.endsWith('.db')))
             // O carimbo no nome ordena por data, sem precisar abrir cada arquivo.
             .sort()
             .reverse();
@@ -138,7 +140,7 @@ export async function backupNow(): Promise<string | null> {
     try {
         fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
-        const destino = path.join(BACKUP_DIR, `backup-${carimbo()}.sql`);
+        const destino = path.join(BACKUP_DIR, `backup-${carimbo()}${ehSqlite ? '.db' : '.sql'}`);
         if (fs.existsSync(destino)) fs.unlinkSync(destino);
 
         const url = process.env.DATABASE_URL ?? '';
@@ -146,6 +148,8 @@ export async function backupNow(): Promise<string | null> {
             log.warn('backup pulado: DATABASE_URL nao esta definida');
             return null;
         }
+
+        if (ehSqlite) return await copiaDoArquivo(destino);
 
         const { stdout } = await execFile('pg_dump', ['--no-owner', '--no-acl', '--dbname', url], {
             maxBuffer: 256 * 1024 * 1024,
@@ -161,6 +165,19 @@ export async function backupNow(): Promise<string | null> {
         log.error('falhou:', { erro: String(error).split('\n')[0] });
         return null;
     }
+}
+
+/**
+ * A copia do banco que e' um arquivo e' o `VACUUM INTO`, e nao um `copyFile`: enquanto
+ * o sistema grava, o arquivo pode estar meio atualizado e a copia sairia inconsistente.
+ * O `VACUUM` entrega um instantaneo coerente e ainda compacta.
+ */
+async function copiaDoArquivo(destino: string): Promise<string | null> {
+    await prisma.$executeRawUnsafe('VACUUM INTO ?', destino);
+    const kb = Math.round(fs.statSync(destino).size / 1024);
+    log.info(`copia gravada: ${destino} (${kb} KB)`);
+    podar();
+    return destino;
 }
 
 let timer: NodeJS.Timeout | null = null;

@@ -13,6 +13,8 @@ import sistemaRoutes from './routes/sistemaRoutes';
 import backupRoutes from './routes/backupRoutes';
 import comandaRoutes from './routes/comandaRoutes';
 import opsRoutes from './routes/opsRoutes';
+import relayRoutes from './routes/relayRoutes';
+import relayAdminRoutes from './routes/relayAdminRoutes';
 import { botAtivo as botLiga, avisoDePausado, defineBotAtivo, iaLiberada } from './services/botLigaDesliga';
 import marketplaceRoutes from './routes/marketplaceRoutes';
 import assinaturaRoutes from './routes/assinaturaRoutes';
@@ -99,7 +101,9 @@ import { montarPainel, DIAS_DE_ANTECEDENCIA } from './services/notificacoes';
 import { logDoModulo, pastaDeLogs } from './services/logger';
 import { csrfDoRequest, exigeCsrf, exigeSessao, exigeSessaoApi, garanteAdministrador, limpaSessoes } from './services/auth';
 import { limitador as limitePorJanela } from './services/rateLimit';
-import { exigeLoja, lojaDoBoot } from './services/loja';
+import { comoLoja, exigeLoja, lojaDoBoot } from './services/loja';
+import { estadoDoRelay, iniciaRelay, segredoDaLoja } from './services/relay';
+import { lojaRodaLocal } from './services/webhook';
 import { prisma } from './database/prisma';
 import { publicaLoja } from './middleware/publica-loja';
 import { cabecalhosDeSeguranca } from './middleware/cabecalhos-seguranca';
@@ -224,6 +228,9 @@ app.use('/api/admin', comandaRoutes);
  */
 app.use('/api/admin/usuarios', usuariosRoutes);
 
+// Relay do marketplace: a loja cola a chave que o dono gerou e busca a fila na hora.
+app.use('/', relayAdminRoutes);
+
 /*
  * Calendario e estado atras da MESMA sessao das rotas acima. Trazem `/api/...` dentro
  * do arquivo, e sem estas linhas `apagar` de lembrete respondia 200 sem cookie --
@@ -249,6 +256,13 @@ app.use('/', marketplaceRoutes);
  * tem sessao nossa: a confianca vem do token do cabecalho, e sem token nada passa.
  */
 app.use('/', assinaturaRoutes);
+
+/*
+ * Fila do marketplace (o PC da loja puxando). Fora do `/api/admin` pelo mesmo motivo
+ * do Asaas: quem chama nao tem sessao nossa, e a confianca vem do segredo da loja no
+ * cabecalho. No PC da loja estas rotas existem e simplesmente nao ha nada para puxar.
+ */
+app.use('/', relayRoutes);
 
 
 /* ------------------------------------------------------------------ Utils */
@@ -2267,12 +2281,14 @@ app.get('/admin', async (req, res) => {
                 // iFood e 99Food. O catalogo vem do mesmo `products` do resto da
                 // tela -- casar item e' escolher um produto que ja existe, e uma
                 // lista propria aqui seria uma segunda lista para manter.
-                const [contas, itensIfood, itens99, pedidosIfood, pedidos99] = await Promise.all([
+                const [contas, itensIfood, itens99, pedidosIfood, pedidos99, local, temChaveRelay] = await Promise.all([
                     listarContas(),
                     listarItensCasados('ifood'),
                     listarItensCasados('99food'),
                     pedidosDoCanal('ifood'),
                     pedidosDoCanal('99food'),
+                    lojaRodaLocal(exigeLoja()),
+                    segredoDaLoja().then((s) => Boolean(s)),
                 ]);
 
                 body = renderMarketplace({
@@ -2285,6 +2301,9 @@ app.get('/admin', async (req, res) => {
                     // um .env: quem cadastra no painel do parceiro digita o que
                     // ve na barra do endereco. Pedir para configurar seria redundante.
                     webhookBase: `${req.protocol}://${req.get('host') ?? 'localhost'}`,
+                    local,
+                    temChaveRelay,
+                    ...estadoDoRelay(),
                 });
                 break;
             }
@@ -2456,6 +2475,14 @@ const servidor = app.listen(PORT, HOST, async () => {
      */
     const botsAbertos = await startBots(notifyClients);
     log.info(`Bots do WhatsApp: ${botsAbertos} loja(s) verificadas no boot.`);
+
+    /*
+     * A fila do marketplace so faz sentido no PC da loja, que e' quem tem os dados e
+     * nao tem URL publica. Na nuvem o servidor roda a fila para os PC's puxarem; no PC
+     * da loja a chamada sai para a nuvem e volta com o que chegou do iFood.
+     */
+    await comoLoja(lojaDoBoot(), () => iniciaRelay());
+    log.info('Busca de pedido do marketplace ligada.');
 });
 
 /* ---------------------------------------------------------------- Desligar */

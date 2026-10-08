@@ -23,7 +23,13 @@ import { fileURLToPath } from 'node:url';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MODULES = join(RAIZ, 'node_modules');
-const SAIDA = join(RAIZ, 'cliente', 'servidor');
+/*
+ * Onde vai o pacote. O padrao e' o do instalador (SQLite). O segundo nome existe porque
+ * um cliente do Prisma so serve a um driver: quem precisa dos dois lado -- a prova do
+ * relay, por exemplo -- monta um pacote de cada e sobe cada servidor do seu.
+ */
+const SAIDA = join(RAIZ, 'cliente', process.argv[2] ? `servidor-${process.argv[2]}` : 'servidor');
+const SO_SQLITE = !process.argv[2];
 
 /** Os pacotes de que o servidor precisa, fechados pelos `dependencies` de cada um. */
 function fechaDeProducao(raiz) {
@@ -56,6 +62,14 @@ function tamanhoDe(alvo) {
     return readdirSync(alvo).reduce((s, nome) => s + tamanhoDe(join(alvo, nome)), 0);
 }
 
+/** O cliente gerado e' de qual banco? O proprio arquivo gerado diz. */
+function driverDoCliente() {
+    const arquivo = join(RAIZ, 'node_modules', '.prisma', 'client', 'schema.prisma');
+    if (!existsSync(arquivo)) return 'nenhum';
+    const fonte = readFileSync(arquivo, 'utf8');
+    return /provider\s*=\s*"sqlite"/.test(fonte) ? 'sqlite' : 'postgres';
+}
+
 function mb(bytes) {
     return `${(bytes / 1048576).toFixed(1)} MB`;
 }
@@ -80,6 +94,18 @@ function principal() {
     }
     if (!existsSync(join(RAIZ, 'prisma', 'schema.local.prisma'))) {
         console.error('\nFALHA: prisma/schema.local.prisma nao existe. Rode "npm run banco:local".\n');
+        process.exit(1);
+    }
+
+    /*
+     * O pacote da loja PRECISA do cliente do SQLite: e' o arquivo dele que abre. Com o
+     * cliente do Postgres empacotado, o programa so quebra no PC do cliente -- nunca
+     * aqui -- e a causa ("a URL deve comecar com file:") nao diz nada do instalador.
+     */
+    const driver = driverDoCliente();
+    if (SO_SQLITE && driver !== 'sqlite') {
+        console.error('\nFALHA: o servidor do instalador precisa do cliente do SQLite, e o atual e\' do Postgres.');
+        console.error('       Rode "npm run banco:local" e monte de novo. Para voltar a nuvem: "npm run banco:postgres".\n');
         process.exit(1);
     }
 

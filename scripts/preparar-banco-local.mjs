@@ -12,7 +12,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -74,16 +74,26 @@ function principal() {
     if (!existsSync(ORIGEM)) throw new Error(`schema.prisma nao encontrado em ${ORIGEM}`);
 
     writeFileSync(DESTINO, comDatasourceLocal(readFileSync(ORIGEM, 'utf8')), 'utf8');
-    console.log('1/3 schema.local.prisma gerado a partir do schema.prisma.');
+    console.log('1/4 schema.local.prisma gerado a partir do schema.prisma.');
 
     mkdirSync(dirname(BANCO), { recursive: true });
     const url = `file:${BANCO.replace(/\\/g, '/')}`;
 
+    /*
+     * O `db push` NAO limpa: ele so ajusta o que falta e o que sobrou. Sem apagar antes,
+     * o "banco inicial" do instalador vai acumulando loja de teste de maquina para
+     * maquina -- e quem instalasse receberia dado de outra. Ele e' build, e build nao
+     * tem historico.
+     */
+    for (const sufixo of ['', '-wal', '-shm', '-journal']) {
+        rmSync(`${BANCO}${sufixo}`, { force: true });
+    }
+
     prisma(['generate', '--schema', DESTINO], url);
-    console.log('2/3 cliente do Prisma gerado para SQLite.');
+    console.log('2/4 cliente do Prisma gerado para SQLite.');
 
     prisma(['db', 'push', '--schema', DESTINO, '--skip-generate', '--accept-data-loss'], url);
-    console.log(`3/3 banco vazio criado em ${BANCO}`);
+    console.log(`3/4 banco vazio criado em ${BANCO}`);
 }
 
 try {

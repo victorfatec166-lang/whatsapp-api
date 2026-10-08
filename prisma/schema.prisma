@@ -23,15 +23,19 @@ generator client {
 /// ponto -- o mesmo formato de `slug`, porque e' ele que vai virar o endereco
 /// `padaria.seudominio.com`. Enquanto o sistema roda local, o valor e' "local".
 model Tenant {
-  id        String   @id
+  id           String   @id
   /// Nome que a loja usa pra si. O `businessName` do Config tambem existe, e a
   /// diferenca e' proposital: este e' o nome cadastrado, aquele e' o que sai
   /// impresso no cupom. Trocar o nome da loja na tela nao pode trocar o endereco.
-  name      String
+  name         String
   /// Desligar a loja sem apagar nada. e o que um cancelamento de assinatura
   /// faz: a loja para de entrar, e o historico continua inteiro.
-  ativo     Boolean  @default(true)
-  criadoEm  DateTime @default(now())
+  ativo        Boolean  @default(true)
+  /// A loja roda o sistema na maquina dela: o webhook do marketplace enfileira em vez
+  /// de gravar o pedido, porque o pedido nasce no PC da loja e nao aqui. Falso enquanto
+  /// a loja usa o painel na nuvem -- e' o que permite migrar uma loja por vez.
+  local        Boolean  @default(false)
+  criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
   /// Cliente no Asaas (`cus_...`). Nulo enquanto a loja nao foi contratada: e' o
@@ -41,31 +45,33 @@ model Tenant {
   /// Uma linha por loja e por tipo de dado. Nao e' a lista completa: o Prisma so
   /// exige aqui o que tem `onDelete` explicito com nome implicito. O resto
   /// entra por `prisma format`, que cria o campo inverso sozinho.
-  users         User[]
-  products      Product[]
-  orders        Order[]
-  chats         Chat[]
-  pedidosAbertos PedidoAberto[]
-  config        Config?
-  botMessages   BotMessage[]
-  assinatura    Assinatura?
+  users                 User[]
+  products              Product[]
+  orders                Order[]
+  chats                 Chat[]
+  pedidosAbertos        PedidoAberto[]
+  config                Config?
+  botMessages           BotMessage[]
+  assinatura            Assinatura?
   credencialProvisional CredencialProvisional?
-  dailyMenus    DailyMenu[]
-  dailyMenuItems DailyMenuItem[]
-  modifierGroups ModifierGroup[]
-  modifierOptions ModifierOption[]
+  dailyMenus            DailyMenu[]
+  dailyMenuItems        DailyMenuItem[]
+  modifierGroups        ModifierGroup[]
+  modifierOptions       ModifierOption[]
   productModifierGroups ProductModifierGroup[]
-  comboItems     ComboItem[]
-  stockMovements StockMovement[]
-  marketplaceAccounts MarketplaceAccount[]
-  marketplaceItems MarketplaceItem[]
-  parkedSales   ParkedSale[]
-  cashShifts    CashShift[]
-  cashMovements CashMovement[]
-  reminders     Reminder[]
-  messages      Message[]
-  sessoesWhatsApp SessaoWhatsApp[]
-  chavesWhatsApp  ChaveWhatsApp[]
+  comboItems            ComboItem[]
+  stockMovements        StockMovement[]
+  marketplaceAccounts   MarketplaceAccount[]
+  marketplaceItems      MarketplaceItem[]
+  parkedSales           ParkedSale[]
+  cashShifts            CashShift[]
+  cashMovements         CashMovement[]
+  reminders             Reminder[]
+  messages              Message[]
+  sessoesWhatsApp       SessaoWhatsApp[]
+  chavesWhatsApp        ChaveWhatsApp[]
+  PedidoEntrante        PedidoEntrante[]
+  ChaveDeLoja           ChaveDeLoja[]
 
   @@index([ativo])
 }
@@ -74,8 +80,8 @@ model Product {
   /// Loja dona do produto. Repeito em todos os models em vez de so pelo lado do
   /// pai porque `sku`, `channel+externalId` e `phone+tenant` sao unicos: a chave
   /// tem de carregar a loja, e uma unique nao atravessa relacao.
-  tenantId  String
-  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   id          String   @id @default(uuid())
   name        String
   /// Codigo curto, usado na busca e na leitura por codigo de barras.
@@ -109,13 +115,18 @@ model Product {
 
   movements        StockMovement[]
   modifierGroups   ProductModifierGroup[]
-  comboComponents  ComboItem[]         @relation("ComboParent")
-  comboIn          ComboItem[]         @relation("ComboChild")
+  comboComponents  ComboItem[]            @relation("ComboParent")
+  comboIn          ComboItem[]            @relation("ComboChild")
   dailyMenuItems   DailyMenuItem[]
   /// Item correspondente em algum marketplace. Zero ou mais: um produto pode
   /// estar no iFood e no 99Food ao mesmo tempo.
   marketplaceItems MarketplaceItem[]
 
+  @@unique([tenantId, sku])
+  /// Chave do id dentro da loja. A extensao recusa `findUnique`/`update` por `id`
+  /// sozinho -- sem isto um id de produto da loja vizinha entraria na consulta.
+  /// Indice puro: nao mexe em dado, so torna a chave composta possivel.
+  @@unique([tenantId, id])
   // A lista de reposicao filtra por trackStock e compara stock com minStock.
   // Sem indice, essa varre o catalogo inteiro -- e ela roda a cada abertura do
   // painel, e outra vez a cada venda, porque o alerta de estoque zerado vem
@@ -125,27 +136,22 @@ model Product {
   /// A busca da tela de Estoque e' por nome/SKU dentro da loja. O indice
   /// composto e' o que a torna barata quando o catalogo cresce.
   @@index([tenantId, name])
-  @@unique([tenantId, sku])
-  /// Chave do id dentro da loja. A extensao recusa `findUnique`/`update` por `id`
-  /// sozinho -- sem isto um id de produto da loja vizinha entraria na consulta.
-  /// Indice puro: nao mexe em dado, so torna a chave composta possivel.
-  @@unique([tenantId, id])
 }
 
 /// Menu do dia: os pratos que a loja destaca em uma data especifica.
 /// Nao substitui o cardapio, apenas cria uma secao separada no topo dele.
 model DailyMenu {
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id String @id @default(uuid())
+  tenantId  String
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id        String          @id @default(uuid())
   /// Dia ao qual o menu se aplica, sempre gravado a meia-noite local.
   /// Unico POR LOJA: dois comercios na mesma rua tem menu do dia na mesma data.
-  date DateTime
+  date      DateTime
   /// Observacao opcional exibida no cardapio ("Feito na hora", "Serve 2 pessoas").
-  note String?
+  note      String?
   items     DailyMenuItem[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 
   @@unique([tenantId, date])
 }
@@ -153,11 +159,11 @@ model DailyMenu {
 /// Prato dentro de um menu do dia, com a ordem de exibicao.
 model DailyMenuItem {
   tenantId  String
-  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id        String   @id @default(uuid())
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id        String @id @default(uuid())
   menuId    String
   productId String
-  sortOrder Int      @default(0)
+  sortOrder Int    @default(0)
 
   menu    DailyMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
   product Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -171,7 +177,7 @@ model DailyMenuItem {
 /// maxSelect = 1 significa escolha unica; > 1 permite multipla escolha.
 model ModifierGroup {
   tenantId  String
-  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   id        String   @id @default(uuid())
   name      String
   minSelect Int      @default(0)
@@ -187,15 +193,15 @@ model ModifierGroup {
 /// Opcao dentro de um grupo, com acrescimo de preco opcional.
 model ModifierOption {
   tenantId  String
-  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id        String   @id @default(uuid())
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id        String @id @default(uuid())
   groupId   String
   name      String
   /// Acrescimo em R$ (0 quando apenas informa a cozinha, ex: "Sem cebola").
-  price     Float    @default(0)
+  price     Float  @default(0)
   /// Prefixo exibido: "Add", "No", "Extra", "Sem", "P".
-  prefix    String   @default("")
-  sortOrder Int      @default(0)
+  prefix    String @default("")
+  sortOrder Int    @default(0)
 
   group ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
@@ -205,13 +211,13 @@ model ModifierOption {
 /// Liga um grupo de modificadores a um produto (N:N).
 model ProductModifierGroup {
   tenantId  String
-  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productId String
   groupId   String
-  sortOrder Int @default(0)
+  sortOrder Int    @default(0)
 
-  product Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  group   ModifierGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  product Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  group   ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@id([tenantId, productId, groupId])
 }
@@ -219,7 +225,7 @@ model ProductModifierGroup {
 /// Componente de um combo: "X-Burguer" = 1x Hamburguer + 1x Pao + 1x Queijo.
 model ComboItem {
   tenantId    String
-  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   id          String @id @default(uuid())
   comboId     String
   componentId String
@@ -236,7 +242,7 @@ model ComboItem {
 /// Historico de entradas, saidas e ajustes de estoque.
 model StockMovement {
   tenantId  String
-  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   id        String   @id @default(uuid())
   productId String
   /// "entrada" (compra/producao), "saida" (venda), "perda" (descarte/validade)
@@ -263,8 +269,8 @@ model StockMovement {
 }
 
 model Order {
-  tenantId    String
-  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   id            String   @id @default(uuid())
   clientPhone   String
   clientName    String?
@@ -291,6 +297,19 @@ model Order {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  /// A plataforma reenvia pedido quando a resposta anterior nao chegou. Sem este
+  /// indice unico, a checagem de duplicidade varreria o historico inteiro a cada
+  /// webhook -- e webhook chega em rajada.
+  ///
+  /// A loja esta NA CHAVE e nao em volta: dois，iFood entregam para duas lojas
+  /// do mesmo sistema e o `externalId` e' o MESMO numero nos dois casos, porque
+  /// o id vem da plataforma, nao de quem recebe. Com a unique global, o pedido da
+  /// segunda loja seria rejeitado como duplicata do pedido da primeira -- e o
+  /// dono perderia a venda sem nenhum erro visivel para ele.
+  @@unique([tenantId, channel, externalId])
+  /// Chave do id dentro da loja. Sem isto a comanda nao abre: `findUnique` por
+  /// `id` sozinho e' recusado pela extensao, e e' assim que a cozinha ve o papel.
+  @@unique([tenantId, id])
   // Indices medidos, nao adicionados por costume. O EXPLAIN QUERY PLAN mostrava
   // SCAN em todas as consultas de pedido, e "USE TEMP B-TREE FOR ORDER BY"
   // nos que ordenavam por data -- ou seja, o SQLite varria a tabela e depois
@@ -305,19 +324,6 @@ model Order {
   @@index([status])
   @@index([createdAt])
   @@index([status, createdAt])
-  /// A plataforma reenvia pedido quando a resposta anterior nao chegou. Sem este
-  /// indice unico, a checagem de duplicidade varreria o historico inteiro a cada
-  /// webhook -- e webhook chega em rajada.
-  ///
-  /// A loja esta NA CHAVE e nao em volta: dois，iFood entregam para duas lojas
-  /// do mesmo sistema e o `externalId` e' o MESMO numero nos dois casos, porque
-  /// o id vem da plataforma, nao de quem recebe. Com a unique global, o pedido da
-  /// segunda loja seria rejeitado como duplicata do pedido da primeira -- e o
-  /// dono perderia a venda sem nenhum erro visivel para ele.
-  @@unique([tenantId, channel, externalId])
-  /// Chave do id dentro da loja. Sem isto a comanda nao abre: `findUnique` por
-  /// `id` sozinho e' recusado pela extensao, e e' assim que a cozinha ve o papel.
-  @@unique([tenantId, id])
   @@index([tenantId, createdAt])
 }
 
@@ -329,21 +335,21 @@ model Order {
 /// caminho nem o quanto ja foi feito.
 model MarketplaceAccount {
   tenantId String
-  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id        String   @id @default(uuid())
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
   /// "ifood" ou "99food". Coincide com Order.channel para o pedido entrar no
   /// Kanban sem tratamento especial. Unico POR LOJA: as duas contas sao uma por
   /// loja, e nao uma por sistema.
-  channel   String
+  channel  String
   /// "sem-credencial" -> "homologacao" -> "ativo" -> "erro".
   /// Regra do sistema, nao do marketplace: quem decide o estado e' este app,
   /// porque e' ele quem testa a comunicacao de verdade.
-  status    String   @default("sem-credencial")
+  status   String @default("sem-credencial")
 
   /// Credenciais em claro, cifradas. Vazio enquanto nao houver credencial --
   /// e o estado normal de quem esta se credenciando.
   /// A chave fica no ambiente, nunca no banco e nunca no git.
-  secretsEnc String  @default("")
+  secretsEnc       String @default("")
   /// Token que o marketplace manda no cabecalho para a gente conferir que o
   /// pedido e' dele. Vazio = webhook RECUSA tudo, e' a configuracao segura.
   webhookSecretEnc String @default("")
@@ -353,7 +359,7 @@ model MarketplaceAccount {
   lastOrderAt DateTime?
   lastCheckAt DateTime?
   /// Ultima mensagem de erro, para a tela mostrar em vez de sumir.
-  lastError    String?
+  lastError   String?
 
   /// Vinculo entre o produto do marketplace e o produto do catalogo local.
   /// Sem este mapeamento o pedido chega com nome de texto e nao ha como dar
@@ -368,21 +374,21 @@ model MarketplaceAccount {
 
 /// Item do marketplace casado com um produto do catalogo.
 model MarketplaceItem {
-  tenantId    String
-  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id          String   @id @default(uuid())
-  accountId   String
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id           String    @id @default(uuid())
+  accountId    String
   /// Id do item no marketplace (o "SKU" deles).
-  externalId  String
+  externalId   String
   /// Id do produto no catalogo local.
-  productId   String
+  productId    String
   /// Ultimo preco visto no marketplace. Guardado para aviso de divergencia --
   /// se o preco mudar la e aqui nao, alguem vai perder dinheiro sem notar.
-  lastPrice   Float?
+  lastPrice    Float?
   lastSyncedAt DateTime?
 
   account MarketplaceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  product Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, accountId, externalId])
   @@index([productId])
@@ -391,8 +397,8 @@ model MarketplaceItem {
 
 /// Venda pausada no PDV: o cliente esqueceu algo e a fila nao pode esperar.
 model ParkedSale {
-  tenantId String
-  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   id        String   @id @default(uuid())
   label     String?
   /// JSON com [{ id, qty }] dos itens do carrinho.
@@ -402,10 +408,10 @@ model ParkedSale {
 
 /// Turno de caixa. openShift() garante que exista no maximo um turno aberto.
 model CashShift {
-  tenantId      String
-  tenant        Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id           String    @id @default(uuid())
-  openingFloat Float     @default(0)
+  tenantId     String
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id           String         @id @default(uuid())
+  openingFloat Float          @default(0)
   /// Dinheiro contado no fechamento.
   countedCash  Float?
   /// Quanto deveria haver na gaveta no fechamento.
@@ -413,7 +419,7 @@ model CashShift {
   /// Contado - esperado. Positivo sobrou, negativo faltou.
   difference   Float?
   note         String?
-  openedAt     DateTime  @default(now())
+  openedAt     DateTime       @default(now())
   closedAt     DateTime?
   /// Ultimos movimentos registrados no turno.
   movements    CashMovement[]
@@ -425,8 +431,8 @@ model CashShift {
 
 /// Sangria (saida) e deposito (entrada) de dinheiro na gaveta.
 model CashMovement {
-  tenantId String
-  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   id        String   @id @default(uuid())
   /// Turno ao qual o movimento pertence (null quando nao ha turno aberto).
   shiftId   String?
@@ -475,40 +481,44 @@ model Config {
   /// e a chave ser o proprio id evita a coluna extra e a busca por ela. O nome
   /// do negocio, o fundo da gaveta e o horario de abertura sao da LOJA -- e nao
   /// podem ser compartilhados, ou a loja B fecha o caixa na regra da loja A.
-  id                   String   @id
-  tenant               Tenant   @relation(fields: [id], references: [id], onDelete: Cascade)
-  businessName         String   @default("DeliveryAdmin")
+  id               String   @id
+  tenant           Tenant   @relation(fields: [id], references: [id], onDelete: Cascade)
+  businessName     String   @default("DeliveryAdmin")
   /// Horario de abertura automatica do turno, "HH:MM". Vazio = desativado.
-  cashAutoOpen         String   @default("")
+  cashAutoOpen     String   @default("")
   /// Horario de fechamento automatico do turno, "HH:MM". Vazio = desativado.
   /// Pode ser menor que cashAutoOpen quando a loja fecha depois da meia-noite.
-  cashAutoClose        String   @default("")
+  cashAutoClose    String   @default("")
   /// Fundo de troco fixo da gaveta, usado na abertura automatica. Sem ele a
   /// abertura automatica fica desligada: um valor inventado contaminaria a
   /// diferenca de caixa de todo fechamento.
-  cashDefaultFloat     Float    @default(0)
+  cashDefaultFloat Float    @default(0)
   /// O bot desta loja responde? Desligado e' por CONVERSA e' o que a loja recebe:
   /// o silencio da loja explica melhor do que recusa, e o dono nao fica achando
   /// que o WhatsApp caiu.
-  botAtivo             Boolean  @default(true)
+  botAtivo         Boolean  @default(true)
   /// Texto da conversa para avisar que o bot esta' pausado. Vazio = texto padrao.
-  botAvisoPausado      String   @default("")
+  botAvisoPausado  String   @default("")
   /// IA externa liberada. Desligado por padrao porque mandar o texto do cliente
   /// para um servidor de fora dos pais e' transferencia internacional (art. 33 da
   /// LGPD), e isso depende do dono da loja consentir, nao do painel decidir.
-  botIaAtiva           Boolean  @default(false)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  botIaAtiva       Boolean  @default(false)
+  /// A chave que o PC da loja usa para puxar pedidos, CIFRADA. Fica aqui e nao na
+  /// API de configuracao de proposito: `carregarConfig` devolve so os campos da tela,
+  /// entao um segredo nunca entra no que o navegador recebe.
+  relayChaveEnc    String   @default("")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model BotMessage {
   /// O `id` E' o `tenantId`, pelo mesmo motivo do Config: um texto por chave, e
   /// a chave ja identifica a loja. Com o id fixo "default" a segunda loja
   /// sobrescreveria o texto da primeira ao gravar a mesma chave.
-  id String @id
-  tenant   Tenant  @relation(fields: [id], references: [id], onDelete: Cascade)
-  key String
-  value String
+  id     String @id
+  tenant Tenant @relation(fields: [id], references: [id], onDelete: Cascade)
+  key    String
+  value  String
 
   @@unique([id, key])
 }
@@ -527,39 +537,39 @@ model BotMessage {
 model User {
   /// Loja a que a pessoa pertence. Um dono de loja opera na loja DELE; e' o que
   /// faz o painel abrir ja no tenant certo, sem perguntar nada.
-  tenantId    String
-  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id        String   @id @default(uuid())
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                  String    @id @default(uuid())
   /// Minusculo e sem espaco, como a chave de login. Ver normalizaEmail.
   ///
   /// Unico NO SISTEMA, e nao por loja: e' por este campo que o login acontece,
   /// antes de existir loja na sessao. Aceita que a pessoa troque de loja com o
   /// mesmo e-mail -- o login resolve o tenant pela propria conta.
-  email     String   @unique
-  nome      String
-  senhaHash String
-  senhaSalt String
-  papel     String   @default("admin")
-  ativo     Boolean  @default(true)
+  email               String    @unique
+  nome                String
+  senhaHash           String
+  senhaSalt           String
+  papel               String    @default("admin")
+  ativo               Boolean   @default(true)
   /// Marcado quando a senha e' a gerada no primeiro boot. A tela de login leva
   /// direto para a troca, e nada mais abre ate ela ser trocada.
-  precisaTrocarSenha Boolean @default(false)
+  precisaTrocarSenha  Boolean   @default(false)
   /// Contador de tentativas erradas followed by o instante do bloqueio.
-  tentativas  Int      @default(0)
-  bloqueadoAte DateTime?
+  tentativas          Int       @default(0)
+  bloqueadoAte        DateTime?
   /// Codigo de uso unico para quem perdeu a senha, e quando ele deixa de valer.
   /// Nao ha envio de e-mail no sistema, entao o codigo sai no log do servidor.
   codigoRecuperacao   String?
   recuperacaoExpiraEm DateTime?
-ultimoLogin  DateTime?
-  criadoEm     DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
+  ultimoLogin         DateTime?
+  criadoEm            DateTime  @default(now())
+  atualizadoEm        DateTime  @updatedAt
+
+  sessoes Sessao[]
 
   /// Chave do id dentro da loja, para `where: { tenantId_id: ... }`. Indice puro:
   /// o par ja e' unico porque `id` e' a chave primaria.
   @@unique([tenantId, id])
-
-  sessoes Sessao[]
 }
 
 /// Sessao aberta, uma por navegador.
@@ -597,29 +607,29 @@ model Sessao {
 /// do dia: o "dia" e' o dia de quem olha a tela, e `date` puro traria problema de
 /// fuso do mesmo ja visto no grafico de receita.
 model Reminder {
-  tenantId String
-  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id String @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
   /// Meia-noite local do dia a que o lembrete pertence.
-  date DateTime
+  date      DateTime
   /// O que precisa ser feito. Curto e' melhor: e' uma anotacao para glance.
-  text String
+  text      String
   /// Marcado como feito. O lembrete NAO e' apagado quando concluida: apagar
   /// something a pessoa registrou como "feito" e' o que faz a lista de lembretes
   /// perder o historico, e o historico e' o que responde "essa entrega ja saiu?".
-  done Boolean @default(false)
+  done      Boolean  @default(false)
   /// Quando o lembrete foi anotado. Serve para ordenar a lista do dia: o mais
   /// antigo primeiro, que e' a ordem em que a fila se cumpre.
   createdAt DateTime @default(now())
 
+  /// Chave do id dentro da loja, para `where: { tenantId_id: ... }`.
+  @@unique([tenantId, id])
   /// A tela lista os lembretes de um mes inteiro, e filtra o dia pela data.
   @@index([date])
   /// A lista de um dia e' sempre "deste dia, nao concluido, mais antigo
   /// primeiro". Esse indice e' exatamente essa consulta.
   @@index([date, done])
   @@index([tenantId, date, done])
-  /// Chave do id dentro da loja, para `where: { tenantId_id: ... }`.
-  @@unique([tenantId, id])
 }
 
 /// Conversa entre um cliente e a loja, pelo WhatsApp.
@@ -632,9 +642,9 @@ model Reminder {
 /// responde sozinho, 'humano' depois que alguem assume. E' o que impede o bot e
 /// a pessoa de atropelarem o mesmo cliente -- ver bot.ts.
 model Chat {
-  tenantId String
-  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id String @id @default(uuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id             String    @id @default(uuid())
   /// Telefone no formato do Baileys, "5511999999999@s.whatsapp.net". Como o
   /// jid inclui o dominio, o mesmo numero em outra conta nao colide.
   ///
@@ -645,47 +655,86 @@ model Chat {
   /// o numero legivel vao em `telefone`, e esta coluna fica como o endereco.
   /// Unico POR LOJA: o mesmo cliente pede na loja A e na loja B, e as duas
   /// conversas precisam ser diferentes. A conversa e' da loja, nao da pessoa.
-  phone String
+  phone          String
   /// Numero de verdade, em "5511999999999". NULL enquanto o WhatsApp nao
   /// entregar a correspondencia entre lid e telefone -- e a tela mostra o
   /// endereco, marcado como nao identificado, em vez de inventar um numero.
-  telefone String?
+  telefone       String?
   /// Nome que o proprio cliente gravou no WhatsApp. Chega em `pushName` em cada
   /// mensagem, entao nao depende de o contato estar salvo no celular do dono.
-  name String?
+  name           String?
   /// URL da foto do perfil, ou NULL para quem nao tem foto. Buscada pela API do
   /// WhatsApp e guardada aqui, porque a tela lista ate 200 conversas e pedir a
   /// foto uma a uma a cada abertura seria 200 chamadas de rede por visita.
-  avatarUrl String?
+  avatarUrl      String?
   /// Quando a foto foi buscada pela ultima vez. A foto do cliente muda, mas nao
   /// a cada mensagem: sem esta data, todo "Oi" do cliente viraria uma chamada
   /// ao servidor do WhatsApp so para descobrir que a foto e' a mesma.
-  avatarAt DateTime?
+  avatarAt       DateTime?
   /// 'bot' ou 'humano'. Vem do sistema, nao do cliente.
-  atendente String @default("bot")
+  atendente      String    @default("bot")
   /// Ultima mensagem, para a lista mostrar sem abrir cada conversa.
-  ultimaMensagem String @default("")
+  ultimaMensagem String    @default("")
   /// Quantas mensagens nao foram lidas por humano. Zera quando a conversa e'
   /// aberta na tela.
-  naoLidas Int @default(0)
-  lastMessageAt DateTime @default(now())
+  naoLidas       Int       @default(0)
+  lastMessageAt  DateTime  @default(now())
   /// Quando o humano assumiu, e quando devolveu ao bot. Guardar os dois
   /// permite mostrar a conversa como assumida mesmo depois de um restart, em vez
   /// de o cliente ficar com o bot calado sem ninguem saber.
-  assumidoAt DateTime?
+  assumidoAt     DateTime?
   /// Ultimo pedido feito nesta conversa, para a tela linkar o chat ao Kanban.
-  orderId String?
+  orderId        String?
 
   messages Message[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([tenantId, phone])
   /// A lista de conversas ordena por recencia, e nao por nome: quem atende
   /// precisa ver primeiro a que chegou por ultimo.
   @@index([lastMessageAt])
-  @@unique([tenantId, phone])
   @@index([tenantId, lastMessageAt])
+}
+
+/// Pedido que o marketplace empurrou e que AINDA nao virou pedido na loja.
+///
+/// A loja que roda o sistema na propria maquina nao tem URL publica, entao o webhook
+/// nao pode escrever no banco dela: ele para aqui, e o PC da loja puxa. O corpo vai
+/// cru porque a assinatura ja foi conferida no caminho, e porque normalizar depende
+/// do mapa de itens, que e' da loja.
+model PedidoEntrante {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  channel    String
+  /// Id do pedido no marketplace. Com ele o reenvio da plataforma -- que acontece
+  /// quando ela nao recebe o retorno -- nao entra duas vezes na fila.
+  externalId String
+  corpo      String
+  criadoEm   DateTime  @default(now())
+  /// A fila e' efemera: a poda leva o que passou disto. Um pedido que chegou ha dois
+  /// dias e' problema da plataforma, e nao fila acumulada.
+  expiraEm   DateTime
+  entregueEm DateTime?
+  tentativas Int       @default(0)
+  ultimoErro String?
+
+  @@unique([tenantId, channel, externalId])
+  @@index([tenantId, entregueEm, expiraEm])
+}
+
+/// A chave que o PC da loja usa para puxar os pedidos que chegaram.
+///
+/// A nuvem guarda o HASH: o segredo em si so existe na loja, e o dono ve uma vez
+/// quando gera. Uma chave por loja, e trocar e' o mesmo botao de gerar de novo.
+model ChaveDeLoja {
+  tenantId    String    @id
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hash        String
+  criadoEm    DateTime  @default(now())
+  ultimoUsoEm DateTime?
 }
 
 /// Onde a conversa de um cliente parou: a etapa, o item com modificador em
@@ -697,24 +746,24 @@ model Chat {
 ///
 /// E' conversa, entao entra na retencao da meia-noite junto com Chat e Message.
 model PedidoAberto {
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId   String
+  tenant     Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// Endereco de envio do cliente, o mesmo do Chat.phone -- nao o telefone.
-  phone String
+  phone      String
   /// 'MENU', 'PEDINDO' ou 'ESCOLHENDO_MOD'. Texto e nao enum pelo mesmo motivo
   /// do resto do schema: o passo novo nao pode exigir migration.
-  step String @default("MENU")
+  step       String  @default("MENU")
   /// Produto cujo grupo de modificador esta em escolha.
-  productId String?
+  productId  String?
   /// Qual grupo da sequencia o cliente esta respondendo.
-  groupIndex Int @default(0)
+  groupIndex Int     @default(0)
   /// Opcoes marcadas, por grupo. JSON: a forma muda com o catalogo da loja.
-  picked String @default("{}")
+  picked     String  @default("{}")
   /// Retrato da lista enviada, na ordem em que o cliente a viu. E' contra ele
   /// que o numero digitado e' lido, e nao contra o cardapio do momento.
-  offered String @default("[]")
+  offered    String  @default("[]")
   /// Linhas do pedido em aberto. JSON: a regra de juncao mora em carrinho.ts.
-  carrinho String @default("[]")
+  carrinho   String  @default("[]")
 
   atualizadoEm DateTime @updatedAt
 
@@ -730,21 +779,21 @@ model PedidoAberto {
 /// cliente ja contou.
 model Message {
   tenantId String
-  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  id String @id @default(uuid())
-  chatId String
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String   @id @default(uuid())
+  chatId   String
   /// 'cliente' ou 'atendente'. 'bot' e' 'atendente' com o campo atendente da
   /// Chat valendo 'bot' -- a origem de verdade e' a Chat, e duplicar aqui
   /// criaria dois lugares para divergir.
-  from String
-  text String
+  from     String
+  text     String
   /// Instante da mensagem no WhatsApp, quando veio de la. Uma mensagem
   /// mandada pelo painel recebe o now() do servidor, que e' o mesmo que ela
   /// sai de qualquer forma.
-  sentAt DateTime @default(now())
+  sentAt   DateTime @default(now())
   /// Verdadeiro quando o envio pelo painel falhou. A mensagem fica na conversa
   /// para o atendente ver o que tentou dizer, mas marcada como nao entregue.
-  falhou Boolean @default(false)
+  falhou   Boolean  @default(false)
 
   chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
@@ -757,6 +806,7 @@ model Message {
   /// esta' rodando o processo.
   @@index([tenantId, createdAt])
 }
+
 /// Assinatura da loja no Asaas. Tabela GLOBAL, sem loja no filtro: quem vende ve
 /// o conjunto, e `prisma-com-loja` pula a injecao de `tenantId` nela.
 model Assinatura {
@@ -766,12 +816,12 @@ model Assinatura {
 
   /// Cliente no Asaas (`cus_...`). Fica aqui porque o pagador e' sempre o dono da
   /// loja: a loja nunca paga com o cartao de outra.
-asaasCustomer String
+  asaasCustomer     String
   /// Assinatura no Asaas (`sub_...`). Nulo ate a assinatura ser criada la.
   asaasSubscription String?
   /// Primeira cobranca (`pay_...`). E' por ela que o dono paga: sem o id, a tela
   /// de espera so consegue dizer que a cobranca existe, e nao onde pagar.
-  asaasCobranca String?
+  asaasCobranca     String?
 
   /// E-mail do dono: e' o login do administrador, entao vem antes do pagamento.
   emailDono String
@@ -788,7 +838,7 @@ asaasCustomer String
   proximoVencimento DateTime?
   ultimoPagamento   DateTime?
 
-criadoEm     DateTime @default(now())
+  criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 }
 
@@ -828,14 +878,14 @@ model EventoAssinatura {
 /// lugares ao mesmo tempo -- o WhatsApp derruba um dos dois. Uma sessao por loja e
 /// por instalacao, nao uma por loja.
 model SessaoWhatsApp {
-  tenantId  String
-  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// Impressao da instalacao que pareou. Ver `idDaInstalacao` no servico.
-  maquinaId String
+  maquinaId    String
   /// `AuthenticationCreds` do Baileys em JSON, com os bytes em base64.
-  creds     String
+  creds        String
   /// Numero pareado, so para o painel mostrar sem esperar o socket abrir.
-  telefone  String?
+  telefone     String?
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
@@ -849,14 +899,14 @@ model SessaoWhatsApp {
 /// chave por chave e quem apaga uma so quando ela morre: num unico blob, cada
 /// mensagem reescreveria o estado inteiro.
 model ChaveWhatsApp {
-  tenantId  String
-  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  maquinaId String
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  maquinaId    String
   /// 'pre-key' | 'session' | 'sender-key' | 'app-state-sync-key' ...
-  tipo      String
+  tipo         String
   /// O id da chave dentro do tipo: o jid da conversa, ou o numero da pre-key.
-  chave     String
-  valor     String
+  chave        String
+  valor        String
   atualizadoEm DateTime @updatedAt
 
   @@id([tenantId, maquinaId, tipo, chave])

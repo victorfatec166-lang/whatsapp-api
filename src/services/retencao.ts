@@ -27,6 +27,8 @@ export type PodaResultado = {
     pedidosAbertos: number;
     /** Conversas de ontem que um humano assumiu: ficam, com a previa limpa. */
     conversasAssumidas: number;
+    /** Pedido de marketplace que venceu o prazo da fila sem o PC buscar. */
+    fila: number;
     backupsRemovidos: number;
     logsRemovidos: number;
     /** Sempre falso: quem compacta o Postgres gerenciado e' a plataforma. */
@@ -59,13 +61,14 @@ export async function podarDiaAnterior(agora: Date = new Date()): Promise<PodaRe
     const hoje = carimboDoDia(agora);
 
     const lojas = await prismaGlobal.tenant.findMany({ where: { ativo: true }, select: { id: true } });
-    const total = { mensagens: 0, conversas: 0, pedidos: 0, preservadas: 0 };
+    const total = { mensagens: 0, conversas: 0, pedidos: 0, preservadas: 0, fila: 0 };
     for (const { id } of lojas) {
         const r = await comoLoja(id, () => podaDaLoja(corte));
         total.mensagens += r.mensagens;
         total.conversas += r.conversas;
         total.pedidos += r.pedidosAbertos;
         total.preservadas += r.preservadas;
+        total.fila += r.fila;
     }
 
     /*
@@ -85,6 +88,7 @@ export async function podarDiaAnterior(agora: Date = new Date()): Promise<PodaRe
         conversasRemovidas: total.conversas,
         pedidosAbertos: total.pedidos,
         conversasAssumidas: total.preservadas,
+        fila: total.fila,
         backupsRemovidos,
         logsRemovidos,
         // Quem devolve espaco ao disco e' a plataforma do Postgres gerenciado.
@@ -93,7 +97,7 @@ export async function podarDiaAnterior(agora: Date = new Date()): Promise<PodaRe
 }
 
 /** A poda de UMA loja. Corre dentro de `comoLoja`, e e' por isso que nao recebe a loja. */
-async function podaDaLoja(corte: Date): Promise<{ mensagens: number; conversas: number; pedidosAbertos: number; preservadas: number }> {
+async function podaDaLoja(corte: Date): Promise<{ mensagens: number; conversas: number; pedidosAbertos: number; preservadas: number; fila: number }> {
     /*
      * Uma unica fatia da fila: separadas, abriria uma janela em que o bot grava
      * a mensagem de um cliente novo entre o deleteMany das mensagens e o das
@@ -122,7 +126,21 @@ async function podaDaLoja(corte: Date): Promise<{ mensagens: number; conversas: 
             where: { atualizadoEm: { lt: corte } },
         });
 
-        return { mensagens: mensagens.count, conversas: conversas.count, pedidos: pedidos.count };
+        /*
+         * A fila do marketplace tem prazo proprio, e nao o dia da loja: um pedido que
+         * chegou ha dois dias nao e' mais do dia anterior. No PC da loja a tabela esta
+         * vazia e este deleteMany nao faz nada, que e' o certo.
+         */
+        const fila = await prisma.pedidoEntrante.deleteMany({
+            where: { expiraEm: { lt: new Date() } },
+        });
+
+        return {
+            mensagens: mensagens.count,
+            conversas: conversas.count,
+            pedidos: pedidos.count,
+            fila: fila.count,
+        };
     });
 
     /*
@@ -146,6 +164,7 @@ async function podaDaLoja(corte: Date): Promise<{ mensagens: number; conversas: 
         conversas: apagado.conversas,
         pedidosAbertos: apagado.pedidos,
         preservadas: preservadas.count,
+        fila: apagado.fila,
     };
 }
 

@@ -388,7 +388,13 @@ export function exigeSessao(rotaDeLogin = '/entrar') {
             return;
         }
 
-        if (sessao.precisaTrocarSenha && !req.path.startsWith('/auth/')) {
+        /*
+         * A senha provisoria barra o painel, mas nao a troca dela: a excecao cobre os
+         * dois caminho (`/trocar-senha` e `POST /api/auth/trocar-senha`). Sem o
+         * segundo, a troca era barrada pela regra que existe para barrar o resto.
+         */
+        const ehLoginOuTroca = req.path.startsWith('/auth/') || req.path.startsWith('/api/auth/');
+        if (sessao.precisaTrocarSenha && !ehLoginOuTroca) {
             res.redirect(303, '/trocar-senha');
             return;
         }

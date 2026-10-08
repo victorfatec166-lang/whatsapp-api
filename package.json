@@ -11,9 +11,9 @@
     "build:ts": "tsc",
     "build": "npm run clean && npm run build:ts && npm run build:css",
     "db:migrate": "prisma migrate deploy",
-"banco:local": "node scripts/preparar-banco-local.mjs",
-        "banco:postgres": "prisma generate",
-        "teste:local": "node scripts/testar-local.mjs",
+    "banco:local": "node scripts/preparar-banco-local.mjs",
+    "banco:postgres": "prisma generate",
+    "teste:local": "node scripts/testar-local.mjs",
     "marca:icone": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gerar-icone.ps1",
     "postinstall": "node scripts/postinstall.mjs",
     "watch:css": "tailwindcss -i src/styles/app.css -o dist/styles/app.css --watch",
@@ -29,7 +29,8 @@
     "cliente": "electron cliente",
     "cliente:instalador": "electron-builder --win --x64 --projectDir cliente --config electron-builder.yml",
     "cliente:dist": "node scripts/montar-cliente.mjs && node scripts/zipar-cliente.mjs",
-    "assinatura:nova": "node --import tsx scripts/nova-assinatura.ts"
+    "assinatura:nova": "node --import tsx scripts/nova-assinatura.ts",
+    "provar:relay": "node --import tsx scripts/provar-relay.ts"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",

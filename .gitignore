@@ -98,7 +98,14 @@ cliente/banco-inicial.db
 
 # O sistema empacotado para o instalador (65 MB): dist + dependencias de producao.
 # Montado por scripts/montar-servidor.mjs e reproduzivel com `npm run build`.
+# `servidor-nuvem` e' o mesmo pacote com o cliente do Postgres, para a prova do relay.
 cliente/servidor/
+cliente/servidor-nuvem/
+
+# Os dois servidores que a prova do relay sobe ficam registrados aqui. Sao log de
+# teste, e um log de teste no git envelhece sozinho.
+scripts/provar-*.log
+scripts/provar-*.err
 
 # A senha do primeiro acesso, quando o `DELIVERYADMIN_DATA` aponta para a raiz.
 # normally fica em %APPDATA%, mas quem roda com a pasta na raiz acabaria versionando

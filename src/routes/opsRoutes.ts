@@ -9,6 +9,8 @@ import type { NextFunction, Request, Response } from 'express';
 
 import { alternaLoja, apagaLoja, listaDeLojas, resumo } from '../services/ops';
 import { criaContaDeTeste } from '../services/opsConta';
+import { geraChave } from '../services/relay';
+import { prisma } from '../database/prisma';
 import { renderOps } from '../views/ops';
 import { exigeCsrf } from '../services/auth';
 import { logDoModulo } from '../services/logger';
@@ -117,6 +119,25 @@ router.post('/api/ops/loja/:id/alternar', async (req, res: Response) => {
     } catch (erro) {
         log.error('Falha ao alternar a loja:', erro);
         res.status(500).json({ error: 'Erro ao mudar a loja.' });
+    }
+});
+
+/**
+ * A chave que liga o PC da loja a fila. O segredo aparece UMA vez, aqui: a nuvem
+ * guarda so o hash e o PC guarda o segredo cifrado. Gerar de novo troca a chave e a
+ * loja perde a fila ate colar a nova -- por isso a tela avisa antes.
+ */
+router.post('/api/ops/loja/:id/relay', async (req, res: Response) => {
+    try {
+        const loja = await prisma.tenant.findUnique({ where: { id: req.params.id }, select: { id: true } });
+        if (!loja) {
+            res.status(404).json({ error: 'Loja nao encontrada.' });
+            return;
+        }
+        res.json({ chave: await geraChave(loja.id) });
+    } catch (erro) {
+        log.error('Falha ao gerar a chave do relay:', erro);
+        res.status(500).json({ error: 'Erro ao gerar a chave.' });
     }
 });
 

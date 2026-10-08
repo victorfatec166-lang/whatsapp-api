@@ -24,6 +24,12 @@ export type LinhaLoja = {
     /** Quantos produtos a loja tem: loja vazia e' loja que nao ativou. */
     produtos: number;
     pedidos: number;
+    /** Loja que roda no PC dela: o catalogo e o caixa estao na maquina, nao aqui. */
+    local: boolean;
+    /** Ultima vez que o PC da loja falou com a fila. Null = nunca conectou. */
+    relayUltimoUso: Date | null;
+    /** Pedido do marketplace esperando o PC da loja buscar. */
+    naFila: number;
 };
 
 /** Data local, nunca toISOString: em UTC o dia vira o seguinte depois das 21h. */
@@ -38,16 +44,20 @@ export async function listaDeLojas(): Promise<LinhaLoja[]> {
      * a tela e' curta -- mas "curta" e' justamente o que faz uma lista de clientes
      * demorar para aparecer quando chegam cinquenta.
      */
-    const [lojas, assinaturas, produtos, pedidos] = await Promise.all([
+    const [lojas, assinaturas, produtos, pedidos, chaves, fila] = await Promise.all([
         prisma.tenant.findMany({ orderBy: { criadoEm: 'desc' } }),
         prisma.assinatura.findMany(),
         prisma.product.groupBy({ by: ['tenantId'], _count: { _all: true } }),
         prisma.order.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+        prisma.chaveDeLoja.findMany(),
+        prisma.pedidoEntrante.groupBy({ by: ['tenantId'], where: { entregueEm: null }, _count: { _all: true } }),
     ]);
 
     const assinaturaPorLoja = new Map(assinaturas.map((a) => [a.tenantId, a]));
     const produtosPorLoja = new Map(produtos.map((p) => [p.tenantId, p._count._all]));
     const pedidosPorLoja = new Map(pedidos.map((p) => [p.tenantId, p._count._all]));
+    const chavePorLoja = new Map(chaves.map((c) => [c.tenantId, c]));
+    const filaPorLoja = new Map(fila.map((f) => [f.tenantId, f._count._all]));
 
     return lojas.map((l) => {
         const a = assinaturaPorLoja.get(l.id);
@@ -65,6 +75,9 @@ export async function listaDeLojas(): Promise<LinhaLoja[]> {
             criadoEm: l.criadoEm,
             produtos: produtosPorLoja.get(l.id) ?? 0,
             pedidos: pedidosPorLoja.get(l.id) ?? 0,
+            local: l.local,
+            relayUltimoUso: chavePorLoja.get(l.id)?.ultimoUsoEm ?? null,
+            naFila: filaPorLoja.get(l.id) ?? 0,
         };
     });
 }

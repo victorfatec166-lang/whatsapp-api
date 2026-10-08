@@ -21,6 +21,9 @@ export type LojaParaTela = {
     criadoEm: Date;
     produtos: number;
     pedidos: number;
+    local: boolean;
+    relayUltimoUso: Date | null;
+    naFila: number;
 };
 
 export type ResumoParaTela = {
@@ -50,6 +53,32 @@ function data(d: Date | null): string {
 
 function dinheiro(v: number): string {
     return v > 0 ? `R$ ${v.toFixed(2)}` : '—';
+}
+
+/**
+ * "ha 3 min", e nao a hora: o que o dono precisa saber do PC da loja e' se ele esta
+ * puxando AGORA. Data so faz sentido quando o problema ja e' antigo.
+ */
+function haQuantoTempo(d: Date | null): string {
+    if (!d) return 'nunca conectou';
+    const segundos = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+    if (segundos < 90) return 'ha instantes';
+    if (segundos < 5400) return `ha ${Math.floor(segundos / 60)} min`;
+    if (segundos < 172800) return `ha ${Math.floor(segundos / 3600)} h`;
+    return data(d);
+}
+
+/**
+ * O estado do PC da loja numa etiqueta so. Fila nao zerada ganha a dianteira: e' o
+ * unico caso em que a loja esta perdendo dinheiro agora, porque ninguem buscou.
+ */
+function seloDoPc(l: LojaParaTela): string {
+    if (!l.local) return '<span class="text-ink-3">—</span>';
+    if (l.naFila > 0) return `<span class="badge badge-warning">${l.naFila} na fila</span>`;
+    if (!l.relayUltimoUso) return '<span class="badge badge-neutral">PC sem chave</span>';
+    const minutos = Math.floor((Date.now() - l.relayUltimoUso.getTime()) / 60000);
+    const badge = minutos > 5 ? 'badge-neutral' : 'badge-success';
+    return `<span class="badge ${badge}">PC ${minutos > 5 ? 'parado' : 'ligado'}</span>`;
 }
 
 function linhaDaLoja(l: LojaParaTela): string {
@@ -85,11 +114,21 @@ function linhaDaLoja(l: LojaParaTela): string {
                                 <span class="text-ink-3">desde ${data(l.criadoEm)}</span>
                             </td>
                             <td class="px-3 py-2.5 align-top">
+                                ${seloDoPc(l)}
+                                <p class="text-caption text-ink-3 mt-0.5">${escapeHtml(haQuantoTempo(l.relayUltimoUso))}</p>
+                            </td>
+                            <td class="px-3 py-2.5 align-top">
                                 <div class="flex gap-1">
                                     <button type="button" data-alternar="${escapeHtml(l.id)}"
                                         data-ligar="${desligada ? 'true' : 'false'}"
                                         class="btn ${desligada ? 'btn-primary' : 'btn-ghost'} py-1.5 text-caption">
                                         ${desligada ? 'Religar' : 'Desligar'}
+                                    </button>
+                                    <button type="button" data-chave="${escapeHtml(l.id)}"
+                                        data-nome="${escapeHtml(l.nome)}"
+                                        class="btn btn-ghost py-1.5 text-caption"
+                                        aria-label="Chave do PC de ${escapeHtml(l.nome)}" title="Chave do PC">
+                                        <i class="fa-solid fa-key" aria-hidden="true"></i>
                                     </button>
                                     <button type="button" data-apagar="${escapeHtml(l.id)}"
                                         data-nome="${escapeHtml(l.nome)}"
@@ -154,12 +193,13 @@ ${cartao('Receita/mes', dinheiro(r.receitaMensal), 'soma de quem esta pagando')}
                         <th class="px-3 py-2.5 text-caption font-semibold text-ink-2">Situacao</th>
                         <th class="px-3 py-2.5 text-caption font-semibold text-ink-2">Plano</th>
                         <th class="px-3 py-2.5 text-caption font-semibold text-ink-2">Uso</th>
+                        <th class="px-3 py-2.5 text-caption font-semibold text-ink-2">PC da loja</th>
                         <th class="px-3 py-2.5 text-caption font-semibold text-ink-2">Datas</th>
                         <th class="px-3 py-2.5 text-caption font-semibold text-ink-2">Acao</th>
                     </tr>
                 </thead>
                 <tbody id="corpo">
-${d.lojas.length > 0 ? d.lojas.map(linhaDaLoja).join('\n') : '                        <tr><td colspan="6" class="px-3 py-6 text-center text-caption text-ink-3">Nenhuma loja cadastrada.</td></tr>'}
+${d.lojas.length > 0 ? d.lojas.map(linhaDaLoja).join('\n') : '                        <tr><td colspan="7" class="px-3 py-6 text-center text-caption text-ink-3">Nenhuma loja cadastrada.</td></tr>'}
                 </tbody>
             </table>
         </div>
@@ -207,6 +247,31 @@ ${d.lojas.length > 0 ? d.lojas.map(linhaDaLoja).join('\n') : '                  
                 </div>
             </form>
         </details>
+    </div>
+
+    <div id="janelaChave" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="janelaChave-title">
+        <div class="modal-panel">
+            <div class="flex items-start justify-between gap-3 mb-1">
+                <h3 id="janelaChave-title" class="text-title flex items-center gap-2">
+                    <i class="fa-solid fa-key text-accent" aria-hidden="true"></i>Chave do PC
+                </h3>
+                <button type="button" data-chave-fechar class="btn btn-ghost px-2 -mt-1 -mr-1 shrink-0" aria-label="Fechar">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>
+            <p id="janelaChave-texto" class="text-caption text-ink-3 mb-4"></p>
+            <div class="flex items-center gap-2">
+                <input id="janelaChave-campo" type="text" readonly class="input font-mono text-caption"
+                    aria-label="Chave do PC da loja" />
+                <button type="button" id="janelaChave-copiar" class="btn btn-primary shrink-0">
+                    <i class="fa-solid fa-copy" aria-hidden="true"></i> Copiar
+                </button>
+            </div>
+            <p class="text-caption text-ink-3 mt-3">
+                <i class="fa-solid fa-triangle-exclamation text-accent-amber mr-1" aria-hidden="true"></i>
+                Ela aparece so agora. Se gerar outra, a loja perde a fila ate colar a nova.
+            </p>
+        </div>
     </div>
 
     <script>${SCRIPT_OPS}</script>
@@ -281,6 +346,44 @@ const SCRIPT_OPS = `
                             botao.setAttribute('aria-label', mostrando ? 'Mostrar a senha' : 'Esconder a senha');
                             botao.setAttribute('title', mostrando ? 'Mostrar a senha' : 'Esconder a senha');
                             botao.querySelector('i').className = mostrando ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+                        });
+                    });
+
+                    var janelaChave = document.getElementById('janelaChave');
+                    var campoChave = document.getElementById('janelaChave-campo');
+
+                    function fechaChave() {
+                        janelaChave.classList.add('hidden');
+                        // Limpar o campo e' o que garante que a chave saia da tela.
+                        campoChave.value = '';
+                    }
+
+                    document.querySelectorAll('[data-chave-fechar]').forEach(function (b) {
+                        b.addEventListener('click', fechaChave);
+                    });
+
+                    document.getElementById('janelaChave-copiar').addEventListener('click', function () {
+                        campoChave.select();
+                        navigator.clipboard.writeText(campoChave.value);
+                    });
+
+                    document.querySelectorAll('[data-chave]').forEach(function (botao) {
+                        botao.addEventListener('click', function () {
+                            var id = botao.getAttribute('data-chave');
+                            var nome = botao.getAttribute('data-nome');
+                            botao.disabled = true;
+                            post('/api/ops/loja/' + encodeURIComponent(id) + '/relay', {})
+                                .then(function (r) {
+                                    botao.disabled = false;
+                                    if (!r.ok) { avisa(r.d.error || 'Erro ao gerar a chave.', true); return; }
+                                    document.getElementById('janelaChave-texto').textContent =
+                                        'Cole no painel da loja, em iFood e 99Food. Esta e' + ' a chave do PC ' + nome + '.';
+                                    campoChave.value = r.d.chave;
+                                    janelaChave.classList.remove('hidden');
+                                    campoChave.focus();
+                                    campoChave.select();
+                                })
+                                .catch(function () { botao.disabled = false; avisa('Erro de rede.', true); });
                         });
                     });
 

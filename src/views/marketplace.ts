@@ -36,6 +36,12 @@ export type MarketplaceData = {
     produtos: Array<{ id: string; name: string; price: number }>;
     /** URL publica do webhook, montada a partir do host da requisicao. */
     webhookBase: string;
+    /** Loja que roda no PC dela: o pedido chega pela fila, e nao por este endereco. */
+    local: boolean;
+    temChaveRelay: boolean;
+    /** Ultimo tique em que este PC falou com a fila, e quanto veio nele. */
+    ultimaBusca: string | null;
+    ultimoRecebido: number;
 };
 
 const NOME_CANAL: Record<Canal, string> = {
@@ -54,10 +60,13 @@ const STATUS_APARENCIA: Record<StatusConta, { badge: string; label: string }> = 
     erro: { badge: 'badge-danger', label: 'Com erro' },
 };
 
-function quando(d: Date | null): string {
+/** Aceita data ou texto ISO: o relay devolve o instante em texto, ja pronto para o JSON. */
+function quando(d: Date | string | null): string {
     if (!d) return 'nunca';
+    const instante = typeof d === 'string' ? new Date(d) : d;
+    if (Number.isNaN(instante.getTime())) return 'nunca';
     return escapeHtml(
-        d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        instante.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
     );
 }
 
@@ -262,10 +271,55 @@ function listaPedidos(pedidos: PedidoExterno[]): string {
                 </div>`;
 }
 
+/**
+ * O cartao do PC da loja. Aparece so na loja local, o unico caso em que o pedido nao
+ * chega neste endereco: ele chega na fila da nuvem e este PC busca. Sem a chave o
+ * webhook cai num servidor que nao e' desta loja, e o dono ve "nada chega".
+ */
+function cartaoDoPc(d: MarketplaceData): string {
+    const ligada = d.temChaveRelay;
+    const estado = ligada
+        ? `<span class="badge badge-success">Ligado</span> <span class="text-ink-3">ultima busca ${quando(d.ultimaBusca)}</span>`
+        : '<span class="badge badge-warning">Sem chave</span> <span class="text-ink-3">os pedidos param na fila da nuvem</span>';
+
+    return `        <div class="card mb-4">
+            <div class="card-pad">
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-3">
+                    <div class="min-w-0">
+                        <h3 class="text-title flex items-center gap-2">
+                            <i class="fa-solid fa-tower-broadcast text-accent" aria-hidden="true"></i>Este PC
+                        </h3>
+                        <p class="text-caption text-ink-3 mt-1">${estado}</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 ml-auto">
+                        <input id="relayChave" type="text" class="input w-full sm:w-72" maxlength="200"
+                            placeholder="Cole aqui a chave do sistema" aria-label="Chave do relay" />
+                        <button type="button" onclick="mkRelaySalvar()" class="btn btn-primary">
+                            <i class="fa-solid fa-link" aria-hidden="true"></i>
+                            ${ligada ? 'Trocar chave' : 'Conectar'}
+                        </button>
+                        ${
+                            ligada
+                                ? `<button type="button" onclick="mkRelayBuscar()" class="btn btn-ghost">
+                            <i class="fa-solid fa-rotate" aria-hidden="true"></i> Buscar agora
+                        </button>`
+                                : ''
+                        }
+                    </div>
+                </div>
+                ${
+                    d.ultimoRecebido > 0
+                        ? `<p class="text-caption text-ink-3 mt-3">Ultima busca trouxe ${d.ultimoRecebido} pedido(s).</p>`
+                        : ''
+                }
+            </div>
+        </div>`;
+}
+
 export function renderMarketplace(d: MarketplaceData): string {
     const canaisPresentes = CANAIS;
 
-    return `        <p class="text-body text-ink-2 max-w-3xl mb-4">
+    return `${d.local ? cartaoDoPc(d) : ''}        <p class="text-body text-ink-2 max-w-3xl mb-4">
             Pedidos do iFood e do 99Food entram no mesmo Kanban dos demais, e a baixa de estoque acontece
             junto com a gravacao. O que o sistema <strong>nao</strong> faz e' dizer que um canal esta
             conectado sem ter falado com ele: o status abaixo so vira "Ativo" depois de uma comunicacao
@@ -343,6 +397,28 @@ ${canaisPresentes.map((c) => renderModal(itemSpec(c, d.produtos))).join('\n')}
                 var apagar = alvo.closest('[data-mk-apagar]');
                 if (apagar) { mkApagarCredencial(apagar.dataset.mkApagar); return; }
             });
+
+            /*
+             * Colar a chave e' a unica mao da loja: o dono do sistema gera em /ops e
+             * entrega aqui. Depois disso e' o PC que busca sozinho, a cada 20s.
+             */
+            async function mkRelaySalvar() {
+                var campo = document.getElementById('relayChave');
+                var chave = (campo.value || '').trim();
+                if (!chave) { flash('err', 'Cole a chave do sistema.'); return; }
+                var r = await postJSON('/api/admin/relay/chave', { chave: chave });
+                if (!r.ok) { flash('err', r.data.error || 'Nao foi possivel guardar a chave.'); return; }
+                campo.value = '';
+                flash('ok', 'Chave guardada. Este PC passa a buscar os pedidos.');
+                setTimeout(function () { window.location.reload(); }, 900);
+            }
+
+            async function mkRelayBuscar() {
+                var r = await postJSON('/api/admin/relay/buscar');
+                if (!r.ok) { flash('err', r.data.error || 'Nao deu para buscar agora.'); return; }
+                flash('ok', r.data.gravados + ' pedido(s) entraram. ' + r.data.pular + ' ja estavam aqui.');
+                setTimeout(function () { window.location.reload(); }, 1100);
+            }
         </script>
 ${marketplaceModalsScript(canaisPresentes)}`;
 }

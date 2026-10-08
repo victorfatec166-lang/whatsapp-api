@@ -170,7 +170,7 @@ async function lojaDoPedido(
  * estoque baixo duas vezes.
  */
 export type RespostaWebhook =
-    | { aceito: true; duplicado: boolean; id: string; loja: string }
+    | { aceito: true; duplicado: boolean; id: string; loja: string; enfileirado?: true }
     | { aceito: false; motivo: string };
 
 export async function receberPedido(
@@ -182,13 +182,85 @@ export async function receberPedido(
     if (!loja) {
         return { aceito: false, motivo: 'assinatura invalida' };
     }
+
+    /*
+     * A loja local nao tem URL publica, entao o pedido nao pode ser gravado aqui: ele
+     * vira fila e o PC da loja puxa. Confirmar a assinatura e' obrigatorio nos dois
+     * caminhos, e por isso continua ANTES desta escolha.
+     */
+    if (await lojaRodaLocal(loja)) {
+        const enfileirado = await enfileiraPedido(loja, channel, corpo);
+        // `enfileirado` diz no log qual caminho o pedido pegou: sem ele, um 200 na
+        // nuvem parece gravacao de pedido, e nao foi.
+        return { ...enfileirado, loja, enfileirado: true } as RespostaWebhook;
+    }
+
     // Processa pedido no contexto da loja autenticada via HMAC
     // e retorna a identificacao para auditoria.
     const r = await comoLoja(loja, () => processaPedido(channel, corpo));
     return { ...(r as object), loja } as RespostaWebhook;
 }
 
-async function processaPedido(channel: Canal, corpo: string) {
+/** A loja que roda o sistema na propria maquina? Ela e' quem puxa a fila. */
+export async function lojaRodaLocal(loja: string): Promise<boolean> {
+    const linha = await prisma.tenant.findUnique({ where: { id: loja }, select: { local: true } });
+    return linha?.local === true;
+}
+
+/** Quanto tempo o pedido espera na fila antes de a poda levar. */
+const VALIDADE_DA_FILA_HORAS = 24;
+
+/**
+ * Guarda o corpo cru e devolve `aceito` na hora: a plataforma reenvia quando nao
+ * recebe o retorno rapido, e ela nao pode esperar o PC da loja responder. O
+ * `externalId` segura o reenvio: sem a unique, o mesmo pedido entraria duas vezes.
+ */
+async function enfileiraPedido(loja: string, channel: Canal, corpo: string): Promise<RespostaWebhook> {
+    const externalId = externalIdDoCorpo(corpo);
+    if (!externalId) {
+        return { aceito: false, motivo: 'pedido sem identificador' };
+    }
+
+    const expiraEm = new Date(Date.now() + VALIDADE_DA_FILA_HORAS * 3_600_000);
+    try {
+        const gravado = await prisma.pedidoEntrante.create({
+            data: { tenantId: loja, channel, externalId, corpo, expiraEm },
+            select: { id: true },
+        });
+        return { aceito: true, duplicado: false, id: gravado.id, loja };
+    } catch (erro) {
+        // Reenvio da plataforma: a linha ja existe, e continua esperando o PC da loja.
+        if (!ehViolacaoDeFila(erro)) throw erro;
+        const jaExiste = await prisma.pedidoEntrante.findUnique({
+            where: { tenantId_channel_externalId: { tenantId: loja, channel, externalId } },
+            select: { id: true },
+        });
+        return { aceito: true, duplicado: true, id: jaExiste?.id ?? '', loja };
+    }
+}
+
+/** O indice `(tenantId, channel, externalId)` quebrado e' o reenvio da plataforma. */
+function ehViolacaoDeFila(error: unknown): boolean {
+    const meta = (error as { meta?: { target?: unknown } })?.meta;
+    const lista = Array.isArray(meta?.target) ? meta.target : [meta?.target];
+    return lista.some((t: unknown) => typeof t === 'string' && /externalId/i.test(t));
+}
+
+/** O id do pedido no marketplace, sem normalizar: so para segurar o reenvio. */
+function externalIdDoCorpo(corpo: string): string {
+    try {
+        const bruto = JSON.parse(corpo) as Record<string, unknown>;
+        return String(bruto.id ?? bruto.orderId ?? bruto.externalId ?? '').trim();
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * Grava o pedido no banco da LOJA. O PC da loja chama isto com o corpo que puxou da
+ * fila; a deduplicacao de verdade e' a do `externalId`, que ja existe aqui.
+ */
+export async function processaPedido(channel: Canal, corpo: string) {
     let bruto: unknown;
     try {
         bruto = JSON.parse(corpo);

@@ -20,6 +20,9 @@ const SEM_TENANT = new Set([
     // mao, e a injecao aqui atrapalharia em vez de ajudar.
     'SessaoWhatsApp',
     'ChaveWhatsApp',
+    // A chave do PC da loja e' procurada pelo SEGREDO, antes de existir loja: e' a
+    // propria autenticacao. O campo com o nome da loja e' a chave primaria.
+    'ChaveDeLoja',
 ]);
 
 /**

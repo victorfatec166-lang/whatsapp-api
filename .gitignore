@@ -96,6 +96,10 @@ cliente/package-lock.json
 prisma/schema.local.prisma
 cliente/banco-inicial.db
 
+# O sistema empacotado para o instalador (65 MB): dist + dependencias de producao.
+# Montado por scripts/montar-servidor.mjs e reproduzivel com `npm run build`.
+cliente/servidor/
+
 # A senha do primeiro acesso, quando o `DELIVERYADMIN_DATA` aponta para a raiz.
 # normally fica em %APPDATA%, mas quem roda com a pasta na raiz acabaria versionando
 # uma senha de administrador em texto claro.

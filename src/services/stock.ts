@@ -67,6 +67,13 @@ export const STOCK_STATUS_BADGE: Record<string, string> = {
     'sem-controle': 'badge-neutral',
 };
 
+/*
+ * Chave composta do produto. `where: { id }` sozinho alcancaria a loja vizinha --
+ * dentro de `$transaction` a extensao do Prisma nao alcança o `tx`, e ai nao ha nem
+ * a trava que estouraria. Com a loja no proprio `where`, o filtro e' do banco.
+ */
+const chaveDoProduto = (id: string) => ({ tenantId_id: { tenantId: exigeLoja(), id } });
+
 /**
  * Movimento e saldo na mesma transacao, com `delta` sempre com sinal: contagem
  * que reduz precisa ficar registrada como reducao, e nao como entrada.
@@ -91,13 +98,13 @@ export async function applyMovement(params: {
 
     try {
         return await prisma.$transaction(async (tx) => {
-            const product = await tx.product.findUnique({ where: { id: params.productId } });
+            const product = await tx.product.findUnique({ where: chaveDoProduto(params.productId) });
             if (!product) return { ok: false, stock: 0, error: 'Produto nao encontrado.' };
             if (!product.trackStock) return { ok: true, stock: product.stock };
 
             const next = Math.max(0, product.stock + delta);
 
-            await tx.product.update({ where: { id: product.id }, data: { stock: next } });
+            await tx.product.update({ where: chaveDoProduto(product.id), data: { stock: next } });
             await tx.stockMovement.create({
                 data: {
                     tenantId: exigeLoja(),
@@ -132,7 +139,7 @@ export async function setStockTo(params: {
 
     try {
         return await prisma.$transaction(async (tx) => {
-            const product = await tx.product.findUnique({ where: { id: params.productId } });
+            const product = await tx.product.findUnique({ where: chaveDoProduto(params.productId) });
             if (!product) return { ok: false, stock: 0, delta: 0, error: 'Produto nao encontrado.' };
             if (!product.trackStock) {
                 return { ok: false, stock: product.stock, delta: 0, error: 'Produto sem controle de estoque.' };
@@ -141,7 +148,7 @@ export async function setStockTo(params: {
             const delta = target - product.stock;
             if (delta === 0) return { ok: true, stock: product.stock, delta: 0 };
 
-            await tx.product.update({ where: { id: product.id }, data: { stock: target } });
+            await tx.product.update({ where: chaveDoProduto(product.id), data: { stock: target } });
             await tx.stockMovement.create({
                 data: {
                     tenantId: exigeLoja(),
@@ -220,9 +227,7 @@ export async function decrementStock(
         if (saldoAntes === undefined) continue; // produto sem controle de estoque
 
         /*
-         * `GREATEST` e nao `MAX` de dois argumentos: no Postgres o `MAX` e' agregacao,
-         * exige `GROUP BY` e devolve uma linha. O `tenantId` explicito substitui o
-         * interceptor, que nao passa por `executeRawUnsafe`.
+         * `GREATEST` e nao `MAX` de dois argumentos: no Postgres o `MAX` e' agregacao.
          */
         await tx.$executeRawUnsafe(
             'UPDATE "Product" SET "stock" = GREATEST(0, "stock" - $1) WHERE "id" = $2 AND "tenantId" = $3',

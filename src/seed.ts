@@ -22,8 +22,9 @@ async function main() {
     ];
 
     for (const p of products) {
-        // Verifica se já existe para não duplicar
-        const exists = await prisma.product.findFirst({ where: { name: p.name } });
+        // A loja entra na busca: sem ela, o produto de outra loja com o mesmo nome
+        // faria este pular, e a loja nova ficaria sem o item.
+        const exists = await prisma.product.findFirst({ where: { tenantId: exigeLoja(), name: p.name } });
         if (!exists) {
             await prisma.product.create({ data: { tenantId: exigeLoja(), ...p } });
         }

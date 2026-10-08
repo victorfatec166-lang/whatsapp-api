@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { prisma } from '../src/database/prisma';
 import { prismaComLoja } from '../src/database/prisma-com-loja';
 import { comoLoja } from '../src/services/loja';
+import { applyMovement } from '../src/services/stock';
 
 const PADARIA = 'loja-padaria-teste';
 const SUSHI = 'loja-sushi-teste';
@@ -23,12 +24,13 @@ test.after(async () => {
     // A limpeza usa o cliente CRU de proposito: ela roda fora de requisicao, e
     // e' justamente por isso que a prova 3 exige que a cliente com loja estoure.
     for (const loja of [PADARIA, SUSHI]) {
+        await prisma.stockMovement.deleteMany({ where: { tenantId: loja } });
         await prisma.product.deleteMany({ where: { tenantId: loja } });
         await prisma.chat.deleteMany({ where: { tenantId: loja } });
         await prisma.message.deleteMany({ where: { tenantId: loja } });
     }
     for (const loja of [PADARIA, SUSHI]) {
-        await prisma.tenant.delete({ where: { id: loja } }).catch(() => {});
+        await prisma.tenant.delete({ where: { id: loja } }).catch(() => 0);
     }
     await prisma.$disconnect();
 });
@@ -129,4 +131,67 @@ test('5. deleteMany sem filtro nao apaga a loja vizinha', async () => {
     assert.ok(sobrou, 'o delete sem filtro da loja B apagou o produto da loja A');
     const apagado = await prisma.product.findFirst({ where: { id: daVizinha.id } });
     assert.equal(apagado, null, 'o delete da propria loja nao apagou nada');
+});
+
+/*
+ * O `tx` do `$transaction` e' o cliente CRU: a extensao do Prisma nao chega nele.
+ * Sem o embrulho, uma loja lia e alterava o produto da vizinha de dentro da
+ * transacao -- e era assim que o estoque de outra loja mudava sem ninguem pedir.
+ */
+test('6. dentro da transacao a loja continua valendo', async () => {
+    await criaLoja(PADARIA);
+    await criaLoja(SUSHI);
+
+    const daVizinha = await comoLoja(SUSHI, () =>
+        prismaComLoja.product.create({ data: { name: 'item da B na transacao', price: 7, stock: 50, trackStock: true } })
+    );
+    await comoLoja(PADARIA, () =>
+        prismaComLoja.product.create({ data: { name: 'item da A na transacao', price: 7, stock: 3 } })
+    );
+
+    await assert.rejects(
+        () =>
+            comoLoja(PADARIA, () =>
+                prismaComLoja.$transaction((tx) => tx.product.findUnique({ where: { id: daVizinha.id } }))
+            ),
+        /sem a loja/i,
+        'a chave unica sem loja passou dentro da transacao'
+    );
+
+    const listados = await comoLoja(PADARIA, () => prismaComLoja.$transaction((tx) => tx.product.findMany({})));
+    assert.ok(
+        listados.every((p) => p.tenantId === PADARIA),
+        'a listagem na transacao trouxe produto de outra loja'
+    );
+    assert.ok(
+        listados.some((p) => p.name === 'item da A na transacao'),
+        'a listagem na transacao nem trouxe o proprio produto'
+    );
+});
+
+test('7. o movimento de estoque nao alcança o produto da loja vizinha', async () => {
+    const daVizinha = await comoLoja(SUSHI, () =>
+        prismaComLoja.product.create({ data: { name: 'item da B no estoque', price: 7, stock: 50, trackStock: true } })
+    );
+
+    // A loja A tenta baixar o saldo de um produto que nao e' dela, pelo id.
+    const baixa = await comoLoja(PADARIA, () =>
+        applyMovement({ productId: daVizinha.id, type: 'saida', quantity: 40, source: 'manual' })
+    );
+    assert.equal(baixa.ok, false, 'a loja A baixou o estoque de um produto da loja B');
+    assert.match(String(baixa.error), /nao encontrado/i, 'e o erro tem de dizer que o produto nao e' + ' dela');
+
+    const depois = await prisma.product.findUnique({ where: { id: daVizinha.id }, select: { stock: true } });
+    assert.equal(depois?.stock, 50, 'o saldo da loja B foi alterado por outra loja');
+    const gravados = await comoLoja(PADARIA, () => prismaComLoja.stockMovement.count());
+    assert.equal(gravados, 0, 'o movimento da loja B ficou registrado na loja A');
+});
+
+test("8. o que e' global continua global dentro da transacao", async () => {
+    // `Tenant` esta na lista de isentos pelo nome em PascalCase, e o `tx` entrega o
+    // delegate em camelCase: se o nome nao casasse, a loja entraria no filtro.
+    const achado = await comoLoja(PADARIA, () =>
+        prismaComLoja.$transaction((tx) => tx.tenant.findUnique({ where: { id: PADARIA } }))
+    );
+    assert.equal(achado?.id, PADARIA, 'a loja global sumiu dentro da transacao');
 });

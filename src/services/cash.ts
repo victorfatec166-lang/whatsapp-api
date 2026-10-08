@@ -6,6 +6,12 @@ const log = logDoModulo('cash');
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * `where: { id }` sozinho e' recusado pela extensao de loja: e' ela que impede o turno
+ * de uma loja entrar na consulta de outra. Aqui isso e' dinheiro -- um turno lido pela
+ * loja vizinha seria o Z report errado na tela de outra loja.
+ */
+
 export type CashMovementType = 'entrada' | 'saida';
 
 // CASH_LABELS e CASH_BADGES saíram daqui. O texto e a cor do tipo de movimento
@@ -154,7 +160,7 @@ export async function closeShift(params: {
     const difference = round(counted - totals.expected);
 
     const saved = await prisma.cashShift.update({
-        where: { id: shift.id },
+        where: { tenantId_id: { tenantId: exigeLoja(), id: shift.id } },
         data: {
             closedAt,
             countedCash: counted,
@@ -194,7 +200,7 @@ export async function reconcileShift(params: {
         return { ok: false, error: 'Valor contado invalido.' };
     }
 
-    const shift = await prisma.cashShift.findUnique({ where: { id: params.shiftId } });
+    const shift = await prisma.cashShift.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: params.shiftId } } });
     if (!shift) return { ok: false, error: 'Turno nao encontrado.' };
     if (!shift.closedAt) return { ok: false, error: 'Conferencia so vale para turno ja fechado.' };
     if (shift.countedCash !== null) return { ok: false, error: 'Este turno ja foi conferido.' };
@@ -203,7 +209,7 @@ export async function reconcileShift(params: {
     const difference = round(params.countedCash - totals.expected);
 
     await prisma.cashShift.update({
-        where: { id: shift.id },
+        where: { tenantId_id: { tenantId: exigeLoja(), id: shift.id } },
         data: {
             countedCash: round(params.countedCash),
             expectedCash: totals.expected,
@@ -238,7 +244,7 @@ export async function closeShiftAuto(now = new Date()): Promise<
     const finalTotals = await shiftTotals(shift.id, shift.openingFloat, shift.openedAt, closedAt);
 
     await prisma.cashShift.update({
-        where: { id: shift.id },
+        where: { tenantId_id: { tenantId: exigeLoja(), id: shift.id } },
         data: {
             closedAt,
             expectedCash: finalTotals.expected,

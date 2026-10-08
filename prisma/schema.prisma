@@ -384,7 +384,7 @@ model MarketplaceItem {
   account MarketplaceAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   product Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  @@unique([accountId, externalId])
+  @@unique([tenantId, accountId, externalId])
   @@index([productId])
   @@index([tenantId, productId])
 }
@@ -417,6 +417,10 @@ model CashShift {
   closedAt     DateTime?
   /// Ultimos movimentos registrados no turno.
   movements    CashMovement[]
+
+  /// Chave do id dentro da loja, para `where: { tenantId_id: ... }`. Sem ela o fechar
+  /// turno e' recusado pela extensao de loja.
+  @@unique([tenantId, id])
 }
 
 /// Sangria (saida) e deposito (entrada) de dinheiro na gaveta.
@@ -547,9 +551,13 @@ model User {
   /// Nao ha envio de e-mail no sistema, entao o codigo sai no log do servidor.
   codigoRecuperacao   String?
   recuperacaoExpiraEm DateTime?
-  ultimoLogin  DateTime?
+ultimoLogin  DateTime?
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
+
+  /// Chave do id dentro da loja, para `where: { tenantId_id: ... }`. Indice puro:
+  /// o par ja e' unico porque `id` e' a chave primaria.
+  @@unique([tenantId, id])
 
   sessoes Sessao[]
 }
@@ -610,6 +618,8 @@ model Reminder {
   /// primeiro". Esse indice e' exatamente essa consulta.
   @@index([date, done])
   @@index([tenantId, date, done])
+  /// Chave do id dentro da loja, para `where: { tenantId_id: ... }`.
+  @@unique([tenantId, id])
 }
 
 /// Conversa entre um cliente e a loja, pelo WhatsApp.

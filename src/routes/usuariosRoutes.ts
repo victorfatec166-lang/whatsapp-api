@@ -7,6 +7,12 @@ import { logDoModulo } from '../services/logger';
 const log = logDoModulo('usuariosRoutes');
 
 /**
+ * `where: { id }` sozinho e' recusado pela extensao de loja: e' ela que impede a conta
+ * de uma loja entrar na consulta de outra. A composta carrega a loja e por isso e' o
+ * jeito certo -- e `User` tem a unique para isso.
+ */
+
+/**
  * Montado em `/api/admin`, entao ja passa pelo exigeSessaoApi e pelo exigeCsrf do
  * servidor. O que sobra e' a AUTHORIZACAO: criar, desativar e redefinir senha e' ato
  * de administrador -- esconder o botao nao protege, e o exigeAdmin e' o que protege.
@@ -34,7 +40,7 @@ router.get('/', soAdmin, async (_req, res) => {
  * si mesmo, ninguem desativa o ultimo admin ativo, ninguem se promove.
  */
 router.post('/:id/alternar', soAdmin, async (req, res) => {
-    const alvo = await prisma.user.findUnique({ where: { id: req.params.id } });
+    const alvo = await prisma.user.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: req.params.id } } });
     if (!alvo) {
         res.status(404).json({ error: 'Conta nao encontrada.' });
         return;
@@ -53,7 +59,7 @@ router.post('/:id/alternar', soAdmin, async (req, res) => {
         }
     }
 
-    await prisma.user.update({ where: { id: alvo.id }, data: { ativo: ligando } });
+    await prisma.user.update({ where: { tenantId_id: { tenantId: exigeLoja(), id: alvo.id } }, data: { ativo: ligando } });
 
     // Desativar encerra as sessoas NA HORA. Mantidas, elas valeriam ate
     // expirar -- doze horas -- e a pessoa desactivada continuaria entrando em
@@ -72,7 +78,7 @@ router.post('/:id/alternar', soAdmin, async (req, res) => {
  * senao a senha que passou na frente de outras pessoas viraria a definitiva.
  */
 router.post('/:id/gerar-senha', soAdmin, async (req, res) => {
-    const alvo = await prisma.user.findUnique({ where: { id: req.params.id } });
+    const alvo = await prisma.user.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: req.params.id } } });
     if (!alvo) {
         res.status(404).json({ error: 'Conta nao encontrada.' });
         return;
@@ -82,7 +88,7 @@ router.post('/:id/gerar-senha', soAdmin, async (req, res) => {
     const { hash, sal } = await derivaSenha(senha);
 
     await prisma.user.update({
-        where: { id: alvo.id },
+        where: { tenantId_id: { tenantId: exigeLoja(), id: alvo.id } },
         data: {
             senhaHash: hash,
             senhaSalt: sal,
@@ -101,7 +107,7 @@ router.post('/:id/gerar-senha', soAdmin, async (req, res) => {
 
 /** Delega que abre a sessao. */
 router.post('/:id/trocar-papel', soAdmin, async (req, res) => {
-    const alvo = await prisma.user.findUnique({ where: { id: req.params.id } });
+    const alvo = await prisma.user.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: req.params.id } } });
     if (!alvo) {
         res.status(404).json({ error: 'Conta nao encontrada.' });
         return;
@@ -120,7 +126,7 @@ router.post('/:id/trocar-papel', soAdmin, async (req, res) => {
         }
     }
 
-    await prisma.user.update({ where: { id: alvo.id }, data: { papel: novo } });
+    await prisma.user.update({ where: { tenantId_id: { tenantId: exigeLoja(), id: alvo.id } }, data: { papel: novo } });
     res.json({ success: true, papel: novo });
 });
 

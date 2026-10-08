@@ -4,6 +4,8 @@ import { exigeLoja } from './loja';
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
+/** A chave que a extensao de loja exige: `where: { id }` sozinho e' recusado. */
+
 /**
  * Gera um SKU curto e legivel a partir do nome. Tenta deriva das iniciais
  * primeiro (ex: "X-Burguer" -> "XBUR-A7K2") e cai para aleatorio se colidir.
@@ -28,11 +30,14 @@ export async function generateSku(name: string): Promise<string> {
 }
 
 export async function ensureSku(productId: string, name: string): Promise<string | null> {
-    const current = await prisma.product.findUnique({ where: { id: productId }, select: { sku: true } });
+    const current = await prisma.product.findUnique({
+        where: { tenantId_id: { tenantId: exigeLoja(), id: productId } },
+        select: { sku: true },
+    });
     if (current?.sku) return current.sku;
     const sku = await generateSku(name);
     try {
-        await prisma.product.update({ where: { id: productId }, data: { sku } });
+        await prisma.product.update({ where: { tenantId_id: { tenantId: exigeLoja(), id: productId } }, data: { sku } });
         return sku;
     } catch {
         return null;
@@ -222,7 +227,7 @@ export async function importProductsFromCsv(text: string): Promise<ImportResult>
 
             if (existing) {
                 await prisma.product.update({
-                    where: { id: existing.id },
+                    where: { tenantId_id: { tenantId: exigeLoja(), id: existing.id } },
                     data: {
                         name,
                         price: round(price),

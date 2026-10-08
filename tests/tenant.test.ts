@@ -195,3 +195,71 @@ test("8. o que e' global continua global dentro da transacao", async () => {
     );
     assert.equal(achado?.id, PADARIA, 'a loja global sumiu dentro da transacao');
 });
+
+/*
+ * A chave composta fecha a porta depois das 23 correcoes: em todo o sistema a chave
+ * unica carrega a loja, entao um id da loja vizinha nao encontra linha nenhuma. Sem a
+ * unique no banco a primeira consulta ja estoura, e o teste diz qual model esta sem ela.
+ */
+const MODELOS_COM_CHAVE = ['product', 'cashShift', 'user', 'reminder'] as const;
+
+test('9. a chave composta acha o produto da loja e recusa o id da vizinha', async () => {
+    await criaLoja(PADARIA);
+    await criaLoja(SUSHI);
+
+    // Chaveado pelo NOME DO DELEGATE, que e' como o codigo chama o model.
+    const idDaVizinha: Record<string, string> = {
+        product: (await comoLoja(SUSHI, () => prismaComLoja.product.create({ data: { name: 'item da B', price: 9 } }))).id,
+        cashShift: (await comoLoja(SUSHI, () => prismaComLoja.cashShift.create({ data: { openingFloat: 0 } }))).id,
+        user: (
+            await comoLoja(SUSHI, () =>
+                prismaComLoja.user.create({
+                    data: { email: 'b@exemplo.com', nome: 'B', senhaHash: 'x', senhaSalt: 'y', papel: 'caixa' },
+                })
+            )
+        ).id,
+        reminder: (
+            await comoLoja(SUSHI, () => prismaComLoja.reminder.create({ data: { date: new Date(), text: 'da B' } }))
+        ).id,
+    };
+
+    for (const modelo of MODELOS_COM_CHAVE) {
+        // A loja A pede o id que pertence a B: nao pode vir linha nenhuma. O delegate
+        // e' lido DENTRO do `comoLoja` de proposito: e' o `get` do proxy que le a loja.
+        const vazamento = await comoLoja(PADARIA, () =>
+            (prismaComLoja[modelo] as { findUnique: (a: unknown) => Promise<unknown> }).findUnique({
+                where: { tenantId_id: { tenantId: PADARIA, id: idDaVizinha[modelo] } },
+            })
+        );
+        assert.equal(vazamento, null, `${modelo}: a loja A leu a linha da loja B pela chave composta`);
+    }
+
+    // E a loja A alcanca o que e' dela, com a mesma chave.
+    const meu = await comoLoja(PADARIA, async () => {
+        const produto = await prismaComLoja.product.create({ data: { name: 'item da A', price: 9 } });
+        return prismaComLoja.product.findUnique({
+            where: { tenantId_id: { tenantId: PADARIA, id: produto.id } },
+        });
+    });
+    assert.equal(meu?.name, 'item da A', 'a chave composta deixou de achar o proprio produto');
+});
+
+test('10. apagar o produto da loja vizinha pela chave composta nao apaga nada', async () => {
+    const daVizinha = await comoLoja(SUSHI, () =>
+        prismaComLoja.product.create({ data: { name: 'produto a proteger', price: 9 } })
+    );
+
+    // Sem a loja na chave, o `delete` ESTOURA: e' o que a extensao garante. Se um dia
+    // alguem trocar por `where: { id }`, este teste acusa.
+    await assert.rejects(
+        () =>
+            comoLoja(PADARIA, () =>
+                prismaComLoja.product.delete({ where: { id: daVizinha.id } })
+            ),
+        /sem a loja/i,
+        'apagar por id sozinho passou: a loja vizinha esta' + ' a alcance'
+    );
+
+    const sobreviveu = await prisma.product.findFirst({ where: { id: daVizinha.id } });
+    assert.ok(sobreviveu, 'o produto da loja vizinha foi apagado');
+});

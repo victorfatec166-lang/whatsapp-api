@@ -120,23 +120,10 @@ function chamadasSemLoja(fonte: string): string[] {
 /**
  * Arquivos com chamadas ja conhecidas que ainda nao foram corrigidas.
  *
- * Sao 37 pontos: com migration e deploy no meio, arriscar tudo e' pior que comecar
- * pelo caminho que o cliente sente. O `Chat` ja foi. O gate falha com divida NOVA.
+ * VAZIA de proposito (08/10): as 23 restantes foram corrigidas, com a unique
+ * `tenantId_id` em Product, Order, User, CashShift e Reminder. Repovoar e' vazar.
  */
-const JA_CONHECIDOS = [
-    'src\\controllers\\adminController.ts',
-    'src\\routes\\comandaRoutes.ts',
-    'src\\routes\\marketplaceRoutes.ts',
-    'src\\routes\\usuariosRoutes.ts',
-    'src\\server.ts',
-    'src\\services\\auth.ts',
-    'src\\services\\bot.ts',
-    'src\\services\\cash.ts',
-    'src\\services\\lembretes.ts',
-    'src\\services\\marketplace.ts',
-    'src\\services\\products.ts',
-    'src\\services\\stock.ts',
-];
+const JA_CONHECIDOS: string[] = [];
 
 /**
  * Arquivos que usam o cliente CRU (`database/prisma`), sem a extensao.

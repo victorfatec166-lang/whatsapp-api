@@ -6,6 +6,12 @@ import { normalizarCategoria } from '../services/categorias';
 import { exigeLoja } from '../services/loja';
 const log = logDoModulo('adminController');
 
+/*
+ * `where: { id }` sozinho e' recusado pela extensao de loja, e com razao: ela existe
+ * para a chave unica nunca alcancar o produto da loja vizinha. A composta carrega a
+ * loja e por isso e' o jeito certo -- e `Product` tem a unique para isso.
+ */
+
 export const adminController = {
   // --- GESTÃO DE PRODUTOS ---
   async getProducts(req: Request, res: Response) {
@@ -78,7 +84,7 @@ export const adminController = {
   async duplicateProduct(req: Request, res: Response) {
     try {
       const id = req.params.id as string;
-      const source = await prisma.product.findUnique({ where: { id } });
+      const source = await prisma.product.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: id } } });
       if (!source) {
         return res.status(404).json({ error: 'Produto não encontrado.' });
       }
@@ -107,12 +113,12 @@ export const adminController = {
   async toggleAvailability(req: Request, res: Response) {
     try {
       const id = req.params.id as string;
-      const current = await prisma.product.findUnique({ where: { id } });
+      const current = await prisma.product.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: id } } });
       if (!current) {
         return res.status(404).json({ error: 'Produto não encontrado.' });
       }
       const product = await prisma.product.update({
-        where: { id },
+        where: { tenantId_id: { tenantId: exigeLoja(), id: id } },
         data: { isAvailable: !current.isAvailable }
       });
       return res.json(product);
@@ -144,7 +150,7 @@ export const adminController = {
         : Math.max(0, Math.round(parseFloat(String(minStock)) || 0));
 
       const product = await prisma.product.update({
-        where: { id },
+        where: { tenantId_id: { tenantId: exigeLoja(), id: id } },
         data: {
           ...(name && { name: String(name).trim() }),
           ...(description !== undefined && { description: String(description) }),
@@ -170,7 +176,9 @@ export const adminController = {
   async deleteProduct(req: Request, res: Response) {
     try {
       const id = req.params.id as string;
-      await prisma.product.delete({ where: { id } });
+      // `where: { id }` sozinho e' recusado pela extensao de loja: ela existe para a
+      // chave unica nunca alcancar o produto da loja vizinha. A composta e' o jeito certo.
+      await prisma.product.delete({ where: { tenantId_id: { tenantId: exigeLoja(), id } } });
       return res.json({ success: true });
     } catch (error) {
       log.error("Erro ao deletar produto:", error);
@@ -205,7 +213,7 @@ export const adminController = {
       }
 
       const order = await prisma.order.update({
-        where: { id },
+        where: { tenantId_id: { tenantId: exigeLoja(), id } },
         data: { status }
       });
 

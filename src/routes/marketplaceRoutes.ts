@@ -15,6 +15,7 @@ import {
     type Canal,
 } from '../services/marketplace';
 import { receberPedido } from '../services/webhook';
+import { exigeLoja } from '../services/loja';
 import { logDoModulo } from '../services/logger';
 
 const log = logDoModulo('marketplace');
@@ -139,7 +140,7 @@ router.post('/api/admin/marketplace/:channel/itens', async (req: Request, res: R
         if (!externalId || !productId) {
             return res.status(400).json({ error: 'Informe o id do item e o produto do catalogo.' });
         }
-        const produto = await prisma.product.findUnique({ where: { id: productId } });
+        const produto = await prisma.product.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id: productId } } });
         if (!produto) return res.status(404).json({ error: 'Produto do catalogo nao encontrado.' });
 
         const preco = Number(b.lastPrice);

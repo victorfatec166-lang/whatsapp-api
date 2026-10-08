@@ -6,6 +6,8 @@ import { exigeLoja } from './loja';
 
 const log = logDoModulo('lembretes');
 
+/** `where: { id }` sozinho e' recusado pela extensao de loja. Ver `chaveDoProduto`. */
+
 /**
  * Lembretes do calendario. Anotar e' para o dia que esta na tela, e a data e'
  * meia-noite LOCAL: `new Date('2026-09-25')` e' meia-noite UTC, que no Brasil e' 21h
@@ -97,9 +99,9 @@ export async function anotar(texto: unknown, diaIso?: string): Promise<{ ok: tru
 /** Marca como feito, ou desfaz. */
 export async function alternarConcluido(id: string): Promise<{ ok: true; feito: boolean } | { ok: false; error: string }> {
     try {
-        const atual = await prisma.reminder.findUnique({ where: { id }, select: { done: true } });
+        const atual = await prisma.reminder.findUnique({ where: { tenantId_id: { tenantId: exigeLoja(), id } }, select: { done: true } });
         if (!atual) return { ok: false, error: 'Lembrete nao encontrado.' };
-        const depois = await prisma.reminder.update({ where: { id }, data: { done: !atual.done } });
+        const depois = await prisma.reminder.update({ where: { tenantId_id: { tenantId: exigeLoja(), id } }, data: { done: !atual.done } });
         notifyClients();
         return { ok: true, feito: depois.done };
     } catch (error) {
@@ -110,7 +112,7 @@ export async function alternarConcluido(id: string): Promise<{ ok: true; feito: 
 
 export async function apagar(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
-        await prisma.reminder.delete({ where: { id } });
+        await prisma.reminder.delete({ where: { tenantId_id: { tenantId: exigeLoja(), id } } });
         notifyClients();
         return { ok: true };
     } catch (error) {

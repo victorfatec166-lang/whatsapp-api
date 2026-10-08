@@ -226,7 +226,7 @@ export async function casarItem(
 ): Promise<void> {
     const conta = await prisma.marketplaceAccount.findUniqueOrThrow({ where: { tenantId_channel: { tenantId: exigeLoja(), channel } } });
     await prisma.marketplaceItem.upsert({
-        where: { accountId_externalId: { accountId: conta.id, externalId } },
+        where: { tenantId_accountId_externalId: { tenantId: exigeLoja(), accountId: conta.id, externalId } },
         create: {
             tenantId: exigeLoja(),
             accountId: conta.id,

@@ -25,7 +25,7 @@ const path = require('node:path');
 const { app, BrowserWindow, Menu, shell, WebContentsView, ipcMain } = require('electron');
 
 const { atualiza, volta, nuvem } = require('./atualiza');
-const { pastaDeDados, urlDoBanco, garanteBancoInicial } = require('./dados');
+const { pastaDeDados, urlDoBanco, garanteBancoInicial, idDaLoja } = require('./dados');
 
 /*
  * Falha silenciosa e' o pior defeito de um aplicativo de desktop: o usuario ve a
@@ -149,8 +149,8 @@ async function sobeServidor() {
     /*
      * O banco e' arquivo e o sistema so aceita `file:` quando sabe que e' local: sem
      * estas duas variaveis o processo sobe, conecta e morre na primeira consulta. A
-     * loja do boot vai vazia de proposito -- quem roda aqui e' a loja da maquina, e
-     * o `DELIVERYADMIN_TENANT` do `.env` de desenvolvimento apontaria para a outra.
+     * loja do boot vem do `loja.txt`, que a migracao escreve -- e nao do `.env` de
+     * desenvolvimento, que apontaria para a outra loja.
      */
     garanteBancoInicial();
 
@@ -164,7 +164,7 @@ async function sobeServidor() {
             CHANNEL_SECRET: segredoDeCifra(),
             DELIVERYADMIN_NUVEM: nuvem(),
             DELIVERYADMIN_DATA: pastaDeDados(),
-            DELIVERYADMIN_TENANT: '',
+            DELIVERYADMIN_TENANT: idDaLoja(),
             DATABASE_URL: urlDoBanco(),
             MODO_LOCAL: '1',
         },

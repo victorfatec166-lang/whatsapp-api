@@ -30,6 +30,7 @@
     "cliente:instalador": "electron-builder --win --x64 --projectDir cliente --config electron-builder.yml",
     "cliente:dist": "node scripts/montar-cliente.mjs && node scripts/zipar-cliente.mjs",
     "assinatura:nova": "node --import tsx scripts/nova-assinatura.ts",
+    "migrar:loja": "node --import tsx scripts/migrar-loja.ts",
     "provar:relay": "node --import tsx scripts/provar-relay.ts"
   },
   "dependencies": {

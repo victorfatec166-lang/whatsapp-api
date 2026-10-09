@@ -26,6 +26,31 @@ function urlDoBanco() {
 }
 
 /**
+ * De qual conta da nuvem e' este PC.
+ *
+ * O id precisa ser o mesmo dos dois lados: e' ele que o relay manda no cabecalho e o
+ * que a nuvem usa para saber que loja esta perguntando. Sem ele, a loja ficaria com o
+ * `local` do primeiro boot -- que a nuvem nao conhece, e a fila e a assinatura nunca
+ * valeriam. O arquivo e' escrito pela migracao (`scripts/migrar-loja.mjs`).
+ */
+function idDaLoja() {
+    try {
+        const guardado = fs.readFileSync(path.join(pastaDeDados(), 'loja.txt'), 'utf8').trim();
+        if (guardado) return guardado;
+    } catch {
+        // Instalacao nova: ainda nao migrou nada, e o `local` do primeiro boot serve.
+    }
+    return 'local';
+}
+
+/** Aponta o PC para uma conta da nuvem. */
+function guardaIdDaLoja(loja) {
+    const pasta = pastaDeDados();
+    fs.mkdirSync(pasta, { recursive: true });
+    fs.writeFileSync(path.join(pasta, 'loja.txt'), String(loja).trim() + '\n', 'utf8');
+}
+
+/**
  * Deixa o banco da loja criado na primeira abertura.
  *
  * O instalador leva um banco vazio, com o schema de hoje: sem ele o sistema abre e
@@ -46,4 +71,4 @@ function garanteBancoInicial() {
     return destino;
 }
 
-module.exports = { pastaDeDados, caminhoDoBanco, urlDoBanco, garanteBancoInicial };
+module.exports = { pastaDeDados, caminhoDoBanco, urlDoBanco, garanteBancoInicial, idDaLoja, guardaIdDaLoja };

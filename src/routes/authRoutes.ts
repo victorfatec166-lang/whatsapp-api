@@ -23,6 +23,7 @@ normalizaEmail,
 import { logDoModulo } from '../services/logger';
 import { problemaDaSenha } from '../services/regras';
 import { guardaSenhaEscolhida, registraVenda, senhaDoDonoPendente, statusDoDono } from '../services/assinaturas';
+import { avisoDaLicencaLocal } from '../services/licenca';
 import { renderLogin, renderTrocaSenha, renderCriarConta, renderAguardando, renderRecuperar, renderSobre, renderAjuda, seguroInterno } from '../views/login';
 import { renderPrivacidade } from '../views/privacidade';
 import { carregarConfig } from '../services/config';
@@ -114,6 +115,7 @@ res.send(
             destino,
             primeiroAcesso: (await prisma.user.count()) === 0,
             emailRecente,
+            avisoLicenca: avisoDaLicencaLocal(),
         })
     );
 });

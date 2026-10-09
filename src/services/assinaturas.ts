@@ -165,10 +165,41 @@ export async function statusDoDono(tenantId: string): Promise<{
     };
 }
 
+export type LicencaDaLoja = {
+    nome: string;
+    ativo: boolean;
+    status: string;
+    testeAte: string | null;
+    diasRestantes: number;
+};
+
+/**
+ * O que o PC da loja pode saber da assinatura.
+ *
+ * Quem pergunta e' a maquina da loja: vem o que falta (quantos dias, pago ou nao) e
+ * nao a fatura -- nem valor, nem id de cobranca. A tela nao pode virar um extrato.
+ */
+export async function licencaDaLoja(tenantId: string): Promise<LicencaDaLoja | null> {
+    const [loja, assinatura] = await Promise.all([
+        prisma.tenant.findUnique({ where: { id: tenantId }, select: { ativo: true, name: true } }),
+        prisma.assinatura.findUnique({ where: { tenantId }, select: { status: true, testeAte: true } }),
+    ]);
+    if (!loja) return null;
+
+    const testeAte = assinatura?.testeAte ?? null;
+    return {
+        nome: loja.name,
+        ativo: loja.ativo,
+        status: assinatura?.status ?? 'sem-assinatura',
+        testeAte: testeAte ? testeAte.toISOString() : null,
+        diasRestantes: testeAte ? Math.max(0, Math.ceil((testeAte.getTime() - Date.now()) / 86_400_000)) : 0,
+    };
+}
+
 /**
  * O teste acabou: a loja perde o acesso ate a mensalidade cair. Roda no mesmo
- * tique da virada do dia -- sem isto, "14 dias" seria teste eterno, e a loja que
- * mais usaria o sistema seria a que menos pagou.
+ * tique da virada do dia -- sem isto, o teste seria eterno, e a loja que mais
+ * usaria o sistema seria a que menos pagou.
  */
 export async function venceTestes(): Promise<number> {
     const vencidas = await prisma.assinatura.findMany({
@@ -180,7 +211,7 @@ export async function venceTestes(): Promise<number> {
     });
 
     for (const { tenantId } of vencidas) {
-        await desligaLoja(tenantId, 'teste de 14 dias encerrado sem pagamento');
+        await desligaLoja(tenantId, 'teste encerrado sem pagamento');
     }
     return vencidas.length;
 }

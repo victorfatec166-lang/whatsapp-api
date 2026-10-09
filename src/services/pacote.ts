@@ -16,9 +16,7 @@ const log = logDoModulo('pacote');
  * A raiz do que vai para o cliente: a pasta `dist` em si, e nada acima dela.
  *
  * Este arquivo roda de `dist/services`, e subir dois niveis sai do `dist` e chega na
- * raiz do repositorio -- onde estao o `node_modules`, o `.env` e o codigo-fonte. A
- * lista viria com o repositorio inteiro (e a rota de arquivo serviria qualquer um
- * deles), entao a parada e' em `dist`.
+ * raiz do repositorio -- onde estao o `node_modules` e o codigo-fonte.
  */
 function raizDoDist(): string {
     return path.resolve(__dirname, '..');

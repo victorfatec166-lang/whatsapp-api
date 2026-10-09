@@ -1,13 +1,14 @@
 /*
- * As duas rotas que o PC da loja usa contra a nuvem. Sem sessao: quem vem aqui e' o
- * sistema da loja, identificado pelo segredo no cabecalho -- por isso ficam fora do
- * `/api/admin` e nao passam por CSRF (formulario de outro site nao manda cabecalho).
+ * As rotas que o PC da loja usa contra a nuvem: a fila de pedidos e a assinatura.
+ * Sem sessao: quem vem aqui e' o sistema da loja, identificado pelo segredo no
+ * cabecalho -- por isso ficam fora do `/api/admin` e nao passam por CSRF.
  */
 
 import { Router } from 'express';
 
 import { prismaComLoja } from '../database/prisma-com-loja';
 import { CABECALHO_CHAVE, CABECALHO_LOJA, lojaDoSegredo } from '../services/relay';
+import { licencaDaLoja } from '../services/assinaturas';
 import { comoLoja } from '../services/loja';
 import { logDoModulo } from '../services/logger';
 
@@ -50,6 +51,22 @@ router.get('/api/loja/pedidos-pendentes', async (req, res) => {
     } catch (error) {
         log.error('nao deu para ler a fila:', { erro: String(error).slice(0, 160) });
         return res.status(500).json({ error: 'Fila indisponivel.' });
+    }
+});
+
+router.get('/api/loja/licenca', async (req, res) => {
+    const loja = await lojaDoRequest(req);
+    if (!loja) return res.status(401).json({ error: 'Chave invalida.' });
+
+    try {
+        // Cliente cru de proposito: quem pergunta e' a maquina da loja, e a assinatura
+        // e' global -- a loja ja esta no `where`, e nao ha loja ativa para injetar.
+        const licenca = await licencaDaLoja(loja);
+        if (!licenca) return res.status(404).json({ error: 'Loja nao encontrada.' });
+        return res.json(licenca);
+    } catch (error) {
+        log.error('nao deu para ler a assinatura da loja:', { erro: String(error).slice(0, 160) });
+        return res.status(500).json({ error: 'Assinatura indisponivel.' });
     }
 });
 

@@ -43,6 +43,12 @@ export type DadosTelaLogin = {
      * precisa so lembrar e digitar, nao procurar a conta.
      */
     emailRecente?: string;
+    /**
+     * Aviso da assinatura, quando o PC da loja sabe de algo antes do dono: o teste
+     * acabando ou o acesso cortado. Aparece antes do formulario porque e' a unica
+     * coisa da tela que o dono nao consegue ignorar entrando.
+     */
+    avisoLicenca?: { tom: 'atencao' | 'erro'; titulo: string; texto: string } | null;
 };
 
 /*
@@ -304,6 +310,22 @@ export function renderLogin(d: DadosTelaLogin): string {
 
                     <h1 class="text-display text-ink">Bem-vindo de volta</h1>
                     <p class="text-body text-ink-2 mt-1.5">Entre na sua conta para continuar.</p>
+
+                    ${
+                        d.avisoLicenca
+                            ? `                    <div role="status" class="mt-5 flex items-start gap-2.5 rounded-card border ${
+                                  d.avisoLicenca.tom === 'erro' ? 'border-accent-red' : 'border-accent-orange'
+                              } bg-warning-bg p-3">
+                        <i class="fa-solid ${
+                            d.avisoLicenca.tom === 'erro' ? 'fa-circle-exclamation text-accent-red' : 'fa-clock text-accent-orange'
+                        } mt-0.5 shrink-0" aria-hidden="true"></i>
+                        <p class="text-caption text-ink-2">
+                            <strong class="text-ink">${escapeHtml(d.avisoLicenca.titulo)}</strong><br>
+                            ${escapeHtml(d.avisoLicenca.texto)}
+                        </p>
+                    </div>`
+                            : ''
+                    }
 
                     ${
                         d.primeiroAcesso

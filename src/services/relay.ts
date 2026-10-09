@@ -1,13 +1,14 @@
 /*
- * O PC da loja puxa da nuvem o que o iFood e o 99Food empurraram. A loja roda atras do
- * roteador, sem URL publica: o webhook chega na nuvem, vira fila, e o PC pergunta a
- * cada 20s. A nuvem guarda o HASH do segredo; o PC guarda o segredo cifrado.
+ * O PC da loja puxa da nuvem duas coisas: o que o iFood e o 99Food empurraram, e o que
+ * a assinatura esta'. A loja roda atras do roteador: o webhook chega na nuvem, vira
+ * fila, e o PC pergunta a cada 20s. A nuvem guarda o HASH do segredo.
  */
 
 import * as crypto from 'node:crypto';
 import { prisma } from '../database/prisma';
 import { prismaComLoja } from '../database/prisma-com-loja';
 import { comoLoja, exigeLoja } from './loja';
+import type { LicencaDaLoja } from './assinaturas';
 import { cifrar, decifrar, type Canal } from './marketplace';
 import { processaPedido } from './webhook';
 import { logDoModulo } from './logger';
@@ -126,6 +127,33 @@ export function estadoDoRelay(): { ultimaBusca: string | null; ultimoRecebido: n
     return estado;
 }
 
+/** O que a nuvem disse da assinatura da loja, e quando. Vem no mesmo tique da fila. */
+let licenca: (LicencaDaLoja & { consultadaEm: string }) | null = null;
+
+/** O que o PC sabe da assinatura, ou `null` enquanto a nuvem nao respondeu. */
+export function estadoDaLicenca(): (LicencaDaLoja & { consultadaEm: string }) | null {
+    return licenca;
+}
+
+/**
+ * Pergunta a assinatura e guarda a resposta na memoria.
+ *
+ * Falha nao apaga o que ja sabia: quem esta sem internet precisa continuar abrindo o
+ * painel. O corte de verdade depende disto e vem com o gateway de pagamento.
+ */
+async function consultaLicenca(loja: string, segredo: string): Promise<void> {
+    try {
+        const resposta = await fetch(`${urlDaNuvem()}/api/loja/licenca`, {
+            headers: { [CABECALHO_LOJA]: loja, [CABECALHO_CHAVE]: segredo },
+        });
+        if (!resposta.ok) throw new Error(`a assinatura respondeu ${resposta.status}`);
+        const dados = (await resposta.json()) as LicencaDaLoja;
+        licenca = { ...dados, consultadaEm: new Date().toISOString() };
+    } catch (erro) {
+        log.warn('nao deu para saber da assinatura:', String(erro).slice(0, 120));
+    }
+}
+
 /**
  * Puxa a fila e grava no banco da loja, pelo mesmo `processaPedido` de sempre --
  * inclusive a deduplicacao por `externalId`. Confirmar so depois: se o PC cair no
@@ -144,6 +172,7 @@ export async function buscaEGrava(): Promise<{ pular: number; gravados: number }
         return { pular: 0, gravados: 0 };
     }
     estado = { ultimaBusca: new Date().toISOString(), ultimoRecebido: fila.length };
+    await consultaLicenca(loja, segredo);
 
     let gravados = 0;
     for (const item of fila) {

@@ -31,6 +31,23 @@ asar: false
 files:
   - "**/*"
   - "!electron-builder.yml"
+  # O sistema vai como `extraResources` (abaixo), nao aqui: dentro do app o
+  # `electron-builder` descarta `node_modules`, e o servidor subia sem uma unica
+  # dependencia. La fora ele e' copiado como e', com o Prisma CLI e o motor do Windows.
+  - "!servidor/**"
+  - "!servidor-nuvem/**"
+
+extraResources:
+  # A copia comeca na PASTA DO APP, e nao em `servidor`: o `electron-builder` recusa a
+  # `node_modules` que esta na raiz do que ele copia (`createFilter`), e nenhum padrao
+  # traz de volta. Copiando de `.` a pasta entra como `servidor/...`, que passa. E' por
+  # isso que o `to` nao aparece: o destino padrao ja e' `resources`.
+  - from: .
+    filter:
+      - "servidor/**"
+      - "servidor/**/*"
+      - "!servidor/**/.cache/**"
+      - "!servidor/**/*.tmp*"
 
 compression: maximum
 

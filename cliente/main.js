@@ -25,7 +25,7 @@ const path = require('node:path');
 const { app, BrowserWindow, Menu, shell, WebContentsView, ipcMain } = require('electron');
 
 const { atualiza, volta, nuvem } = require('./atualiza');
-const { pastaDeDados, urlDoBanco, garanteBancoInicial, idDaLoja } = require('./dados');
+const { pastaDeDados, pastaDoServidor, urlDoBanco, garanteBancoInicial, idDaLoja } = require('./dados');
 
 /*
  * Falha silenciosa e' o pior defeito de um aplicativo de desktop: o usuario ve a
@@ -211,7 +211,7 @@ async function sobeServidorOuVolta() {
  */
 const PORTA_PADRAO = 3977;
 
-const PASTA_SERVIDOR = path.join(__dirname, 'servidor');
+const PASTA_SERVIDOR = pastaDoServidor();
 
 /** A URL do painel: preenchida em `sobeServidor`, antes de qualquer view existir. */
 let URL_DO_PAINEL = (process.env.DELIVERYADMIN_URL || '').trim();

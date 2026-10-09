@@ -15,6 +15,22 @@ function pastaDeDados() {
     return path.join(process.env.APPDATA || os.homedir(), 'DeliveryAdmin');
 }
 
+/**
+ * Onde esta o sistema empacotado.
+ *
+ * No programa instalado ele vive em `resources/servidor`, fora da pasta do app: e' o
+ * unico jeito de o `electron-builder` levar o `node_modules` junto, porque dentro do app
+ * ele descarta. Em desenvolvimento fica ao lado deste arquivo. Os dois caminhos são
+ * testados pelo mesmo arquivo (`dist/server.js`), e nao pelo nome da pasta.
+ */
+function pastaDoServidor() {
+    if (process.resourcesPath) {
+        const doPrograma = path.join(process.resourcesPath, 'servidor');
+        if (fs.existsSync(path.join(doPrograma, 'dist', 'server.js'))) return doPrograma;
+    }
+    return path.join(__dirname, 'servidor');
+}
+
 /** O arquivo do banco da loja. O nome e' o mesmo do servidor (`caminhoDoBanco`). */
 function caminhoDoBanco() {
     return path.join(pastaDeDados(), 'prisma', 'loja.db');
@@ -61,6 +77,7 @@ function garanteBancoInicial() {
     const destino = caminhoDoBanco();
     if (fs.existsSync(destino)) return destino;
 
+    // O banco inicial fica na pasta do programa (`resources/app`), nao junto do sistema.
     const origem = path.join(__dirname, 'banco-inicial.db');
     if (!fs.existsSync(origem)) {
         throw new Error('o pacote do programa nao tem o banco inicial (' + origem + ')');
@@ -71,4 +88,12 @@ function garanteBancoInicial() {
     return destino;
 }
 
-module.exports = { pastaDeDados, caminhoDoBanco, urlDoBanco, garanteBancoInicial, idDaLoja, guardaIdDaLoja };
+module.exports = {
+    pastaDeDados,
+    pastaDoServidor,
+    caminhoDoBanco,
+    urlDoBanco,
+    garanteBancoInicial,
+    idDaLoja,
+    guardaIdDaLoja,
+};

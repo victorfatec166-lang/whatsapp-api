@@ -14,15 +14,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { caminhoDoBanco, urlDoBanco } = require('./dados');
+const { caminhoDoBanco, urlDoBanco, pastaDoServidor } = require('./dados');
 
 /** A nuvem. Lida na hora, e nao na importacao: o `.env` ainda nao foi lido. */
 function nuvem() {
     return (process.env.DELIVERYADMIN_NUVEM || 'https://whatsapp-api-7zra.onrender.com').replace(/\/+$/, '');
 }
 
-/** Pasta do sistema empacotado, ao lado deste arquivo. */
-const RAIZ = path.join(__dirname, 'servidor');
+/** Pasta do sistema empacotado: `resources/servidor` no programa, `cliente/servidor` no dev. */
+const RAIZ = pastaDoServidor();
 const DIST = path.join(RAIZ, 'dist');
 
 /** Onde a proxima versao e' montada antes de entrar no lugar da atual. */

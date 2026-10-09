@@ -14,7 +14,8 @@
  * `dist/` compilado, o schema local, e so as dependencias de PRODUCAO: nove no
  * `package.json`, mas cada uma arrasta as suas. O Prisma vai com o motor do Windows
  * (18 MB) e sem os `.tmp`, que sao lixo de `generate` interrompido -- 238 MB no
- * repositorio de desenvolvimento, e zero util na loja.
+ * repositorio de desenvolvimento, e zero util na loja. Entram tambem o Prisma CLI e o
+ * motor de schema: e' o que migra o banco da loja quando a nuvem manda um schema novo.
  */
 
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -35,6 +36,17 @@ const SO_SQLITE = !process.argv[2];
 function fechaDeProducao(raiz) {
     const raizDoProjeto = join(raiz, 'package.json');
     const pedidos = Object.keys(JSON.parse(readFileSync(raizDoProjeto, 'utf8')).dependencies ?? {});
+    return fecha(pedidos, join(raiz, 'node_modules'));
+}
+
+/**
+ * Fecha uma lista de pacotes e as dependencias deles.
+ *
+ * E' o mesmo caminho usado para as dependencias do servidor, so que com a raiz fora:
+ * o Prisma CLI e' pedido pelo `cliente/atualiza.js`, que roda dentro do programa
+ * instalado, e ele nao esta' no `dependencies` do `package.json`.
+ */
+function fecha(pedidos, ondeResolver) {
     const vistos = new Map();
     const fila = [...pedidos];
 
@@ -42,7 +54,7 @@ function fechaDeProducao(raiz) {
         const nome = fila.shift();
         if (vistos.has(nome)) continue;
         // Aninhado primeiro: e' assim que o npm resolve versao diferente.
-        const candidatos = [join(MODULES, nome), join(raiz, 'node_modules', nome)];
+        const candidatos = [join(MODULES, nome), join(ondeResolver, nome)];
         const caminho = candidatos.find((c) => existsSync(join(c, 'package.json')));
         if (!caminho) {
             console.warn(`  [aviso] ${nome} nao encontrado; o servidor pode nao subir.`);
@@ -109,31 +121,45 @@ function principal() {
         process.exit(1);
     }
 
-    console.log('1/4 limpando a pasta anterior...');
+    console.log('1/5 limpando a pasta anterior...');
     rmSync(SAIDA, { recursive: true, force: true });
     mkdirSync(join(SAIDA, 'node_modules'), { recursive: true });
 
-    console.log('2/4 copiando o servidor compilado e o schema local...');
+    console.log('2/5 copiando o servidor compilado e o schema local...');
     cpSync(join(RAIZ, 'dist'), join(SAIDA, 'dist'), { recursive: true });
     mkdirSync(join(SAIDA, 'prisma'), { recursive: true });
     cpSync(join(RAIZ, 'prisma', 'schema.local.prisma'), join(SAIDA, 'prisma', 'schema.local.prisma'));
 
-    console.log('3/4 copiando so as dependencias de producao...');
+    console.log('3/5 copiando so as dependencias de producao...');
     const pacotes = fechaDeProducao(RAIZ);
     for (const [nome, origem] of pacotes) {
         const destino = join(SAIDA, 'node_modules', nome);
         mkdirSync(dirname(destino), { recursive: true });
-        cpSync(origem, destino, { recursive: true });
+        cpSync(origem, destino, { recursive: true, filter: (de) => !basename(de).startsWith('.cache') });
     }
     // O cliente gerado vive em `.prisma`, fora do pacote, e o `@prisma/client` so reexporta.
     mkdirSync(join(SAIDA, 'node_modules', '.prisma'), { recursive: true });
     copiaClienteDoPrisma(join(SAIDA, 'node_modules', '.prisma', 'client'));
 
+    /*
+     * O Prisma CLI vai junto porque e' ele que migra o banco da loja quando a nuvem
+     * manda um schema novo, e a migracao acontece no PC da loja -- nao na nuvem, onde
+     * o arquivo nem existe. Sao ~46 MB: o motor do Windows e' o mesmo que ja vai na
+     * `.prisma/client`, e o `.cache` dos binarios fica de fora.
+     */
+    console.log('4/5 copiando o Prisma CLI, que migra o banco da loja...');
+    const cli = fecha(['prisma'], join(RAIZ, 'node_modules'));
+    for (const [nome, origem] of cli) {
+        const destino = join(SAIDA, 'node_modules', nome);
+        mkdirSync(dirname(destino), { recursive: true });
+        cpSync(origem, destino, { recursive: true, filter: (de) => !basename(de).startsWith('.cache') });
+    }
+
     const bytes = tamanhoDe(SAIDA);
-    console.log('4/4 pronto.');
+    console.log('5/5 pronto.');
     console.log('');
     console.log(`Pasta:  ${SAIDA}`);
-    console.log(`Pacotes: ${pacotes.size} de producao (+ cliente do Prisma)`);
+    console.log(`Pacotes: ${pacotes.size} de producao + ${cli.size} do Prisma CLI`);
     console.log(`Tamanho: ${mb(bytes)}`);
     console.log('');
     console.log('Para testar, suba daqui:  node cliente/servidor/dist/server.js');

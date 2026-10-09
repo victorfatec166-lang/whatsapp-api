@@ -7,6 +7,7 @@ import QRCode from 'qrcode';
 import adminRoutes from './routes/adminRoutes';
 import authRoutes from './routes/authRoutes';
 import clienteRoutes from './routes/clienteRoutes';
+import pacoteRoutes from './routes/pacoteRoutes';
 import usuariosRoutes from './routes/usuariosRoutes';
 import calendarioRoutes from './routes/calendarioRoutes';
 import sistemaRoutes from './routes/sistemaRoutes';
@@ -206,6 +207,9 @@ app.use(authRoutes);
 // O cliente de desktop e' publico tambem: a tela de entrada e' quem oferece o
 // download, e ela existe antes de qualquer sessao.
 app.use(clienteRoutes);
+// O pacote de atualizacao do cliente tambem: e' o programa instalado que busca, e ele
+// atualiza antes de ter login.
+app.use(pacoteRoutes);
 
 /*
  * Aqui comeca o painel fechado. `/admin` e' HTML: sem sessao, 303 para a tela de

@@ -18,9 +18,14 @@
  * A URL do painel vem do ambiente e nao esta no codigo: em desenvolvimento e' localhost,
  * e o mesmo executavel aponta para a nuvem sem recompilar.
  */
+const { spawn } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, Menu, shell, WebContentsView, ipcMain } = require('electron');
+
+const { atualiza, volta, nuvem } = require('./atualiza');
+const { pastaDeDados, urlDoBanco, garanteBancoInicial } = require('./dados');
 
 /*
  * Falha silenciosa e' o pior defeito de um aplicativo de desktop: o usuario ve a
@@ -67,14 +72,152 @@ function leEnvDoProjeto() {
 leEnvDoProjeto();
 
 /**
- * O painel mora na nuvem, e a nuvem e' o PADRAO. O padrao era `localhost`, e isso so
- * funcionava na maquina de quem desenvolvimento: o cliente empacotado nao acha o
- * `.env` nem recebe variavel de ambiente nenhuma, e abria um endereco que so existe
- * naquela maquina. Para o local, `abrir-local.cmd` passa a variavel.
+ * A chave de cifra da loja.
+ *
+ * Sem `CHANNEL_SECRET` o sistema recusa guardar a credencial do iFood e a chave do
+ * relay, e a loja descobriria isso so quando tentasse configurar o canal. Ela e' de
+ * cada maquina: nasce na primeira abertura e fica na area do dado, ao lado do banco.
+ * Perder esse arquivo deixa as credenciais antigas ilegiveis -- por isso ele nao sai
+ * do `%APPDATA%` e nunca e' versionado.
  */
-const URL_PADRAO_NUVEM = 'https://whatsapp-api-7zra.onrender.com/admin';
+function segredoDeCifra() {
+    const doAmbiente = (process.env.CHANNEL_SECRET || '').trim();
+    if (doAmbiente) return doAmbiente;
 
-const URL_DO_PAINEL = (process.env.DELIVERYADMIN_URL || URL_PADRAO_NUVEM).trim();
+    const pasta = pastaDeDados();
+    const arquivo = path.join(pasta, 'chave-de-cifra.txt');
+    try {
+        const guardado = fs.readFileSync(arquivo, 'utf8').trim();
+        if (guardado.length >= 32) return guardado;
+    } catch {
+        // Primeira abertura: ainda nao existe, e isso e' o normal.
+    }
+
+    const novo = crypto.randomBytes(32).toString('base64url');
+    try {
+        fs.mkdirSync(pasta, { recursive: true });
+        fs.writeFileSync(arquivo, novo, 'utf8');
+    } catch (erro) {
+        console.error('[cliente] nao deu para guardar a chave de cifra:', erro.message);
+    }
+    return novo;
+}
+
+/** A primeira porta livre a partir da base. Duas copias do cliente brigariam se fixo. */
+function portaLivre(base) {
+    const net = require('node:net');
+    return new Promise((resolve) => {
+        const teste = net.createServer();
+        teste.once('error', () => resolve(portaLivre(base + 1)));
+        teste.once('listening', () => teste.close(() => resolve(base)));
+        teste.listen(base, '127.0.0.1');
+    });
+}
+
+/** O sistema respondeu? `GET /entrar` e' a tela que existe antes de qualquer sessao. */
+async function responde(url, tentativasRestantes) {
+    try {
+        const controle = new AbortController();
+        const relogio = setTimeout(() => controle.abort(), 2500);
+        const resposta = await fetch(url + '/entrar', { signal: controle.signal });
+        clearTimeout(relogio);
+        return resposta.ok;
+    } catch {
+        if (tentativasRestantes <= 0) return false;
+        await new Promise((r) => setTimeout(r, 700));
+        return responde(url, tentativasRestantes - 1);
+    }
+}
+
+/**
+ * Sobe o sistema empacotado e devolve a URL do painel local.
+ *
+ * O servidor roda no proprio executavel com `ELECTRON_RUN_AS_NODE`: e' o mesmo
+ * executavel que o usuario abriu, e por isso nao precisa de `node.exe` na maquina. A
+ * espera e' pelo HTTP e nao pelo processo: o servidorAvisa assim que `escutando`, e
+ * um `exit` sem erro nenhum significaria janela aberta sem sistema atras.
+ */
+async function sobeServidor() {
+    const entrada = path.join(PASTA_SERVIDOR, 'dist', 'server.js');
+    if (!fs.existsSync(entrada)) {
+        throw new Error('o sistema nao esta no pacote do programa (' + entrada + ')');
+    }
+
+    const porta = await portaLivre(Number(process.env.DELIVERYADMIN_PORTA) || PORTA_PADRAO);
+    const url = 'http://127.0.0.1:' + porta;
+
+    /*
+     * O banco e' arquivo e o sistema so aceita `file:` quando sabe que e' local: sem
+     * estas duas variaveis o processo sobe, conecta e morre na primeira consulta. A
+     * loja do boot vai vazia de proposito -- quem roda aqui e' a loja da maquina, e
+     * o `DELIVERYADMIN_TENANT` do `.env` de desenvolvimento apontaria para a outra.
+     */
+    garanteBancoInicial();
+
+    const filho = spawn(process.execPath, [entrada], {
+        cwd: PASTA_SERVIDOR,
+        env: {
+            ...process.env,
+            ELECTRON_RUN_AS_NODE: '1',
+            HOST: '127.0.0.1',
+            PORT: String(porta),
+            CHANNEL_SECRET: segredoDeCifra(),
+            DELIVERYADMIN_NUVEM: nuvem(),
+            DELIVERYADMIN_DATA: pastaDeDados(),
+            DELIVERYADMIN_TENANT: '',
+            DATABASE_URL: urlDoBanco(),
+            MODO_LOCAL: '1',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    processoServidor = filho;
+    filho.on('exit', servidorCaiu);
+
+    for (const fluxo of [filho.stdout, filho.stderr]) {
+        fluxo?.on('data', (d) => process.stdout.write('[sistema] ' + d));
+    }
+
+    if (await responde(url, 40)) return url;
+    throw new Error('o sistema local nao respondeu em ' + url);
+}
+
+/**
+ * Sobe o sistema, e se a versao que acabou de descer nao levantar, volta a anterior.
+ *
+ * Uma unica tentativa de volta, de proposito: se a versao antiga tambem nao subir, o
+ * problema nao e' do deploy e insistir so' gasta a abertura da loja. O que resta e'
+ * mostrar a tela que explica.
+ */
+async function sobeServidorOuVolta() {
+    try {
+        return await sobeServidor();
+    } catch (erro) {
+        console.error('[cliente] o sistema local nao subiu:', erro.message);
+        if (!volta()) throw erro;
+        return await sobeServidor();
+    }
+}
+
+/**
+ * O painel mora NA MAQUINA DA LOJA, e a nuvem nao entra nessa conta.
+ *
+ * O sistema vem dentro do proprio programa: o `main.js` sobe o servidor empacotado
+ * como processo Node (o proprio executavel, com `ELECTRON_RUN_AS_NODE`) e a janela
+ * abre `127.0.0.1`. O que continua na nuvem e' fila do iFood, assinatura e conta --
+ * e o `atualiza.js` e' quem traz o codigo novo de la.
+ *
+ * `DELIVERYADMIN_URL` continua valendo para desenvolvimento: apontar o cliente para um
+ * servidor que ja' esta' no ar e' como se olha o log de boot sem abrir duas janelas.
+ */
+const PORTA_PADRAO = 3977;
+
+const PASTA_SERVIDOR = path.join(__dirname, 'servidor');
+
+/** A URL do painel: preenchida em `sobeServidor`, antes de qualquer view existir. */
+let URL_DO_PAINEL = (process.env.DELIVERYADMIN_URL || '').trim();
+
+/** O processo do sistema. Vive aqui para ser derrubado junto com a janela. */
+let processoServidor = null;
 
 function ehLocal(url) {
     try {
@@ -429,15 +572,22 @@ function registrarIpc() {
  * ele que da o botao de "tentar de novo".
  */
 function mostrarErro(detalhe) {
+    /*
+     * O painel agora e' local, entao "fora do ar" significa uma coisa so: o sistema
+     * desta maquina nao levantou. A tela aponta para a nuvem porque e' de la que vem a
+     * atualizacao -- e e' o unico conserto que o dono da loja consegue tentar sem
+     * entender de processo. Em desenvolvimento, com `DELIVERYADMIN_URL` apontando
+     * para outro lugar, o texto antigo ainda vale.
+     */
     const local = ehLocal(URL_DO_PAINEL);
     const explicacao = local
-        ? 'O painel local nao respondeu. Voce esta' + "'" + ' abrindo uma URL que so funciona com o servidor rodando nesta maquina. O sistema de verdade esta' + "'" + ' na nuvem:'
+        ? 'O sistema deste computador nao subiu. Uma atualizacao nova pode ter causado isso -- fechar e abrir de novo resolve na maior parte das vezes.'
         : 'Nao foi possivel falar com o painel em:';
 
     const q = new URLSearchParams({
-        titulo: local ? 'O servidor local nao esta' + "'" + ' rodando' : 'Painel fora do ar',
+        titulo: local ? 'O sistema nao subiu' : 'Painel fora do ar',
         texto: explicacao,
-        alvo: local ? URL_PADRAO_NUVEM : URL_DO_PAINEL,
+        alvo: local ? nuvem() + '/admin' : URL_DO_PAINEL,
         detalhe: detalhe ?? '',
     });
 
@@ -533,17 +683,75 @@ if (!app.requestSingleInstanceLock()) {
  */
 app.setAppUserModelId('br.com.apegopet.deliveryadmin');
 
-app.whenReady().then(() => {
+/**
+ * O boot: atualiza, sobe o sistema, abre a janela.
+ *
+ * A ordem importa. A atualizacao vem primeiro porque ela troca a pasta do sistema, e
+ * trocar com o servidor rodando nao funciona no Windows. O sistema sobe antes da
+ * janela porque `criarJanela` ja aponta a view para `URL_DO_PAINEL` -- e sem o
+ * servidor no ar a janela abriria em `127.0.0.1` sem ninguem respondendo.
+ *
+ * Falha na atualizacao NAO impede a abertura: a loja usa isso para workingar. Falha
+ * ao subir o sistema tambem nao -- a janela mostra a tela que explica o que houve.
+ */
+app.whenReady().then(async () => {
     registrarIpc();
     montarMenu();
+
+    try {
+        const relatorio = await atualiza();
+        if (!relatorio.atualizou && relatorio.motivo) console.log('[cliente] nada atualizado (' + relatorio.motivo + ')');
+    } catch (erro) {
+        console.error('[cliente] a atualizacao falhou e a versao atual segue valendo:', erro.message);
+    }
+
+    if (!URL_DO_PAINEL) {
+        try {
+            URL_DO_PAINEL = (await sobeServidorOuVolta()) + '/admin';
+        } catch (erro) {
+            console.error('[cliente] o sistema local nao subiu:', erro.message);
+            URL_DO_PAINEL = nuvem() + '/admin';
+        }
+    }
+
     criarJanela();
 
-        app.on('activate', () => {
-            if (BrowserWindow.getAllWindows().length === 0) criarJanela();
-        });
+    app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) criarJanela();
     });
+});
 
-    app.on('window-all-closed', () => {
-        if (process.platform !== 'darwin') app.quit();
-    });
+/**
+ * O sistema e' filho deste programa: fechar a janela tem de derruba-lo.
+ *
+ * Sem isto sobraria um `node` rodando o sistema da loja sem janela e sem dono -- e o
+ * proximo clique no icone brigaria com ele pela porta e pelo banco.
+ */
+function derrubaServidor() {
+    if (!processoServidor || processoServidor.killed) return;
+    processoServidor.kill();
+    processoServidor = null;
+}
+
+/**
+ * O sistema novo levantou e caiu: a loja nao pode ficar sem painel.
+ *
+ * A pasta antiga so' e apagada na atualizacao seguinte, e nunca no mesmo instante da
+ * troca -- por isso ela ainda esta' aqui quando o processo novo morre. O boot e' quem
+ * decide tentar de novo, em `sobeServidorOuVolta`.
+ */
+function servidorCaiu(processo) {
+    if (processo !== processoServidor) return;
+    processoServidor = null;
+    console.log('[cliente] o sistema local encerrou (codigo ' + processo.exitCode + ')');
+}
+
+process.on('exit', () => derrubaServidor());
+
+app.on('window-all-closed', () => {
+    derrubaServidor();
+    if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', derrubaServidor);
 }
